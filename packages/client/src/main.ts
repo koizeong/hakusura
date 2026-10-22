@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { TrainingGroundScene } from './scenes/TrainingGroundScene';
+import './ui/style.css';
 
 new Phaser.Game({
   type: Phaser.AUTO,
