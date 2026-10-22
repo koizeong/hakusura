@@ -5,3 +5,4 @@ export * from './skills';
 export * from './passives';
 export * from './conditions';
 export * from './interactions';
+export * from './defense';

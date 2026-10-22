@@ -349,3 +349,20 @@ input {
 .breakdown .share span:last-child {
   position: relative;
 }
+
+.hud .lock {
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.hud .lock.on {
+  color: #c9b79c;
+}
+
+.own-statuses .buff {
+  color: #9fc4e8;
+}
+
+.slot.active {
+  border-color: #c9b79c;
+}

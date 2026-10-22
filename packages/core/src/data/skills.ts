@@ -23,7 +23,11 @@ export interface ActiveSkillDef {
   category: SkillCategory;
   element: ElementId;
   tags: readonly string[];
-  /** ミリ秒 */
+  /** 使ってから効果が出るまでの振りかぶり(ミリ秒)。この間に昏倒すると潰れる */
+  windup: number;
+  /** 効果が出た後の硬直(ミリ秒)。回避でだけ抜けられる */
+  recovery: number;
+  /** 使ってから再び使えるまで(ミリ秒) */
   cooldown: number;
   action: SkillAction;
 }
@@ -35,24 +39,41 @@ export const ACTIVE_SKILLS = {
     category: 'melee',
     element: 'slash',
     tags: ['attack'],
-    cooldown: 450,
-    action: { type: 'melee', range: 100, arc: 130, power: 18, buildup: 35 },
+    windup: 280,
+    recovery: 420,
+    cooldown: 1100,
+    action: { type: 'melee', range: 105, arc: 130, power: 42, buildup: 55 },
   },
   thunderGun: {
     name: '雷管銃',
     category: 'ranged',
     element: 'lightning',
     tags: ['attack', 'projectile'],
-    cooldown: 350,
-    action: { type: 'projectile', speed: 780, range: 700, radius: 6, power: 12, buildup: 40 },
+    windup: 320,
+    recovery: 380,
+    cooldown: 2400,
+    action: { type: 'projectile', speed: 900, range: 750, radius: 7, power: 34, buildup: 60 },
   },
   emberOil: {
     name: '燠火の塗油',
     category: 'imbue',
     element: 'fire',
     tags: ['buff'],
-    cooldown: 6000,
-    action: { type: 'imbue', ratio: 0.5, buildup: 30, duration: 8000 },
+    windup: 500,
+    recovery: 300,
+    cooldown: 20000,
+    action: { type: 'imbue', ratio: 0.5, buildup: 40, duration: 15000 },
+  },
+  /** 案山子の反撃。大きく振りかぶるので見てから避けられる */
+  strawSwipe: {
+    name: '藁の薙ぎ',
+    category: 'melee',
+    element: 'slash',
+    tags: ['attack', 'enemy'],
+    windup: 900,
+    recovery: 700,
+    cooldown: 2600,
+    action: { type: 'melee', range: 115, arc: 120, power: 36, buildup: 25 },
   },
 } as const satisfies Record<string, ActiveSkillDef>;
 

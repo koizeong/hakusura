@@ -1,4 +1,4 @@
-import { MAX_TRIGGER_DEPTH } from './constants';
+import { DEFENSE, MAX_TRIGGER_DEPTH } from './constants';
 import { computeDamage, type RuleBonus } from './damage';
 import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
 import { fieldDef, type FieldId } from './data/fields';
@@ -7,6 +7,7 @@ import { activeSkillDef, type ActiveSkillId } from './data/skills';
 import { passiveDef, type PassiveId } from './data/passives';
 import { conditionDef, type ConditionId } from './data/conditions';
 import { INTERACTIONS } from './data/interactions';
+import { DEFENSE_RULES } from './data/defense';
 import { ruleMatches, type Action, type Modifier, type PredicateContext, type Rule } from './rules';
 
 export type Team = 'player' | 'enemy';
@@ -44,8 +45,35 @@ export interface Unit {
   cooldowns: Partial<Record<ActiveSkillId, number>>;
   imbue?: { skill: ActiveSkillId; until: number };
   invulnerableUntil: number;
+  /** 向いている方向(ラジアン)。ガードの正面になる */
+  facing: number;
+  /** この時刻まで、振りかぶりか硬直で次の行動ができない */
+  busyUntil: number;
+  /** 振りかぶり中なら効果が出る時刻 */
+  windupUntil: number;
+  dodgeStartedAt: number;
+  /** 回避を始めた位置。ここに当たる攻撃ならジャスト回避になる */
+  dodgeOrigin: Point;
+  /** 今の回避でもうジャスト回避したか */
+  justDodged: boolean;
+  /** ガードを構えた時刻。構えていなければ null */
+  guardSince: number | null;
+  guardReleasedAt: number;
+  /** ジャストガードになる構えか。連打した構えはならない */
+  guardIsFresh: boolean;
+  buffs: Buff[];
+  /** 自分で動く者。近くの相手にこのスキルを振るう */
+  ai?: { skill: ActiveSkillId; enabled: boolean };
   passives: PassiveId[];
   conditions: ConditionId[];
+}
+
+export interface Buff {
+  label: string;
+  add: number;
+  tags: readonly string[];
+  until: number;
+  charges: number;
 }
 
 export interface UnitSpec {
@@ -59,6 +87,7 @@ export interface UnitSpec {
   resist?: Partial<Record<ElementId, number>>;
   passives?: PassiveId[];
   conditions?: ConditionId[];
+  ai?: ActiveSkillId;
 }
 
 export interface Hit {
@@ -106,6 +135,13 @@ export type CombatEvent =
   | { type: 'burst'; status: StatusId; x: number; y: number; radius: number }
   | { type: 'chain'; status: StatusId; from: Point; to: Point }
   | { type: 'swing'; unitId: string; x: number; y: number; angle: number; range: number; arc: number; element: ElementId }
+  /** 振りかぶりの予兆。at に効果が出る */
+  | { type: 'windup'; unitId: string; skill: ActiveSkillId; angle: number; at: number }
+  | { type: 'interrupted'; unitId: string }
+  | { type: 'justDodge'; unitId: string; attackerId?: string }
+  | { type: 'justGuard'; unitId: string; attackerId?: string }
+  | { type: 'guarded'; unitId: string; blocked: number }
+  | { type: 'dodged'; unitId: string }
   | { type: 'imbue'; unitId: string; element: ElementId; until: number }
   | { type: 'projectileEnd'; projectileId: number; x: number; y: number; hit: boolean }
   | { type: 'fell'; unitId: string };
@@ -140,7 +176,16 @@ interface Source {
   hit?: Hit;
 }
 
-type RuleKind = 'interaction' | 'passive' | 'condition';
+type RuleKind = 'interaction' | 'reaction' | 'passive' | 'condition';
+
+interface PendingAction {
+  unitId: string;
+  skill: ActiveSkillId;
+  at: number;
+  angle: number;
+  /** 指定があれば、効果が出る瞬間にこの相手へ向き直す(ターゲット固定) */
+  targetId?: string;
+}
 interface OwnedRule {
   rule: Rule;
   kind: RuleKind;
@@ -165,6 +210,7 @@ export class CombatWorld {
 
   private events: CombatEvent[] = [];
   private queue: Hit[] = [];
+  private pending: PendingAction[] = [];
   private nextId = 1;
 
   constructor(options: WorldOptions = {}) {
@@ -193,6 +239,17 @@ export class CombatWorld {
       statuses,
       cooldowns: {},
       invulnerableUntil: 0,
+      facing: 0,
+      busyUntil: 0,
+      windupUntil: 0,
+      dodgeStartedAt: -Infinity,
+      dodgeOrigin: { x: spec.x, y: spec.y },
+      justDodged: false,
+      guardSince: null,
+      guardReleasedAt: -Infinity,
+      guardIsFresh: false,
+      buffs: [],
+      ai: spec.ai ? { skill: spec.ai, enabled: true } : undefined,
       passives: spec.passives ?? [],
       conditions: spec.conditions ?? [],
     };
@@ -241,6 +298,7 @@ export class CombatWorld {
       st.depth = 0;
       st.radiusScale = 1;
       st.nextTick = this.time + (def.dot?.interval ?? 0);
+      if (def.incapacitates) this.interrupt(unit);
     } else {
       st.activeUntil = 0;
       st.buildup = 0;
@@ -268,23 +326,102 @@ export class CombatWorld {
     this.processHits();
   }
 
-  canUseSkill(unitId: string, skillId: ActiveSkillId): boolean {
-    const unit = this.units.get(unitId);
-    return !!unit && (unit.cooldowns[skillId] ?? 0) <= this.time;
+  /** 昏倒のように行動できない状態にかかっている */
+  isIncapacitated(unit: Unit): boolean {
+    return STATUS_IDS.some((s) => statusDef(s).incapacitates && this.isActive(unit, s));
   }
 
-  useSkill(unitId: string, skillId: ActiveSkillId, aim: Point): boolean {
+  /** 振りかぶりか硬直の最中 */
+  isBusy(unit: Unit): boolean {
+    return unit.busyUntil > this.time;
+  }
+
+  canUseSkill(unitId: string, skillId: ActiveSkillId): boolean {
+    const unit = this.units.get(unitId);
+    return (
+      !!unit &&
+      (unit.cooldowns[skillId] ?? 0) <= this.time &&
+      !this.isBusy(unit) &&
+      unit.guardSince === null &&
+      !this.isIncapacitated(unit)
+    );
+  }
+
+  /** 回避できるか。振りかぶり中と昏倒中はできない。硬直は回避で抜けられる */
+  canDodge(unitId: string): boolean {
+    const unit = this.units.get(unitId);
+    return !!unit && unit.windupUntil <= this.time && !this.isIncapacitated(unit);
+  }
+
+  setFacing(unitId: string, angle: number): void {
+    const unit = this.units.get(unitId);
+    if (unit) unit.facing = angle;
+  }
+
+  /** 回避を始める。移動そのものは呼び出し側が行う */
+  dodge(unitId: string): boolean {
+    const unit = this.units.get(unitId);
+    if (!unit || !this.canDodge(unitId)) return false;
+    unit.busyUntil = this.time;
+    unit.dodgeStartedAt = this.time;
+    unit.dodgeOrigin = { x: unit.x, y: unit.y };
+    unit.justDodged = false;
+    unit.invulnerableUntil = Math.max(unit.invulnerableUntil, this.time + DEFENSE.dodgeInvulnerable);
+    this.events.push({ type: 'dodged', unitId });
+    return true;
+  }
+
+  canGuard(unitId: string): boolean {
+    const unit = this.units.get(unitId);
+    return !!unit && !this.isBusy(unit) && !this.isIncapacitated(unit);
+  }
+
+  setGuard(unitId: string, on: boolean): void {
+    const unit = this.units.get(unitId);
+    if (!unit) return;
+    if (on && unit.guardSince === null) {
+      if (!this.canGuard(unitId)) return;
+      unit.guardSince = this.time;
+      unit.guardIsFresh = this.time - unit.guardReleasedAt >= DEFENSE.guardRepressLockout;
+    } else if (!on && unit.guardSince !== null) {
+      unit.guardSince = null;
+      unit.guardReleasedAt = this.time;
+    }
+  }
+
+  /**
+   * スキルを使う。振りかぶりの後に効果が出る。
+   * targetId を渡すと、効果が出る瞬間にその相手へ向き直す
+   */
+  useSkill(unitId: string, skillId: ActiveSkillId, aim: Point, targetId?: string): boolean {
     const unit = this.units.get(unitId);
     if (!unit || !this.canUseSkill(unitId, skillId)) return false;
     const def = activeSkillDef(skillId);
     unit.cooldowns[skillId] = this.time + def.cooldown;
+    unit.windupUntil = this.time + def.windup;
+    unit.busyUntil = this.time + def.windup + def.recovery;
     const angle = Math.atan2(aim.y - unit.y, aim.x - unit.x);
+    unit.facing = angle;
+    const action: PendingAction = { unitId, skill: skillId, at: this.time + def.windup, angle, targetId };
+    this.events.push({ type: 'windup', unitId, skill: skillId, angle, at: action.at });
+    if (def.windup <= 0) this.executeSkill(action);
+    else this.pending.push(action);
+    return true;
+  }
+
+  private executeSkill(pending: PendingAction): void {
+    const unit = this.units.get(pending.unitId);
+    if (!unit || this.isIncapacitated(unit)) return;
+    const def = activeSkillDef(pending.skill);
+    const target = pending.targetId ? this.units.get(pending.targetId) : undefined;
+    const angle = target ? Math.atan2(target.y - unit.y, target.x - unit.x) : pending.angle;
+    unit.facing = angle;
     const action = def.action;
     switch (action.type) {
       case 'melee': {
         this.events.push({
           type: 'swing',
-          unitId,
+          unitId: unit.id,
           x: unit.x,
           y: unit.y,
           angle,
@@ -293,14 +430,18 @@ export class CombatWorld {
           element: def.element,
         });
         const half = (action.arc * Math.PI) / 360;
-        for (const target of this.opponentsOf(unit)) {
-          const dx = target.x - unit.x;
-          const dy = target.y - unit.y;
+        const reaches = (other: Unit, at: Point) => {
+          const dx = at.x - unit.x;
+          const dy = at.y - unit.y;
           const dist = Math.hypot(dx, dy);
-          if (dist > action.range + target.radius) continue;
+          if (dist > action.range + other.radius) return false;
           const diff = Math.abs(normalizeAngle(Math.atan2(dy, dx) - angle));
-          if (dist > unit.radius + target.radius && diff > half) continue;
-          this.queueAttack(unit, target, skillId);
+          return dist <= unit.radius + other.radius || diff <= half;
+        };
+        for (const other of this.opponentsOf(unit)) {
+          // 回避で範囲の外へ抜けていても、避け始めた位置に当たるならジャスト回避の判定に回す
+          const justDodging = this.time - other.dodgeStartedAt <= DEFENSE.justDodgeWindow && reaches(other, other.dodgeOrigin);
+          if (reaches(other, other) || justDodging) this.queueAttack(unit, other, pending.skill);
         }
         this.processHits();
         break;
@@ -310,8 +451,8 @@ export class CombatWorld {
         const sin = Math.sin(angle);
         this.projectiles.push({
           id: this.nextId++,
-          ownerId: unitId,
-          skill: skillId,
+          ownerId: unit.id,
+          skill: pending.skill,
           element: def.element,
           x: unit.x + cos * unit.radius,
           y: unit.y + sin * unit.radius,
@@ -324,12 +465,34 @@ export class CombatWorld {
         break;
       }
       case 'imbue': {
-        unit.imbue = { skill: skillId, until: this.time + action.duration };
-        this.events.push({ type: 'imbue', unitId, element: def.element, until: unit.imbue.until });
+        unit.imbue = { skill: pending.skill, until: this.time + action.duration };
+        this.events.push({ type: 'imbue', unitId: unit.id, element: def.element, until: unit.imbue.until });
         break;
       }
     }
-    return true;
+  }
+
+  /** 振りかぶり中の行動を潰す */
+  private interrupt(unit: Unit): void {
+    const before = this.pending.length;
+    this.pending = this.pending.filter((p) => p.unitId !== unit.id);
+    unit.windupUntil = this.time;
+    unit.guardSince = null;
+    if (this.pending.length !== before) this.events.push({ type: 'interrupted', unitId: unit.id });
+  }
+
+  private updateAi(): void {
+    for (const unit of this.units.values()) {
+      if (!unit.ai?.enabled || !this.canUseSkill(unit.id, unit.ai.skill)) continue;
+      const action = activeSkillDef(unit.ai.skill).action;
+      const reach = action.type === 'melee' ? action.range : action.type === 'projectile' ? action.range : 0;
+      const target = this.opponentsOf(unit)
+        .map((u) => ({ u, d: Math.hypot(u.x - unit.x, u.y - unit.y) - u.radius }))
+        .filter(({ d }) => d <= reach * 0.9)
+        .sort((a, b) => a.d - b.d)[0]?.u;
+      // 敵の振りかぶりは向きを決め打ちにする。見てから横へ避けられるように
+      if (target) this.useSkill(unit.id, unit.ai.skill, target);
+    }
   }
 
   update(dt: number): void {
@@ -372,6 +535,13 @@ export class CombatWorld {
       }
     }
 
+    const due = this.pending.filter((p) => p.at <= this.time);
+    this.pending = this.pending.filter((p) => p.at > this.time);
+    for (const p of due) this.executeSkill(p);
+
+    for (const unit of this.units.values()) unit.buffs = unit.buffs.filter((b) => b.until > this.time && b.charges > 0);
+
+    this.updateAi();
     this.updateProjectiles(dt);
     this.processHits();
   }
@@ -454,7 +624,10 @@ export class CombatWorld {
   }
 
   private rulesFor(attacker: Unit | undefined): OwnedRule[] {
-    const out: OwnedRule[] = INTERACTIONS.map((rule) => ({ rule, kind: 'interaction' as const }));
+    const out: OwnedRule[] = [
+      ...INTERACTIONS.map((rule) => ({ rule, kind: 'interaction' as const })),
+      ...DEFENSE_RULES.map((rule) => ({ rule, kind: 'reaction' as const })),
+    ];
     if (!attacker) return out;
     for (const id of attacker.passives) {
       for (const rule of passiveDef(id).rules ?? []) out.push({ rule, kind: 'passive' });
@@ -480,8 +653,9 @@ export class CombatWorld {
   private resolveHit(hit: Hit): void {
     const target = this.units.get(hit.targetId);
     if (!target) return;
-    if (!hit.tags.has('dot') && target.invulnerableUntil > this.time) return;
     const attacker = hit.attackerId ? this.units.get(hit.attackerId) : undefined;
+    const defended = this.defend(target, attacker, hit);
+    if (defended === 'avoided') return;
     const rules = this.rulesFor(attacker);
 
     const damageCtx = this.context(target, attacker, {
@@ -498,14 +672,22 @@ export class CombatWorld {
       if (kind === 'interaction') qualifiers.push(rule.label);
       else via.push(rule.label);
     }
+    for (const buff of attacker?.buffs ?? []) {
+      if (buff.until <= this.time || buff.charges <= 0 || !buff.tags.every((t) => hit.tags.has(t))) continue;
+      buff.charges -= 1;
+      bonuses.push({ label: buff.label, add: buff.add });
+      via.push(buff.label);
+    }
 
-    const amount = computeDamage({
+    const raw = computeDamage({
       power: hit.power,
       hitTags: hit.tags,
       modifiers: this.modifiersFor(attacker),
       ruleBonuses: bonuses,
       resist: target.resist[hit.element],
     });
+    const amount = defended === 'guarded' ? raw * (1 - DEFENSE.guardReduction) : raw;
+    if (defended === 'guarded') this.events.push({ type: 'guarded', unitId: target.id, blocked: raw - amount });
     target.hp -= amount;
     const record: DamageRecord = {
       time: this.time,
@@ -541,6 +723,48 @@ export class CombatWorld {
     }
   }
 
+  /**
+   * 回避とガードの判定。'avoided' なら当たらない。
+   * スキルの直撃だけがジャストの対象になる。継続ダメージは避けられない
+   */
+  private defend(target: Unit, attacker: Unit | undefined, hit: Hit): 'avoided' | 'guarded' | 'none' {
+    if (hit.tags.has('dot')) return 'none';
+    const direct = hit.tags.has('attack') && hit.depth === 0;
+
+    if (target.invulnerableUntil > this.time) {
+      if (direct && !target.justDodged && this.time - target.dodgeStartedAt <= DEFENSE.justDodgeWindow) {
+        target.justDodged = true;
+        this.events.push({ type: 'justDodge', unitId: target.id, attackerId: attacker?.id });
+        this.react('justDodge', target, attacker, hit);
+      }
+      return 'avoided';
+    }
+
+    if (target.guardSince === null || !direct) return 'none';
+    const from = attacker ? Math.atan2(attacker.y - target.y, attacker.x - target.x) : target.facing;
+    if (Math.abs(normalizeAngle(from - target.facing)) > (DEFENSE.guardArc * Math.PI) / 180) return 'none';
+    if (target.guardIsFresh && this.time - target.guardSince <= DEFENSE.justGuardWindow) {
+      this.events.push({ type: 'justGuard', unitId: target.id, attackerId: attacker?.id });
+      this.react('justGuard', target, attacker, hit);
+      return 'avoided';
+    }
+    return 'guarded';
+  }
+
+  /** ジャスト回避・ジャストガードの見返り。defender が持ち主、attacker が対象 */
+  private react(on: 'justDodge' | 'justGuard', defender: Unit, attacker: Unit | undefined, hit: Hit): void {
+    const ctx = attacker
+      ? this.context(attacker, defender, { hitTags: hit.tags, hitElement: hit.element })
+      : this.context(defender, defender, {});
+    const src: Source = { attacker: defender, skill: on === 'justDodge' ? 'ジャスト回避' : 'ジャストガード', via: [], depth: 0 };
+    for (const { rule } of this.rulesFor(defender)) {
+      if (rule.on !== on || !ruleMatches(rule, ctx)) continue;
+      for (const action of rule.do) {
+        if (action.type === 'grantBuff' || attacker) this.runAction(action, rule.label, attacker ?? defender, src);
+      }
+    }
+  }
+
   private runAction(action: Action, label: string, target: Unit, src: Source): void {
     const via = [...src.via, label];
     switch (action.type) {
@@ -565,6 +789,17 @@ export class CombatWorld {
           depth: src.depth + 1,
           via,
         });
+        break;
+      case 'grantBuff':
+        if (src.attacker) {
+          src.attacker.buffs.push({
+            label: action.label,
+            add: action.add,
+            tags: action.tags,
+            until: this.time + action.duration,
+            charges: action.charges ?? Infinity,
+          });
+        }
         break;
     }
   }
@@ -619,6 +854,7 @@ export class CombatWorld {
     st.nextTick = this.time + (def.dot?.interval ?? 0);
     st.moveAcc = 0;
     this.events.push({ type: 'statusActivated', unitId: unit.id, status, source: name });
+    if (def.incapacitates) this.interrupt(unit);
 
     for (const effect of def.onActivate ?? []) {
       if (effect.type === 'burst') {

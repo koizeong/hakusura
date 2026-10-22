@@ -1,43 +1,91 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld, type UnitSpec } from './world';
-import { MAX_TRIGGER_DEPTH } from './constants';
+import { DEFENSE, MAX_TRIGGER_DEPTH } from './constants';
+import { ACTIVE_SKILLS, type ActiveSkillId } from './data/skills';
+import { STATUSES } from './data/statuses';
 import { summarize, dealtBy } from './breakdown';
 
 const player = (extra: Partial<UnitSpec> = {}): UnitSpec => ({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1e9, ...extra });
-const dummy = (id: string, x: number, y = 0): UnitSpec => ({ id, name: '案山子', team: 'enemy', x, y, maxHp: 1e9 });
+const dummy = (id: string, x: number, y = 0, extra: Partial<UnitSpec> = {}): UnitSpec => ({
+  id,
+  name: '案山子',
+  team: 'enemy',
+  x,
+  y,
+  maxHp: 1e9,
+  ...extra,
+});
 
-/** 弾が届くまで進める */
-function shoot(world: CombatWorld, skill: 'thunderGun', at: { x: number; y: number }) {
-  world.units.get('p')!.cooldowns = {};
-  world.useSkill('p', skill, at);
-  for (let i = 0; i < 100 && world.projectiles.length > 0; i++) world.update(10);
+const power = (id: ActiveSkillId) => {
+  const a = ACTIVE_SKILLS[id].action;
+  return 'power' in a ? a.power : 0;
+};
+
+/** 振りかぶりと弾の飛翔が済むまで進める */
+function use(w: CombatWorld, skill: ActiveSkillId, at: { x: number; y: number }, targetId?: string, unitId = 'p') {
+  const u = w.units.get(unitId)!;
+  u.cooldowns = {};
+  u.busyUntil = 0;
+  expect(w.useSkill(unitId, skill, at, targetId)).toBe(true);
+  for (let i = 0; i < 300 && (u.windupUntil > w.time || w.projectiles.length > 0); i++) w.update(10);
 }
 
-function slash(world: CombatWorld, at: { x: number; y: number }) {
-  world.units.get('p')!.cooldowns = {};
-  world.useSkill('p', 'rustGreatsword', at);
-}
+const slash = (w: CombatWorld, at: { x: number; y: number }) => use(w, 'rustGreatsword', at);
+const shoot = (w: CombatWorld, at: { x: number; y: number }) => use(w, 'thunderGun', at);
+
+describe('振りかぶりと硬直', () => {
+  it('振りかぶりの間は当たらず、済むと当たる', () => {
+    const w = new CombatWorld();
+    w.addUnit(player());
+    const d = w.addUnit(dummy('d', 50));
+    w.useSkill('p', 'rustGreatsword', d);
+    w.update(ACTIVE_SKILLS.rustGreatsword.windup - 10);
+    expect(w.log.length).toBe(0);
+    w.update(20);
+    expect(w.log.length).toBe(1);
+  });
+
+  it('硬直中は次のスキルを使えないが、回避で抜けられる', () => {
+    const w = new CombatWorld();
+    const p = w.addUnit(player());
+    w.addUnit(dummy('d', 50));
+    w.useSkill('p', 'rustGreatsword', { x: 50, y: 0 });
+    w.update(ACTIVE_SKILLS.rustGreatsword.windup - 10);
+    expect(w.canDodge('p')).toBe(false); // 振りかぶり中
+    w.update(20);
+    expect(w.canUseSkill('p', 'thunderGun')).toBe(false); // 硬直中
+    expect(w.dodge('p')).toBe(true);
+    expect(w.isBusy(p)).toBe(false);
+  });
+
+  it('ターゲット固定なら、効果が出る瞬間に相手へ向き直す', () => {
+    const w = new CombatWorld();
+    w.addUnit(player());
+    w.addUnit(dummy('d', 0, 60));
+    use(w, 'rustGreatsword', { x: -100, y: 0 }, 'd'); // 逆を向いて振っても当たる
+    expect(w.log.some((r) => r.targetId === 'd')).toBe(true);
+  });
+});
 
 describe('状態の蓄積', () => {
   it('満タンで発動し、持続が切れると終わる', () => {
     const w = new CombatWorld();
     w.addUnit(player());
     const d = w.addUnit(dummy('d', 50));
-    slash(w, d); // 35
-    slash(w, d); // 70
+    slash(w, d);
     expect(w.isActive(d, 'bleed')).toBe(false);
-    slash(w, d); // 105
+    slash(w, d);
     expect(w.isActive(d, 'bleed')).toBe(true);
-    w.update(6001);
+    w.update(STATUSES.bleed.duration + 1);
     expect(w.isActive(d, 'bleed')).toBe(false);
   });
 
   it('出血は動くとダメージを受ける', () => {
     const w = new CombatWorld();
     w.addUnit(player());
-    const d = w.addUnit(dummy('d', 50));
+    w.addUnit(dummy('d', 50));
     w.forceStatus('d', 'bleed', true);
-    w.moveUnit('d', 50 + 200, 0);
+    w.moveUnit('d', 50 + STATUSES.bleed.moveDamage.per * 5, 0);
     expect(w.log.filter((r) => r.targetId === 'd').length).toBe(5);
   });
 
@@ -59,13 +107,19 @@ describe('状態の蓄積', () => {
 });
 
 describe('状態の相互作用', () => {
+  /** 燠火の塗油をかけた大剣で、炎上するまで斬る */
+  function ignite(w: CombatWorld, target: { x: number; y: number }, unitId: string) {
+    w.units.get('p')!.imbue = { skill: 'emberOil', until: 1e9 };
+    const u = w.units.get(unitId)!;
+    for (let i = 0; i < 6 && !w.isActive(u, 'burn'); i++) slash(w, target);
+  }
+
   it('濡れていると炎上しない', () => {
     const w = new CombatWorld();
     w.addUnit(player());
     const d = w.addUnit(dummy('d', 50));
     w.forceStatus('d', 'wet', true);
-    w.units.get('p')!.imbue = { skill: 'emberOil', until: 1e9 };
-    for (let i = 0; i < 10; i++) slash(w, d);
+    ignite(w, d, 'd');
     expect(w.isActive(d, 'burn')).toBe(false);
     expect(d.statuses.burn.buildup).toBe(0);
   });
@@ -74,8 +128,7 @@ describe('状態の相互作用', () => {
     const w = new CombatWorld();
     w.addUnit(player());
     const d = w.addUnit(dummy('d', 50));
-    w.units.get('p')!.imbue = { skill: 'emberOil', until: 1e9 };
-    for (let i = 0; i < 4; i++) slash(w, d);
+    ignite(w, d, 'd');
     expect(w.isActive(d, 'burn')).toBe(true);
     w.forceStatus('d', 'wet', true);
     w.update(10);
@@ -89,7 +142,7 @@ describe('状態の相互作用', () => {
       const d = w.addUnit(dummy('d', 100));
       if (wet) w.forceStatus('d', 'wet', true);
       d.statuses.shock.buildup = 99;
-      shoot(w, 'thunderGun', d);
+      shoot(w, d);
       return w.log.filter((r) => r.source.startsWith('感電'));
     };
     const dry = run(false);
@@ -106,8 +159,7 @@ describe('状態の相互作用', () => {
       const d = w.addUnit(dummy('d', 50));
       w.addUnit(dummy('near', 150)); // 大剣は届かず、炎上の範囲 70 の外、140 の内
       if (oiled) w.forceStatus('d', 'oiled', true);
-      w.units.get('p')!.imbue = { skill: 'emberOil', until: 1e9 };
-      for (let i = 0; i < 4; i++) slash(w, d);
+      ignite(w, d, 'd');
       return { w, d, nearHit: w.log.some((r) => r.targetId === 'near') };
     };
     const plain = run(false);
@@ -116,7 +168,8 @@ describe('状態の相互作用', () => {
     expect(oiled.nearHit).toBe(true);
     expect(oiled.w.log.find((r) => r.targetId === 'near')!.source).toBe('炎上(油で倍)');
     const remain = (r: typeof plain) => r.d.statuses.burn.activeUntil - r.w.time;
-    expect(remain(oiled)).toBeCloseTo(remain(plain) * 2);
+    expect(remain(plain)).toBeCloseTo(STATUSES.burn.duration);
+    expect(remain(oiled)).toBeCloseTo(STATUSES.burn.duration * 2);
   });
 
   it('感電は近くの敵に連鎖する', () => {
@@ -127,14 +180,24 @@ describe('状態の相互作用', () => {
     w.addUnit(dummy('b', 100, 80));
     w.addUnit(dummy('far', 1000));
     d.statuses.shock.buildup = 99;
-    shoot(w, 'thunderGun', d);
+    shoot(w, d);
     const chained = new Set(w.log.filter((r) => r.source === '感電' && r.targetId !== 'd').map((r) => r.targetId));
     expect(chained).toEqual(new Set(['a', 'b']));
+  });
+
+  it('昏倒した相手への攻撃は増える', () => {
+    const w = new CombatWorld();
+    w.addUnit(player());
+    w.addUnit(dummy('d', 50));
+    w.forceStatus('d', 'stun', true);
+    slash(w, { x: 50, y: 0 });
+    expect(w.log[0]!.amount).toBeCloseTo(power('rustGreatsword') * 1.5);
+    expect(w.log[0]!.source).toBe('錆びた大剣(昏倒に追撃)');
   });
 });
 
 describe('トリガー連鎖の上限', () => {
-  /** 一列に並んだ濡れた案山子。どれも感電寸前 */
+  /** 一列に並んだ案山子。どれも感電寸前 */
   function cascade(maxTriggerDepth?: number) {
     const w = new CombatWorld({ maxTriggerDepth });
     w.addUnit(player());
@@ -142,14 +205,13 @@ describe('トリガー連鎖の上限', () => {
       const u = w.addUnit(dummy(`d${i}`, 100 + i * 150));
       u.statuses.shock.buildup = 99;
     }
-    shoot(w, 'thunderGun', { x: 100, y: 0 });
+    shoot(w, { x: 100, y: 0 });
     return w;
   }
 
   it(`既定では ${MAX_TRIGGER_DEPTH} 段で止まる`, () => {
     const w = cascade();
-    const depths = w.log.map((r) => r.depth);
-    expect(Math.max(...depths)).toBe(MAX_TRIGGER_DEPTH);
+    expect(Math.max(...w.log.map((r) => r.depth))).toBe(MAX_TRIGGER_DEPTH);
     // 直撃 → 1段目で d1 → 2段目で d2 → 3段目で d3 に連鎖。d4 には届かない
     expect(w.log.some((r) => r.targetId === 'd3')).toBe(true);
     expect(w.log.some((r) => r.targetId === 'd4')).toBe(false);
@@ -169,7 +231,7 @@ describe('条件文', () => {
     const d = w.addUnit(dummy('d', 50));
     w.forceStatus('d', 'burn', true);
     slash(w, d);
-    const swords = w.log.filter((r) => r.skill === '錆びた大剣');
+    const swords = w.log.filter((r) => r.source === '錆びた大剣');
     expect(swords.length).toBe(2);
     expect(swords[1]!.via).toContain('炎への二撃');
     expect(swords[1]!.emphasized).toBe(true);
@@ -180,13 +242,13 @@ describe('条件文', () => {
     w.addUnit(player({ conditions: ['shiftingElement'] }));
     const d = w.addUnit(dummy('d', 100));
     slash(w, d); // 初撃は比べる相手がない
-    shoot(w, 'thunderGun', d); // 斬 → 雷
-    shoot(w, 'thunderGun', d); // 雷 → 雷
+    shoot(w, d); // 斬 → 雷
+    shoot(w, d); // 雷 → 雷
     const [first, second, third] = w.log.filter((r) => r.depth === 0);
-    expect(first!.amount).toBeCloseTo(18);
-    expect(second!.amount).toBeCloseTo(12 * 1.8);
+    expect(first!.amount).toBeCloseTo(power('rustGreatsword'));
+    expect(second!.amount).toBeCloseTo(power('thunderGun') * 1.8);
     expect(second!.via).toContain('移ろう属性');
-    expect(third!.amount).toBeCloseTo(12);
+    expect(third!.amount).toBeCloseTo(power('thunderGun'));
   });
 
   it('51: 雨の間、全ての攻撃が濡れを付与する', () => {
@@ -196,8 +258,10 @@ describe('条件文', () => {
     slash(w, d);
     expect(d.statuses.wet.buildup).toBe(0);
     w.weather = 'rain';
+    const before = d.statuses.wet.buildup;
     slash(w, d);
-    expect(d.statuses.wet.buildup).toBe(50);
+    // 雨そのものでも溜まるので、攻撃の分だけ多く溜まっていればよい
+    expect(d.statuses.wet.buildup - before).toBeGreaterThan(50);
   });
 });
 
@@ -206,8 +270,8 @@ describe('パッシブ', () => {
     const w = new CombatWorld();
     w.addUnit(player({ passives: ['sootPrayer'] }));
     const d = w.addUnit(dummy('d', 100));
-    shoot(w, 'thunderGun', d);
-    expect(w.log[0]!.amount).toBeCloseTo(12 * 1.3);
+    shoot(w, d);
+    expect(w.log[0]!.amount).toBeCloseTo(power('thunderGun') * 1.3);
   });
 
   it('血を呼ぶ雷: 自分が付けた出血が発動すると雷が落ちる', () => {
@@ -222,6 +286,99 @@ describe('パッシブ', () => {
   });
 });
 
+describe('回避とガード', () => {
+  const swipe = ACTIVE_SKILLS.strawSwipe;
+
+  /** 案山子が自分に向けて振りかぶり、当たる直前に beforeHit を呼ぶ */
+  function enemyAttack(beforeHit: (w: CombatWorld) => void, lead: number) {
+    const w = new CombatWorld();
+    w.addUnit(player());
+    w.addUnit(dummy('e', 60));
+    w.setFacing('p', 0); // 案山子の方を向く
+    w.useSkill('e', 'strawSwipe', { x: 0, y: 0 });
+    w.update(swipe.windup - lead);
+    beforeHit(w);
+    w.update(lead + 10);
+    const events = w.drainEvents();
+    return { w, p: w.units.get('p')!, e: w.units.get('e')!, events, taken: w.log.filter((r) => r.targetId === 'p') };
+  }
+
+  it('ジャスト回避すると当たらず、次の攻撃が強くなる(見切り)', () => {
+    const { w, p, events, taken } = enemyAttack((w) => w.dodge('p'), DEFENSE.justDodgeWindow - 50);
+    expect(taken.length).toBe(0);
+    expect(events.some((e) => e.type === 'justDodge')).toBe(true);
+    expect(p.buffs.map((b) => b.label)).toContain('見切り');
+    slash(w, { x: 60, y: 0 });
+    const hit = w.log.find((r) => r.targetId === 'e')!;
+    expect(hit.amount).toBeCloseTo(power('rustGreatsword') * 2);
+    expect(hit.via).toContain('見切り');
+    // 見切りは1回で消える
+    slash(w, { x: 60, y: 0 });
+    expect(w.log.filter((r) => r.targetId === 'e')[1]!.amount).toBeCloseTo(power('rustGreatsword'));
+  });
+
+  it('回避で範囲の外へ抜けても、避け始めた位置に当たる攻撃ならジャスト回避', () => {
+    const { events } = enemyAttack((w) => {
+      w.dodge('p');
+      w.moveUnit('p', -300, 0);
+    }, DEFENSE.justDodgeWindow - 50);
+    expect(events.some((e) => e.type === 'justDodge')).toBe(true);
+  });
+
+  it('早すぎる回避は無敵で避けるだけ', () => {
+    const { events, taken } = enemyAttack((w) => w.dodge('p'), DEFENSE.justDodgeWindow + 60);
+    expect(taken.length).toBe(0);
+    expect(events.some((e) => e.type === 'justDodge')).toBe(false);
+  });
+
+  it('正面からの攻撃をガードすると軽減する', () => {
+    const { taken } = enemyAttack(() => {}, 0);
+    const guarded = enemyAttack((w) => w.setGuard('p', true), DEFENSE.justGuardWindow + 100);
+    expect(guarded.taken[0]!.amount).toBeCloseTo(taken[0]!.amount * (1 - DEFENSE.guardReduction));
+  });
+
+  it('背中は守れない', () => {
+    const { taken } = enemyAttack((w) => {
+      w.setFacing('p', Math.PI);
+      w.setGuard('p', true);
+    }, DEFENSE.justGuardWindow + 100);
+    expect(taken[0]!.amount).toBeCloseTo(power('strawSwipe'));
+  });
+
+  it('ジャストガードすると当たらず、相手が昏倒する(弾き)', () => {
+    const { w, e, events, taken } = enemyAttack((w) => w.setGuard('p', true), DEFENSE.justGuardWindow - 60);
+    expect(taken.length).toBe(0);
+    expect(events.some((ev) => ev.type === 'justGuard')).toBe(true);
+    expect(w.isActive(e, 'stun')).toBe(true);
+    expect(w.canUseSkill('e', 'strawSwipe')).toBe(false);
+  });
+
+  it('ガードの連打はジャストにならない', () => {
+    const { events, taken } = enemyAttack((w) => {
+      w.setGuard('p', true);
+      w.update(30);
+      w.setGuard('p', false);
+      w.setGuard('p', true);
+    }, DEFENSE.justGuardWindow);
+    expect(events.some((ev) => ev.type === 'justGuard')).toBe(false);
+    expect(taken.length).toBe(1);
+  });
+
+  it('昏倒すると振りかぶり中の攻撃が潰れる', () => {
+    const { taken, events } = enemyAttack((w) => w.forceStatus('e', 'stun', true), 100);
+    expect(taken.length).toBe(0);
+    expect(events.some((ev) => ev.type === 'interrupted')).toBe(true);
+  });
+
+  it('案山子は近づいた相手に自分から振るう', () => {
+    const w = new CombatWorld();
+    w.addUnit(player());
+    w.addUnit(dummy('e', 80, 0, { ai: 'strawSwipe' }));
+    for (let i = 0; i < 150; i++) w.update(10);
+    expect(w.log.some((r) => r.targetId === 'p' && r.skill === '藁の薙ぎ')).toBe(true);
+  });
+});
+
 describe('完了の目安', () => {
   it('雨の中で雷の遠攻撃を当てると、連鎖して内訳に「感電(濡れで倍)」が出る', () => {
     const w = new CombatWorld();
@@ -231,7 +388,7 @@ describe('完了の目安', () => {
     w.addUnit(dummy('b', 260, -40));
     w.weather = 'rain';
     for (let i = 0; i < 30; i++) w.update(100);
-    for (let i = 0; i < 6; i++) shoot(w, 'thunderGun', { x: 200, y: 0 });
+    for (let i = 0; i < 4; i++) shoot(w, { x: 200, y: 0 });
     const summary = summarize(dealtBy(w.log, 'p'), w.time);
     const row = summary.bySource.find((r) => r.key === '感電(濡れで倍)');
     expect(row).toBeDefined();

@@ -10,6 +10,8 @@ export class InputController {
   private pressed = new Set<InputAction>();
   /** キー設定の待ち受け中は操作として扱わない */
   capturing = false;
+  /** ホイールを回したとき。1 で奥、-1 で手前 */
+  onWheel?: (direction: number) => void;
 
   constructor(
     private binds: Keybinds,
@@ -25,10 +27,20 @@ export class InputController {
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     target.addEventListener('mousedown', (e) => {
       if (this.capturing) return;
+      // ホイールクリックで自動スクロールが始まらないように
+      if (e.button === 1) e.preventDefault();
       this.buttons.add(e.button);
       this.markPressed({ device: 'mouse', button: e.button });
     });
     window.addEventListener('mouseup', (e) => this.buttons.delete(e.button));
+    target.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        if (!this.capturing && e.deltaY !== 0) this.onWheel?.(Math.sign(e.deltaY));
+      },
+      { passive: false },
+    );
     window.addEventListener('blur', () => {
       this.keys.clear();
       this.buttons.clear();

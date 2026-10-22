@@ -148,7 +148,12 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
     section('案山子の耐性', resists),
     section(
       '案山子',
-      h('div', { class: 'choices' }, checkbox('歩かせる', host.walking, (on) => (host.walking = on))),
+      h(
+        'div',
+        { class: 'choices' },
+        checkbox('歩かせる', host.walking, (on) => (host.walking = on)),
+        checkbox('反撃させる', true, (on) => host.scarecrows.forEach((s) => s.ai && (s.ai.enabled = on))),
+      ),
     ),
     section('パッシブ', passives),
     section('条件文', conditions),

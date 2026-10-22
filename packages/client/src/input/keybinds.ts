@@ -11,6 +11,8 @@ export const INPUT_ACTIONS = {
   active5: 'アクティブ5',
   active6: 'アクティブ6',
   dodge: '回避',
+  guard: 'ガード',
+  lockOn: 'ターゲット固定',
   breakdown: '内訳',
 } as const;
 
@@ -33,6 +35,8 @@ export const DEFAULT_KEYBINDS: Keybinds = {
   active5: { device: 'key', code: 'KeyR' },
   active6: { device: 'key', code: 'KeyF' },
   dodge: { device: 'key', code: 'Space' },
+  guard: { device: 'key', code: 'ShiftLeft' },
+  lockOn: { device: 'mouse', button: 1 },
   breakdown: { device: 'key', code: 'Tab' },
 };
 
@@ -55,12 +59,14 @@ export function saveKeybinds(binds: Keybinds): void {
   }
 }
 
-const MOUSE_LABELS = ['左クリック', 'ホイール', '右クリック'];
+const MOUSE_LABELS = ['左クリック', 'ホイールクリック', '右クリック'];
 
 export function bindingLabel(b: Binding): string {
   if (b.device === 'mouse') return MOUSE_LABELS[b.button] ?? `マウス${b.button}`;
   if (b.code.startsWith('Key')) return b.code.slice(3);
   if (b.code.startsWith('Digit')) return b.code.slice(5);
   if (b.code === 'Space') return 'Space';
+  if (b.code === 'ShiftLeft' || b.code === 'ShiftRight') return 'Shift';
+  if (b.code === 'ControlLeft' || b.code === 'ControlRight') return 'Ctrl';
   return b.code;
 }

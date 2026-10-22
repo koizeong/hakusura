@@ -25,6 +25,8 @@ export interface StatusDef {
   /** 発動中、per ピクセル動くたびに power のダメージ */
   moveDamage?: { per: number; power: number };
   onActivate?: readonly ActivationEffect[];
+  /** 発動中は行動できない。振りかぶり中の攻撃も潰れる */
+  incapacitates?: boolean;
   color: number;
 }
 
@@ -37,8 +39,8 @@ export const STATUSES = {
     max: 100,
     decayPerSec: 8,
     duration: 6000,
-    moveDamage: { per: 40, power: 4 },
-    onActivate: [{ type: 'burst', power: 14, radius: 0 }],
+    moveDamage: { per: 40, power: 6 },
+    onActivate: [{ type: 'burst', power: 30, radius: 0 }],
     color: 0xb02a30,
   },
   burn: {
@@ -48,8 +50,8 @@ export const STATUSES = {
     max: 100,
     decayPerSec: 10,
     duration: 4000,
-    dot: { interval: 500, power: 5 },
-    onActivate: [{ type: 'burst', power: 10, radius: 70 }],
+    dot: { interval: 500, power: 8 },
+    onActivate: [{ type: 'burst', power: 20, radius: 70 }],
     color: 0xff7a2e,
   },
   shock: {
@@ -60,8 +62,8 @@ export const STATUSES = {
     decayPerSec: 15,
     duration: 1500,
     onActivate: [
-      { type: 'burst', power: 15, radius: 0 },
-      { type: 'chain', power: 12, count: 3, radius: 200, buildup: 60 },
+      { type: 'burst', power: 30, radius: 0 },
+      { type: 'chain', power: 24, count: 3, radius: 200, buildup: 60 },
     ],
     color: 0x7fd4ff,
   },
@@ -82,6 +84,15 @@ export const STATUSES = {
     duration: 8000,
     refresh: true,
     color: 0x6b5a2a,
+  },
+  stun: {
+    name: '昏倒',
+    tags: ['stun'],
+    max: 100,
+    decayPerSec: 25,
+    duration: 1800,
+    incapacitates: true,
+    color: 0xd8c25a,
   },
 } as const satisfies Record<string, StatusDef>;
 

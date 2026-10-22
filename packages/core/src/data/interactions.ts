@@ -32,4 +32,10 @@ export const INTERACTIONS: readonly Rule[] = [
     ],
     scale: { duration: 2, radius: 2 },
   },
+  {
+    label: '昏倒に追撃',
+    on: 'damage',
+    when: [{ type: 'targetHas', status: 'stun' }],
+    add: 0.5,
+  },
 ];

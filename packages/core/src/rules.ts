@@ -22,7 +22,9 @@ export type Action =
   | { type: 'repeatHit' }
   | { type: 'applyBuildup'; status: StatusId; amount: number; to?: 'target' | 'attacker' }
   /** 対象に新しいヒットを落とす */
-  | { type: 'strike'; element: ElementId; power: number; buildup: number; tags?: readonly string[] };
+  | { type: 'strike'; element: ElementId; power: number; buildup: number; tags?: readonly string[] }
+  /** 持ち主に一時的な強化を与える。charges 回使うか duration で消える */
+  | { type: 'grantBuff'; label: string; add: number; tags: readonly string[]; duration: number; charges?: number };
 
 interface RuleBase {
   /** 内訳や戦闘中の表示に出る名前 */
@@ -40,6 +42,7 @@ export type Rule = RuleBase &
         scale?: { duration?: number; radius?: number };
       }
     | /** 状態の蓄積を止める。発動中なら消す */ { on: 'buildup'; block: true }
+    | /** ジャスト回避・ジャストガードしたとき。対象は攻撃してきた者 */ { on: 'justDodge' | 'justGuard'; do: readonly Action[] }
   );
 
 /** 補正値。tags を全て持つヒットに効く。同じ group 同士は加算、違う group は乗算 */
