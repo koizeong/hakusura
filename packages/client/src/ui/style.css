@@ -56,6 +56,7 @@ h3 {
 }
 
 .panel h2 {
+  cursor: pointer;
   font-size: 17px;
   color: #c9b79c;
   border-bottom: 1px solid var(--line);
@@ -152,6 +153,36 @@ input {
 /* 画面下の体力とスキル枠 */
 .hud {
   position: absolute;
+  inset: 0;
+  pointer-events: none !important;
+}
+
+.hud button {
+  pointer-events: auto;
+}
+
+.hud.auto .manual-only,
+.hud.manual .auto-only {
+  display: none !important;
+}
+
+.hud .corner {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+}
+
+.hud .corner button {
+  min-width: 52px;
+  padding: 6px 10px;
+  font-size: 14px;
+  background: var(--panel);
+}
+
+.hud .bottom {
+  position: absolute;
   bottom: 12px;
   left: 50%;
   transform: translateX(-50%);
@@ -159,12 +190,89 @@ input {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  pointer-events: none !important;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+}
+
+.auto-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.auto-skills {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.auto-skills .chip {
+  position: relative;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.auto-skills .chip .shade,
+.trump .shade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+}
+
+.auto-skills .chip .name {
+  position: relative;
+}
+
+.trump {
+  position: relative;
+  overflow: hidden;
+  width: 84px;
+  height: 64px;
+  border: 1px solid var(--rust);
+  background: #2a1c15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 6px;
+}
+
+.trump .label {
+  position: relative;
+  font-size: 11px;
+  color: #c98a5a;
+}
+
+.trump .name {
+  position: relative;
+  font-size: 13px;
+}
+
+.trump .key {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.trump:disabled {
+  cursor: default;
+  border-color: var(--line);
 }
 
 .own-statuses {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px 10px;
   font-size: 13px;
   min-height: 18px;
   color: var(--dim);
@@ -253,6 +361,10 @@ input {
   font-size: 10px;
   color: var(--dim);
   position: relative;
+}
+
+.own-statuses .weather {
+  color: #8fb4d8;
 }
 
 .hud .hint {
@@ -365,4 +477,164 @@ input {
 
 .slot.active {
   border-color: #c9b79c;
+}
+
+.panel.closed {
+  width: auto;
+}
+
+.panel.closed .panel-body {
+  display: none;
+}
+
+.panel.closed h2 {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.panel .fold::after {
+  content: ' ▾';
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.panel.closed .fold::after {
+  content: ' ▸';
+}
+
+/* 作戦 */
+.tactics .tactic {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  padding: 4px;
+  margin-bottom: 4px;
+}
+
+.tactics .tactic.off {
+  opacity: 0.45;
+}
+
+.tactics .order {
+  width: 14px;
+  color: var(--dim);
+  font-size: 11px;
+  text-align: center;
+}
+
+.tactics .fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tactics .fields select {
+  width: 100%;
+}
+
+.tactics .then {
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.tactics .ops {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+}
+
+.tactics .ops button {
+  padding: 1px 4px;
+  min-width: 22px;
+}
+
+.tactic-actions {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.tactic-actions button {
+  flex: 1;
+  padding: 4px;
+}
+
+.tactics small {
+  display: block;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+canvas {
+  touch-action: none;
+}
+
+/* スマホ */
+@media (max-width: 760px) {
+  .panel {
+    top: 8px;
+    left: 8px;
+    width: min(300px, calc(100vw - 16px));
+    max-height: calc(100% - 200px);
+    font-size: 14px;
+  }
+
+  .panel.closed {
+    width: auto;
+  }
+
+  select,
+  button {
+    font-size: 14px;
+    padding: 4px 8px;
+  }
+
+  .tactics .ops button {
+    min-width: 32px;
+    padding: 4px;
+  }
+
+  .hud .corner {
+    top: 8px;
+    right: 8px;
+  }
+
+  .hud .bottom {
+    bottom: 8px;
+    gap: 4px;
+  }
+
+  .hp {
+    width: min(420px, calc(100vw - 24px));
+  }
+
+  .hud .hint {
+    display: none;
+  }
+
+  .breakdown {
+    width: calc(100% - 16px);
+    max-height: calc(100% - 200px);
+    top: 56px;
+    transform: translateX(-50%);
+    padding: 10px;
+  }
+
+  .breakdown .tables {
+    grid-template-columns: 1fr;
+  }
+
+  .breakdown .share {
+    width: 64px;
+  }
+}
+
+@media (pointer: coarse) {
+  .trump .key {
+    display: none;
+  }
 }

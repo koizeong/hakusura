@@ -15,7 +15,12 @@ export type Predicate =
   /** 攻撃者が直前に当てた属性と違う */
   | { type: 'elementChanged' }
   /** 発動・蓄積しようとしている状態 */
-  | { type: 'statusIs'; status: StatusId };
+  | { type: 'statusIs'; status: StatusId }
+  /** 攻撃者(作戦なら自分)に付与がかかっている */
+  | { type: 'selfImbued' }
+  /** 攻撃者(作戦なら自分)が一時的な強化を持っている */
+  | { type: 'selfHasBuff'; label: string }
+  | { type: 'not'; p: Predicate };
 
 export type Action =
   /** 同じ攻撃をもう一度当てる */
@@ -43,6 +48,11 @@ export type Rule = RuleBase &
       }
     | /** 状態の蓄積を止める。発動中なら消す */ { on: 'buildup'; block: true }
     | /** ジャスト回避・ジャストガードしたとき。対象は攻撃してきた者 */ { on: 'justDodge' | 'justGuard'; do: readonly Action[] }
+    | /** スキルの直撃を受ける直前。chance の確率でジャスト回避・ジャストガードしたことにする */ {
+        on: 'incoming';
+        chance: number;
+        as: 'justDodge' | 'justGuard';
+      }
   );
 
 /** 補正値。tags を全て持つヒットに効く。同じ group 同士は加算、違う group は乗算 */
@@ -64,6 +74,8 @@ export interface PredicateContext {
   hitElement?: ElementId;
   attackerLastElement?: ElementId;
   status?: StatusId;
+  attackerImbued?: boolean;
+  attackerHasBuff?(label: string): boolean;
 }
 
 export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean {
@@ -82,6 +94,12 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return ctx.attackerLastElement !== undefined && ctx.hitElement !== undefined && ctx.attackerLastElement !== ctx.hitElement;
     case 'statusIs':
       return ctx.status === p.status;
+    case 'selfImbued':
+      return ctx.attackerImbued ?? false;
+    case 'selfHasBuff':
+      return ctx.attackerHasBuff?.(p.label) ?? false;
+    case 'not':
+      return !evaluatePredicate(p.p, ctx);
   }
 }
 

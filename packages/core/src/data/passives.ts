@@ -29,6 +29,16 @@ export const PASSIVES = {
       },
     ],
   },
+  readTheBlow: {
+    name: '見切りの心得',
+    description: '敵の直撃を30%の確率で見切る(次の攻撃が倍)',
+    rules: [{ label: '見切りの心得', on: 'incoming', when: [], chance: 0.3, as: 'justDodge' }],
+  },
+  parryStance: {
+    name: '弾きの構え',
+    description: '敵の直撃を20%の確率で弾く(相手が昏倒)',
+    rules: [{ label: '弾きの構え', on: 'incoming', when: [], chance: 0.2, as: 'justGuard' }],
+  },
 } as const satisfies Record<string, PassiveDef>;
 
 export type PassiveId = keyof typeof PASSIVES;

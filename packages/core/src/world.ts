@@ -3,12 +3,13 @@ import { computeDamage, type RuleBonus } from './damage';
 import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
 import { fieldDef, type FieldId } from './data/fields';
 import { STATUS_IDS, statusDef, statusForElement, type StatusId } from './data/statuses';
-import { activeSkillDef, type ActiveSkillId } from './data/skills';
+import { activeSkillDef, skillElement, skillReach, type ActiveSkillId } from './data/skills';
+import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import { passiveDef, type PassiveId } from './data/passives';
 import { conditionDef, type ConditionId } from './data/conditions';
 import { INTERACTIONS } from './data/interactions';
 import { DEFENSE_RULES } from './data/defense';
-import { ruleMatches, type Action, type Modifier, type PredicateContext, type Rule } from './rules';
+import { evaluatePredicate, ruleMatches, type Action, type Modifier, type PredicateContext, type Rule } from './rules';
 
 export type Team = 'player' | 'enemy';
 
@@ -64,6 +65,11 @@ export interface Unit {
   buffs: Buff[];
   /** 自分で動く者。近くの相手にこのスキルを振るう */
   ai?: { skill: ActiveSkillId; enabled: boolean };
+  /** 作戦。autoBattle が真なら、上の行から順に見て最初に使えるスキルを使う */
+  tactics: Tactic[];
+  autoBattle: boolean;
+  /** 作戦で優先して狙う相手 */
+  focusId?: string;
   passives: PassiveId[];
   conditions: ConditionId[];
 }
@@ -88,6 +94,8 @@ export interface UnitSpec {
   passives?: PassiveId[];
   conditions?: ConditionId[];
   ai?: ActiveSkillId;
+  tactics?: Tactic[];
+  autoBattle?: boolean;
 }
 
 export interface Hit {
@@ -138,10 +146,12 @@ export type CombatEvent =
   /** 振りかぶりの予兆。at に効果が出る */
   | { type: 'windup'; unitId: string; skill: ActiveSkillId; angle: number; at: number }
   | { type: 'interrupted'; unitId: string }
-  | { type: 'justDodge'; unitId: string; attackerId?: string }
-  | { type: 'justGuard'; unitId: string; attackerId?: string }
+  /** label があれば、パッシブによる自動の見切り・弾き */
+  | { type: 'justDodge'; unitId: string; attackerId?: string; label?: string }
+  | { type: 'justGuard'; unitId: string; attackerId?: string; label?: string }
   | { type: 'guarded'; unitId: string; blocked: number }
   | { type: 'dodged'; unitId: string }
+  | { type: 'weatherCalled'; field: FieldId; until: number }
   | { type: 'imbue'; unitId: string; element: ElementId; until: number }
   | { type: 'projectileEnd'; projectileId: number; x: number; y: number; hit: boolean }
   | { type: 'fell'; unitId: string };
@@ -193,6 +203,8 @@ interface OwnedRule {
 
 export interface WorldOptions {
   maxTriggerDepth?: number;
+  /** 乱数の種 */
+  seed?: number;
 }
 
 /**
@@ -202,6 +214,8 @@ export interface WorldOptions {
 export class CombatWorld {
   time = 0;
   weather: FieldId | null = null;
+  /** スキルで呼んだ天候。切れたら previous に戻す */
+  weatherCall: { field: FieldId; until: number; previous: FieldId | null } | null = null;
   floors: FloorPatch[] = [];
   readonly units = new Map<string, Unit>();
   projectiles: Projectile[] = [];
@@ -212,9 +226,20 @@ export class CombatWorld {
   private queue: Hit[] = [];
   private pending: PendingAction[] = [];
   private nextId = 1;
+  private seed: number;
 
   constructor(options: WorldOptions = {}) {
     this.maxTriggerDepth = options.maxTriggerDepth ?? MAX_TRIGGER_DEPTH;
+    this.seed = options.seed ?? 1;
+  }
+
+  /** 0以上1未満の乱数。種が同じなら同じ並びになる(シミュレーターで再現できるように) */
+  random(): number {
+    // mulberry32
+    let t = (this.seed = (this.seed + 0x6d2b79f5) | 0);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
 
   addUnit(spec: UnitSpec): Unit {
@@ -250,6 +275,8 @@ export class CombatWorld {
       guardIsFresh: false,
       buffs: [],
       ai: spec.ai ? { skill: spec.ai, enabled: true } : undefined,
+      tactics: spec.tactics ? spec.tactics.map((t) => ({ ...t })) : [],
+      autoBattle: spec.autoBattle ?? false,
       passives: spec.passives ?? [],
       conditions: spec.conditions ?? [],
     };
@@ -427,7 +454,7 @@ export class CombatWorld {
           angle,
           range: action.range,
           arc: action.arc,
-          element: def.element,
+          element: skillElement(def),
         });
         const half = (action.arc * Math.PI) / 360;
         const reaches = (other: Unit, at: Point) => {
@@ -453,7 +480,7 @@ export class CombatWorld {
           id: this.nextId++,
           ownerId: unit.id,
           skill: pending.skill,
-          element: def.element,
+          element: skillElement(def),
           x: unit.x + cos * unit.radius,
           y: unit.y + sin * unit.radius,
           vx: cos * action.speed,
@@ -466,10 +493,22 @@ export class CombatWorld {
       }
       case 'imbue': {
         unit.imbue = { skill: pending.skill, until: this.time + action.duration };
-        this.events.push({ type: 'imbue', unitId: unit.id, element: def.element, until: unit.imbue.until });
+        this.events.push({ type: 'imbue', unitId: unit.id, element: skillElement(def), until: unit.imbue.until });
+        break;
+      }
+      case 'weather': {
+        this.callWeather(action.field, action.duration);
         break;
       }
     }
+  }
+
+  /** 一定時間だけ天候を変える。切れると元の天候に戻る */
+  callWeather(field: FieldId, duration: number): void {
+    const previous = this.weatherCall ? this.weatherCall.previous : this.weather;
+    this.weather = field;
+    this.weatherCall = { field, until: this.time + duration, previous };
+    this.events.push({ type: 'weatherCalled', field, until: this.weatherCall.until });
   }
 
   /** 振りかぶり中の行動を潰す */
@@ -481,8 +520,60 @@ export class CombatWorld {
     if (this.pending.length !== before) this.events.push({ type: 'interrupted', unitId: unit.id });
   }
 
+  /** 作戦で狙う相手。指定した相手がいればそれ、いなければ一番近い相手 */
+  tacticTarget(unit: Unit): Unit | undefined {
+    const focus = unit.focusId ? this.units.get(unit.focusId) : undefined;
+    if (focus && focus.team !== unit.team) return focus;
+    return this.opponentsOf(unit)
+      .map((u) => ({ u, d: Math.hypot(u.x - unit.x, u.y - unit.y) }))
+      .sort((a, b) => a.d - b.d)[0]?.u;
+  }
+
+  /** 作戦の1行が今使えるか。届くかどうかは見ない */
+  private tacticReady(unit: Unit, tactic: Tactic, target: Unit | undefined): boolean {
+    if (!tactic.enabled || !this.canUseSkill(unit.id, tactic.skill)) return false;
+    const def = activeSkillDef(tactic.skill);
+    if (skillReach(def) !== undefined && !target) return false;
+    const ctx = this.context(target ?? unit, unit, {});
+    return TACTIC_CONDITIONS[tactic.condition].when.every((p) => evaluatePredicate(p, ctx));
+  }
+
+  private inReach(unit: Unit, target: Unit, reach: number): boolean {
+    return Math.hypot(target.x - unit.x, target.y - unit.y) - target.radius <= reach;
+  }
+
+  /**
+   * 作戦に従って動くとき、どこへ寄ればよいか。
+   * 使えるのに届かない最初の行の相手を返す。stopAt まで近づけば届く
+   */
+  autoMoveGoal(unitId: string): { x: number; y: number; stopAt: number } | null {
+    const unit = this.units.get(unitId);
+    if (!unit?.autoBattle || this.isBusy(unit) || this.isIncapacitated(unit)) return null;
+    const target = this.tacticTarget(unit);
+    if (!target) return null;
+    for (const tactic of unit.tactics) {
+      if (!this.tacticReady(unit, tactic, target)) continue;
+      const reach = skillReach(activeSkillDef(tactic.skill));
+      if (reach === undefined || this.inReach(unit, target, reach)) return null;
+      return { x: target.x, y: target.y, stopAt: reach * 0.8 + target.radius };
+    }
+    return null;
+  }
+
+  private runTactics(unit: Unit): void {
+    const target = this.tacticTarget(unit);
+    for (const tactic of unit.tactics) {
+      if (!this.tacticReady(unit, tactic, target)) continue;
+      const reach = skillReach(activeSkillDef(tactic.skill));
+      if (reach !== undefined && (!target || !this.inReach(unit, target, reach))) continue;
+      const aim = target ?? { x: unit.x + Math.cos(unit.facing), y: unit.y + Math.sin(unit.facing) };
+      if (this.useSkill(unit.id, tactic.skill, aim, reach !== undefined ? target?.id : undefined)) return;
+    }
+  }
+
   private updateAi(): void {
     for (const unit of this.units.values()) {
+      if (unit.autoBattle) this.runTactics(unit);
       if (!unit.ai?.enabled || !this.canUseSkill(unit.id, unit.ai.skill)) continue;
       const action = activeSkillDef(unit.ai.skill).action;
       const reach = action.type === 'melee' ? action.range : action.type === 'projectile' ? action.range : 0;
@@ -498,6 +589,11 @@ export class CombatWorld {
   update(dt: number): void {
     this.time += dt;
     const sec = dt / 1000;
+    if (this.weatherCall && this.weatherCall.until <= this.time) {
+      // 途中で天候を変えられていたら、そちらを優先する
+      if (this.weather === this.weatherCall.field) this.weather = this.weatherCall.previous;
+      this.weatherCall = null;
+    }
 
     for (const unit of this.units.values()) {
       if (this.weather) {
@@ -577,14 +673,15 @@ export class CombatWorld {
   private queueAttack(attacker: Unit, target: Unit, skillId: ActiveSkillId): void {
     const def = activeSkillDef(skillId);
     const action = def.action;
-    if (action.type === 'imbue') return;
+    if (action.type !== 'melee' && action.type !== 'projectile') return;
+    const element = skillElement(def);
     this.enqueue({
       attackerId: attacker.id,
       targetId: target.id,
-      element: def.element,
+      element,
       power: action.power,
       buildup: action.buildup,
-      tags: hitTags(def.element, [...def.tags, def.category, 'weapon', skillId]),
+      tags: hitTags(element, [...def.tags, def.category, 'weapon', skillId]),
       skill: def.name,
       source: def.name,
       depth: 0,
@@ -593,13 +690,14 @@ export class CombatWorld {
     if (attacker.imbue && attacker.imbue.until > this.time) {
       const imbue = activeSkillDef(attacker.imbue.skill);
       if (imbue.action.type === 'imbue') {
+        const imbueElement = skillElement(imbue);
         this.enqueue({
           attackerId: attacker.id,
           targetId: target.id,
-          element: imbue.element,
+          element: imbueElement,
           power: action.power * imbue.action.ratio,
           buildup: imbue.action.buildup,
-          tags: hitTags(imbue.element, [...imbue.tags, imbue.category, 'weapon', attacker.imbue.skill]),
+          tags: hitTags(imbueElement, [...imbue.tags, imbue.category, 'weapon', attacker.imbue.skill]),
           skill: imbue.name,
           source: imbue.name,
           depth: 0,
@@ -646,6 +744,8 @@ export class CombatWorld {
       targetHas: (s) => this.isActive(target, s),
       attackerHas: (s) => (attacker ? this.isActive(attacker, s) : false),
       weather: this.weather,
+      attackerImbued: !!attacker?.imbue && attacker.imbue.until > this.time,
+      attackerHasBuff: (label) => !!attacker?.buffs.some((b) => b.label === label && b.until > this.time && b.charges > 0),
       ...extra,
     };
   }
@@ -730,6 +830,17 @@ export class CombatWorld {
   private defend(target: Unit, attacker: Unit | undefined, hit: Hit): 'avoided' | 'guarded' | 'none' {
     if (hit.tags.has('dot')) return 'none';
     const direct = hit.tags.has('attack') && hit.depth === 0;
+
+    // 見切りの心得のように、確率で自動に見切る・弾く
+    if (direct && target.invulnerableUntil <= this.time) {
+      const ctx = this.context(attacker ?? target, target, { hitTags: hit.tags, hitElement: hit.element });
+      for (const { rule } of this.rulesFor(target)) {
+        if (rule.on !== 'incoming' || !ruleMatches(rule, ctx) || this.random() >= rule.chance) continue;
+        this.events.push({ type: rule.as, unitId: target.id, attackerId: attacker?.id, label: rule.label });
+        this.react(rule.as, target, attacker, hit);
+        return 'avoided';
+      }
+    }
 
     if (target.invulnerableUntil > this.time) {
       if (direct && !target.justDodged && this.time - target.dodgeStartedAt <= DEFENSE.justDodgeWindow) {

@@ -17,6 +17,9 @@ import {
 import { INPUT_ACTIONS, INPUT_ACTION_IDS, bindingLabel, saveKeybinds, type Binding, type Keybinds } from '../input/keybinds';
 import type { InputController } from '../input/InputController';
 import { h, signedPercent } from './dom';
+import { createTacticsEditor } from './TacticsEditor';
+
+export type BattleMode = 'auto' | 'manual';
 
 export interface TrainingHost {
   world: CombatWorld;
@@ -25,6 +28,7 @@ export interface TrainingHost {
   input: InputController;
   keybinds: Keybinds;
   walking: boolean;
+  mode: BattleMode;
   setFloor(field: FieldId, on: boolean): void;
   resetMeasure(): void;
 }
@@ -138,10 +142,29 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
     ),
   );
 
-  return h(
-    'aside',
-    { class: 'panel' },
-    h('h2', {}, '試し斬り場'),
+  const mode = h(
+    'div',
+    { class: 'choices' },
+    ...(
+      [
+        ['auto', '自動'],
+        ['manual', '手動(PC)'],
+      ] as const
+    ).map(([id, label]) =>
+      h(
+        'label',
+        {},
+        h('input', { type: 'radio', name: 'mode', checked: host.mode === id, onchange: blurAfter(() => (host.mode = id)) }),
+        label,
+      ),
+    ),
+  );
+
+  const body = h(
+    'div',
+    { class: 'panel-body' },
+    section('戦い方', mode),
+    section('作戦', createTacticsEditor(host.player.tactics)),
     section('天候', weather),
     section('床', floors),
     section('案山子に刻む状態', statuses),
@@ -160,6 +183,12 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
     h('button', { class: 'reset', onclick: blurAfter(() => host.resetMeasure()) }, '勘定をやり直す'),
     keybindSection(host),
   );
+
+  // 狭い画面では畳んでおき、見出しを押して開く
+  const panel = h('aside', { class: `panel${window.innerWidth < 760 ? ' closed' : ''}` });
+  const title = h('h2', { onclick: () => panel.classList.toggle('closed') }, '試し斬り場', h('span', { class: 'fold' }, ''));
+  panel.append(title, body);
+  return panel;
 
   function checkbox(label: string, checked: boolean, onChange: (on: boolean) => void, color?: number, note?: string) {
     return h(

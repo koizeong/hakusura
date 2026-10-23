@@ -10,9 +10,10 @@ export const INPUT_ACTIONS = {
   active4: 'アクティブ4',
   active5: 'アクティブ5',
   active6: 'アクティブ6',
-  dodge: '回避',
-  guard: 'ガード',
+  dodge: '回避(手動)',
+  guard: 'ガード(手動)',
   lockOn: 'ターゲット固定',
+  trump: '切り札(自動)',
   breakdown: '内訳',
 } as const;
 
@@ -37,6 +38,8 @@ export const DEFAULT_KEYBINDS: Keybinds = {
   dodge: { device: 'key', code: 'Space' },
   guard: { device: 'key', code: 'ShiftLeft' },
   lockOn: { device: 'mouse', button: 1 },
+  // 自動で戦うときは回避を使わないので、同じキーを切り札に回す
+  trump: { device: 'key', code: 'Space' },
   breakdown: { device: 'key', code: 'Tab' },
 };
 

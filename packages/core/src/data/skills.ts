@@ -1,4 +1,5 @@
 import type { ElementId } from './elements';
+import type { FieldId } from './fields';
 
 /** スキルの6分類。分類もタグとしてヒットに乗る */
 export const SKILL_CATEGORIES = {
@@ -16,12 +17,15 @@ export type SkillAction =
   | { type: 'melee'; range: number; arc: number; power: number; buildup: number }
   | { type: 'projectile'; speed: number; range: number; radius: number; power: number; buildup: number }
   /** 一定時間、武器の攻撃に属性の追撃を乗せる */
-  | { type: 'imbue'; ratio: number; buildup: number; duration: number };
+  | { type: 'imbue'; ratio: number; buildup: number; duration: number }
+  /** 一定時間、天候を変える */
+  | { type: 'weather'; field: FieldId; duration: number };
 
 export interface ActiveSkillDef {
   name: string;
   category: SkillCategory;
-  element: ElementId;
+  /** 攻撃と付与のスキルは必ず持つ */
+  element?: ElementId;
   tags: readonly string[];
   /** 使ってから効果が出るまでの振りかぶり(ミリ秒)。この間に昏倒すると潰れる */
   windup: number;
@@ -64,6 +68,16 @@ export const ACTIVE_SKILLS = {
     cooldown: 20000,
     action: { type: 'imbue', ratio: 0.5, buildup: 40, duration: 15000 },
   },
+  /** 切り札。雨を呼ぶ */
+  rainBell: {
+    name: '雨乞いの鈴',
+    category: 'imbue',
+    tags: ['buff', 'trump'],
+    windup: 600,
+    recovery: 300,
+    cooldown: 40000,
+    action: { type: 'weather', field: 'rain', duration: 12000 },
+  },
   /** 案山子の反撃。大きく振りかぶるので見てから避けられる */
   strawSwipe: {
     name: '藁の薙ぎ',
@@ -82,4 +96,18 @@ export const ACTIVE_SKILL_IDS = Object.keys(ACTIVE_SKILLS) as ActiveSkillId[];
 
 export function activeSkillDef(id: ActiveSkillId): ActiveSkillDef {
   return ACTIVE_SKILLS[id];
+}
+
+/** 攻撃と付与のスキルの属性 */
+export function skillElement(def: ActiveSkillDef): ElementId {
+  if (!def.element) throw new Error(`${def.name} には属性がない`);
+  return def.element;
+}
+
+/** 相手に届く距離。届かせる必要のないスキルは undefined */
+export function skillReach(def: ActiveSkillDef): number | undefined {
+  const a = def.action;
+  if (a.type === 'melee') return a.range;
+  if (a.type === 'projectile') return a.range * 0.9;
+  return undefined;
 }

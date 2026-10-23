@@ -7,7 +7,9 @@ import {
   FIELDS,
   STATUSES,
   STATUS_IDS,
+  activeSkillDef,
   dealtBy,
+  skillElement,
   summarize,
   type ActiveSkillId,
   type CombatEvent,
@@ -18,7 +20,8 @@ import { InputController } from '../input/InputController';
 import { ACTIVE_SLOT_ACTIONS, loadKeybinds, type Keybinds } from '../input/keybinds';
 import { BreakdownView } from '../ui/BreakdownView';
 import { Hud } from '../ui/Hud';
-import { createTrainingPanel } from '../ui/TrainingPanel';
+import { createTrainingPanel, type BattleMode } from '../ui/TrainingPanel';
+import { loadTactics } from '../ui/TacticsEditor';
 
 const ARENA = { width: 1600, height: 1000 };
 const FONT = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif';
@@ -34,6 +37,12 @@ const LOCK_BREAK = 850;
 const SLOWMO = { scale: 0.3, duration: 260 };
 /** 硬直中に押したスキルを覚えておく時間 */
 const INPUT_BUFFER = 350;
+/** 切り札のスキル */
+const TRUMP: ActiveSkillId = 'rainBell';
+/** 早送りの段階 */
+const SPEEDS = [1, 2, 3];
+/** タップで歩かせた後、作戦の寄り道に戻るまでの間 */
+const TAP_HOLD = 700;
 
 /** アクティブ1〜6に入れるスキル */
 const SLOT_SKILLS: readonly (ActiveSkillId | null)[] = ['rustGreatsword', 'thunderGun', 'emberOil', null, null, null];
@@ -85,6 +94,12 @@ export class TrainingGroundScene extends Phaser.Scene {
   /** 振りかぶりの予兆。効果が出るか潰れるまで描く */
   private telegraphs: { unitId: string; skill: ActiveSkillId; angle: number; start: number; at: number }[] = [];
   private numberStack = new Map<string, number>();
+  private mode: BattleMode = 'auto';
+  private speed = 1;
+  /** タップで指した行き先 */
+  private moveTo: { x: number; y: number } | null = null;
+  private tapHoldUntil = 0;
+  private trumpQueuedUntil = -Infinity;
 
   constructor() {
     super('TrainingGround');
@@ -100,8 +115,10 @@ export class TrainingGroundScene extends Phaser.Scene {
       y: 500,
       radius: 16,
       maxHp: 300,
-      passives: ['sootPrayer', 'bloodCallsThunder'],
+      passives: ['sootPrayer', 'bloodCallsThunder', 'readTheBlow', 'parryStance'],
       conditions: ['twinStrikeOnBurning', 'shiftingElement', 'rainSoaked'],
+      tactics: loadTactics(),
+      autoBattle: true,
     });
     SCARECROW_SPOTS.forEach((spot, i) => {
       const unit = this.world.addUnit({
@@ -126,8 +143,16 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.keybinds = loadKeybinds();
     this.input2 = new InputController(this.keybinds, this.game.canvas);
     this.input2.onWheel = (dir) => this.switchLock(dir);
-    this.hud = new Hud(SLOT_SKILLS, DODGE.cooldown);
+    this.hud = new Hud(SLOT_SKILLS, DODGE.cooldown, TRUMP, {
+      onTrump: () => this.useTrump(),
+      onSpeed: () => this.cycleSpeed(),
+      onBreakdown: () => this.toggleBreakdown(),
+    });
     this.hud.setKeybinds(this.keybinds);
+    this.hud.setMode(this.mode);
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => this.onTap(pointer));
+    this.scale.on(Phaser.Scale.Events.RESIZE, () => this.fitZoom());
+    this.fitZoom();
     this.breakdown = new BreakdownView();
 
     const scene = this;
@@ -142,6 +167,12 @@ export class TrainingGroundScene extends Phaser.Scene {
       },
       set walking(v: boolean) {
         scene.walking = v;
+      },
+      get mode() {
+        return scene.mode;
+      },
+      set mode(v: BattleMode) {
+        scene.setMode(v);
       },
       setFloor: (field: FieldId, on: boolean) => this.setFloor(field, on),
       resetMeasure: () => this.world.resetLog(),
@@ -160,13 +191,159 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => ui.replaceChildren());
   }
 
+  private setMode(mode: BattleMode): void {
+    this.mode = mode;
+    this.player.autoBattle = mode === 'auto';
+    this.player.focusId = undefined;
+    this.lockTarget = null;
+    this.moveTo = null;
+    this.hud.setMode(mode);
+  }
+
+  /** 狭い画面では引いて、場を広く見せる */
+  private fitZoom(): void {
+    const { width, height } = this.scale;
+    // 場の外が見えるほどは引かない
+    const floor = Math.max(0.5, width / ARENA.width, height / ARENA.height);
+    this.cameras.main.setZoom(Phaser.Math.Clamp(Math.min(width / 1000, height / 700), floor, 1));
+  }
+
+  /** 切り札は振りかぶり・硬直中に押しても、明けたら出す */
+  private useTrump(): void {
+    if (!this.world.canUseSkill(this.player.id, TRUMP) && (this.player.cooldowns[TRUMP] ?? 0) > this.world.time) return;
+    this.trumpQueuedUntil = this.world.time + 1500;
+  }
+
+  private tryTrump(): void {
+    if (this.trumpQueuedUntil < this.world.time) return;
+    const p = this.player;
+    if (this.world.useSkill(p.id, TRUMP, { x: p.x + Math.cos(this.facing), y: p.y + Math.sin(this.facing) })) this.trumpQueuedUntil = -Infinity;
+  }
+
+  private cycleSpeed(): void {
+    this.speed = SPEEDS[(SPEEDS.indexOf(this.speed) + 1) % SPEEDS.length]!;
+    this.hud.setSpeed(this.speed);
+  }
+
+  private toggleBreakdown(): void {
+    this.breakdown.toggle();
+    this.lastBreakdown = -Infinity;
+  }
+
+  /** 自動のとき:敵をタップすると狙いを定め、地面をタップするとそこへ歩く */
+  private onTap(pointer: Phaser.Input.Pointer): void {
+    if (this.mode !== 'auto' || pointer.button !== 0) return;
+    const at = pointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
+    const enemy = this.scarecrows.find((s) => Math.hypot(s.x - at.x, s.y - 10 - at.y) <= s.radius + 22);
+    if (enemy) {
+      const same = this.player.focusId === enemy.id;
+      this.player.focusId = same ? undefined : enemy.id;
+      this.lockTarget = same ? null : enemy;
+      return;
+    }
+    this.moveTo = { x: at.x, y: at.y };
+    this.tapHoldUntil = Infinity;
+    const fx = this.add.graphics().setDepth(28);
+    fx.lineStyle(2, 0xc9b79c, 0.8).strokeCircle(at.x, at.y, 12);
+    this.tweens.add({ targets: fx, alpha: 0, scale: 0.4, duration: 350, onComplete: () => fx.destroy() });
+  }
+
   private setFloor(field: FieldId, on: boolean): void {
     this.world.floors = this.world.floors.filter((f) => f.field !== field);
     if (on) for (const spot of FLOOR_SPOTS[field]) this.world.addFloor(field, spot.x, spot.y, spot.radius);
   }
 
   update(time: number, delta: number): void {
-    const dt = Math.min(delta, 50) * (time < this.slowUntil ? SLOWMO.scale : 1);
+    const dt = Math.min(delta, 50) * (time < this.slowUntil ? SLOWMO.scale : 1) * this.speed;
+    const world = this.world;
+    const input = this.input2;
+    const player = this.player;
+
+    if (this.mode === 'auto') this.updateAuto(dt);
+    else this.updateManual(dt);
+
+    if (input.consumePressed('breakdown')) this.toggleBreakdown();
+    input.endFrame();
+
+    // 案山子を歩かせる。出血は動くと効く。振りかぶり中と昏倒中は止まる
+    if (this.walking) {
+      for (const s of this.scarecrows) {
+        if (world.isBusy(s) || world.isIncapacitated(s)) continue;
+        const home = this.homes.get(s.id)!;
+        world.moveUnit(s.id, home.x + Math.sin(world.time / 900 + home.phase) * 50, home.y + Math.cos(world.time / 1300 + home.phase) * 30);
+      }
+    }
+
+    // 早送りでも当たり判定が抜けないよう、細かく刻んで進める
+    for (let left = dt; left > 0; left -= 25) world.update(Math.min(25, left));
+    for (const event of world.drainEvents()) this.showEvent(event);
+    this.telegraphs = this.telegraphs.filter((t) => t.at > world.time);
+
+    const cam = this.cameras.main;
+    const focus = this.lockTarget
+      ? { x: player.x + (this.lockTarget.x - player.x) * 0.35, y: player.y + (this.lockTarget.y - player.y) * 0.35 }
+      : player;
+    cam.scrollX += (focus.x - cam.width / 2 - cam.scrollX) * 0.12;
+    cam.scrollY += (focus.y - cam.height / 2 - cam.scrollY) * 0.12;
+
+    this.draw();
+    this.hud.update(world, player, this.dodgeReadyAt, this.lockTarget);
+    if (this.breakdown.visible && world.time - this.lastBreakdown > 250) {
+      this.lastBreakdown = world.time;
+      this.breakdown.render(summarize(dealtBy(world.log, player.id), world.time));
+    }
+  }
+
+  /** 自動:スキルは作戦が選ぶ。こちらは歩く先と狙う相手と切り札だけ */
+  private updateAuto(dt: number): void {
+    const world = this.world;
+    const input = this.input2;
+    const player = this.player;
+    if (this.lockTarget && !world.units.has(this.lockTarget.id)) this.lockTarget = null;
+
+    const target = world.tacticTarget(player);
+    if (!world.isBusy(player) && !world.isIncapacitated(player)) {
+      const look = target ?? this.moveTo;
+      if (look) this.facing = Math.atan2(look.y - player.y, look.x - player.x);
+      world.setFacing(player.id, this.facing);
+    } else {
+      this.facing = player.facing;
+    }
+    if (input.consumePressed('trump')) this.useTrump();
+    // 作戦より先に切り札を出す
+    this.tryTrump();
+
+    let mx = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
+    let my = (input.isDown('down') ? 1 : 0) - (input.isDown('up') ? 1 : 0);
+    if (mx !== 0 || my !== 0) {
+      this.moveTo = null;
+      this.tapHoldUntil = world.time + TAP_HOLD;
+    } else if (this.moveTo) {
+      const dx = this.moveTo.x - player.x;
+      const dy = this.moveTo.y - player.y;
+      if (Math.hypot(dx, dy) < 6) {
+        this.moveTo = null;
+        this.tapHoldUntil = world.time + TAP_HOLD;
+      } else {
+        mx = dx;
+        my = dy;
+      }
+    } else if (world.time >= this.tapHoldUntil) {
+      // 作戦のスキルが届かなければ寄っていく
+      const goal = world.autoMoveGoal(player.id);
+      if (goal && Math.hypot(goal.x - player.x, goal.y - player.y) > goal.stopAt) {
+        mx = goal.x - player.x;
+        my = goal.y - player.y;
+      }
+    }
+    const len = Math.hypot(mx, my);
+    const speed = world.isIncapacitated(player) ? 0 : MOVE_SPEED * (world.isBusy(player) ? BUSY_MOVE : 1);
+    const step = len > 0 ? Math.min((speed * dt) / 1000, this.moveTo ? Math.hypot(this.moveTo.x - player.x, this.moveTo.y - player.y) : Infinity) : 0;
+    this.moveBy(len > 0 ? (mx / len) * step : 0, len > 0 ? (my / len) * step : 0);
+  }
+
+  /** 手動:WASD、マウス、6枠のスキル、回避とガード */
+  private updateManual(dt: number): void {
     const world = this.world;
     const input = this.input2;
     const player = this.player;
@@ -214,21 +391,7 @@ export class TrainingGroundScene extends Phaser.Scene {
         vy = this.dodge.vy;
       } else this.dodge = null;
     }
-    const r = player.radius;
-    let nx = player.x + (vx * dt) / 1000;
-    let ny = player.y + (vy * dt) / 1000;
-    // 案山子はすり抜けない
-    for (const s of this.scarecrows) {
-      const dx = nx - s.x;
-      const dy = ny - s.y;
-      const d = Math.hypot(dx, dy);
-      const min = r + s.radius;
-      if (d < min && d > 0.001) {
-        nx = s.x + (dx / d) * min;
-        ny = s.y + (dy / d) * min;
-      }
-    }
-    world.moveUnit(player.id, Phaser.Math.Clamp(nx, r, ARENA.width - r), Phaser.Math.Clamp(ny, r, ARENA.height - r));
+    this.moveBy((vx * dt) / 1000, (vy * dt) / 1000);
 
     // アクティブスキル。押した瞬間だけ出す。硬直中に押した分は少しの間だけ覚えておく
     ACTIVE_SLOT_ACTIONS.forEach((action, i) => {
@@ -239,39 +402,25 @@ export class TrainingGroundScene extends Phaser.Scene {
     if (this.buffered && !this.dodge && world.useSkill(player.id, this.buffered.skill, aim, this.lockTarget?.id)) {
       this.buffered = null;
     }
+  }
 
-    if (input.consumePressed('breakdown')) {
-      this.breakdown.toggle();
-      this.lastBreakdown = 0;
-    }
-    input.endFrame();
-
-    // 案山子を歩かせる。出血は動くと効く。振りかぶり中と昏倒中は止まる
-    if (this.walking) {
-      for (const s of this.scarecrows) {
-        if (world.isBusy(s) || world.isIncapacitated(s)) continue;
-        const home = this.homes.get(s.id)!;
-        world.moveUnit(s.id, home.x + Math.sin(world.time / 900 + home.phase) * 50, home.y + Math.cos(world.time / 1300 + home.phase) * 30);
+  /** 自分を動かす。案山子はすり抜けず、場の外へは出ない */
+  private moveBy(dx: number, dy: number): void {
+    const player = this.player;
+    const r = player.radius;
+    let nx = player.x + dx;
+    let ny = player.y + dy;
+    for (const s of this.scarecrows) {
+      const ox = nx - s.x;
+      const oy = ny - s.y;
+      const d = Math.hypot(ox, oy);
+      const min = r + s.radius;
+      if (d < min && d > 0.001) {
+        nx = s.x + (ox / d) * min;
+        ny = s.y + (oy / d) * min;
       }
     }
-
-    world.update(dt);
-    for (const event of world.drainEvents()) this.showEvent(event);
-    this.telegraphs = this.telegraphs.filter((t) => t.at > world.time);
-
-    const cam = this.cameras.main;
-    const focus = this.lockTarget
-      ? { x: player.x + (this.lockTarget.x - player.x) * 0.35, y: player.y + (this.lockTarget.y - player.y) * 0.35 }
-      : player;
-    cam.scrollX += (focus.x - cam.width / 2 - cam.scrollX) * 0.12;
-    cam.scrollY += (focus.y - cam.height / 2 - cam.scrollY) * 0.12;
-
-    this.draw();
-    this.hud.update(world, player, this.dodgeReadyAt, this.lockTarget);
-    if (this.breakdown.visible && world.time - this.lastBreakdown > 250) {
-      this.lastBreakdown = world.time;
-      this.breakdown.render(summarize(dealtBy(world.log, player.id), world.time));
-    }
+    this.world.moveUnit(player.id, Phaser.Math.Clamp(nx, r, ARENA.width - r), Phaser.Math.Clamp(ny, r, ARENA.height - r));
   }
 
   /** カーソルに近い敵を選ぶ。届く範囲にいなければ固定しない */
@@ -369,7 +518,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     g.fillStyle(0xcbbfa8, invulnerable ? 0.35 : 1).fillCircle(p.x, p.y, p.radius);
     g.lineStyle(2, 0x6b2b22, invulnerable ? 0.35 : 1).strokeCircle(p.x, p.y, p.radius);
     if (p.imbue && p.imbue.until > world.time) {
-      g.lineStyle(2, ELEMENTS[ACTIVE_SKILLS[p.imbue.skill].element].color, 0.7 + Math.sin(world.time / 80) * 0.3).strokeCircle(p.x, p.y, p.radius + 5);
+      g.lineStyle(2, ELEMENTS[skillElement(activeSkillDef(p.imbue.skill))].color, 0.7 + Math.sin(world.time / 80) * 0.3).strokeCircle(p.x, p.y, p.radius + 5);
     }
     if (p.guardSince !== null) {
       const fresh = p.guardIsFresh && world.time - p.guardSince <= DEFENSE.justGuardWindow;
@@ -555,15 +704,17 @@ export class TrainingGroundScene extends Phaser.Scene {
         break;
       }
       case 'justDodge': {
-        this.slowUntil = this.time.now + SLOWMO.duration;
+        // 自分の指で見切ったときだけ、時間を緩める
+        if (!event.label) this.slowUntil = this.time.now + SLOWMO.duration;
         this.cameras.main.flash(120, 90, 110, 140);
-        this.callout(this.player, '見切り', '#9fc4e8');
+        const unit = this.world.units.get(event.unitId) ?? this.player;
+        this.callout(unit, event.label ? `見切り ‹${event.label}›` : '見切り', '#9fc4e8');
         break;
       }
       case 'justGuard': {
-        this.slowUntil = this.time.now + SLOWMO.duration;
+        if (!event.label) this.slowUntil = this.time.now + SLOWMO.duration;
         this.cameras.main.shake(120, 0.006);
-        this.callout(this.player, '弾き', '#f2e6c8');
+        this.callout(this.world.units.get(event.unitId) ?? this.player, event.label ? `弾き ‹${event.label}›` : '弾き', '#f2e6c8');
         const fx = this.add.graphics().setDepth(41);
         const x = this.player.x + Math.cos(this.facing) * (this.player.radius + 10);
         const y = this.player.y + Math.sin(this.facing) * (this.player.radius + 10);
@@ -577,6 +728,10 @@ export class TrainingGroundScene extends Phaser.Scene {
       }
       case 'guarded': {
         if (event.unitId === this.player.id) this.cameras.main.shake(80, 0.003);
+        break;
+      }
+      case 'weatherCalled': {
+        this.callout(this.player, `${FIELDS[event.field].name}を呼んだ`, '#8fb4d8');
         break;
       }
       case 'dodged':

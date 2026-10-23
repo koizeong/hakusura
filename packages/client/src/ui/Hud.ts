@@ -1,13 +1,20 @@
 import { ACTIVE_SKILLS, SKILL_CATEGORIES, STATUSES, STATUS_IDS, type ActiveSkillId, type CombatWorld, type Unit } from '@hakusura/core';
 import { ACTIVE_SLOT_ACTIONS, bindingLabel, type Keybinds } from '../input/keybinds';
 import { h } from './dom';
+import type { BattleMode } from './TrainingPanel';
 
 interface SlotView {
   key: HTMLElement;
   shade: HTMLElement;
 }
 
-/** 画面下の体力・状態・スキル枠 */
+export interface HudActions {
+  onTrump(): void;
+  onSpeed(): void;
+  onBreakdown(): void;
+}
+
+/** 画面下の体力・状態・スキル枠と、自動のときの切り札・早送り */
 export class Hud {
   readonly el: HTMLElement;
   private hpFill: HTMLElement;
@@ -19,10 +26,21 @@ export class Hud {
   private lock: HTMLElement;
   private lastStatusHtml = '';
   private lockKey = '';
+  private mode: BattleMode = 'auto';
+  /** 自動のときに並べる、作戦のスキルのクールダウン */
+  private autoSkills = new Map<ActiveSkillId, HTMLElement>();
+  private autoBar: HTMLElement;
+  private trumpButton: HTMLButtonElement;
+  private trumpShade: HTMLElement;
+  private trumpKey: HTMLElement;
+  private speedButton: HTMLButtonElement;
+  private hint: HTMLElement;
 
   constructor(
     private slotSkills: readonly (ActiveSkillId | null)[],
     private dodgeCooldown: number,
+    private trump: ActiveSkillId,
+    actions: HudActions,
   ) {
     this.hpFill = h('div', { class: 'hp-fill' });
     this.hpText = h('span', { class: 'hp-text' });
@@ -43,45 +61,96 @@ export class Hud {
     this.dodge = { key: h('span', { class: 'key' }), shade: h('div', { class: 'shade' }) };
     this.guard = { key: h('span', { class: 'key' }), shade: h('div', { class: 'shade' }) };
     this.lock = h('div', { class: 'lock' });
+    this.autoBar = h('div', { class: 'auto-skills' });
+    this.trumpShade = h('div', { class: 'shade' });
+    this.trumpKey = h('span', { class: 'key' });
+    this.trumpButton = h(
+      'button',
+      { class: 'trump', onclick: (e: Event) => (actions.onTrump(), (e.currentTarget as HTMLElement).blur()) },
+      this.trumpShade,
+      this.trumpKey,
+      h('span', { class: 'label' }, '切り札'),
+      h('span', { class: 'name' }, ACTIVE_SKILLS[trump].name),
+    );
+    this.speedButton = h('button', { class: 'speed', onclick: (e: Event) => (actions.onSpeed(), (e.currentTarget as HTMLElement).blur()) }, '×1');
+    const breakdownButton = h(
+      'button',
+      { class: 'breakdown-button', onclick: (e: Event) => (actions.onBreakdown(), (e.currentTarget as HTMLElement).blur()) },
+      '勘定',
+    );
+    this.hint = h('p', { class: 'hint' });
     this.el = h(
       'div',
       { class: 'hud' },
-      this.lock,
-      this.statuses,
-      h('div', { class: 'hp' }, this.hpFill, this.hpText),
+      h('div', { class: 'corner' }, this.speedButton, breakdownButton),
       h(
         'div',
-        { class: 'slots' },
-        ...slotEls,
-        h('div', { class: 'slot dodge' }, this.dodge.shade, this.dodge.key, h('span', { class: 'name' }, '回避'), h('span', { class: 'cat' }, '見切り')),
-        h('div', { class: 'slot' }, this.guard.shade, this.guard.key, h('span', { class: 'name' }, 'ガード'), h('span', { class: 'cat' }, '弾き')),
+        { class: 'bottom' },
+        this.lock,
+        this.statuses,
+        h('div', { class: 'hp' }, this.hpFill, this.hpText),
+        h(
+          'div',
+          { class: 'slots manual-only' },
+          ...slotEls,
+          h('div', { class: 'slot dodge' }, this.dodge.shade, this.dodge.key, h('span', { class: 'name' }, '回避'), h('span', { class: 'cat' }, '見切り')),
+          h('div', { class: 'slot' }, this.guard.shade, this.guard.key, h('span', { class: 'name' }, 'ガード'), h('span', { class: 'cat' }, '弾き')),
+        ),
+        h('div', { class: 'auto-row auto-only' }, this.autoBar, this.trumpButton),
+        this.hint,
       ),
-      h('p', { class: 'hint' }, 'WASD 移動 / マウスで狙う / 敵の予兆が満ちる直前に回避かガード / Tab 傷の勘定'),
     );
+  }
+
+  setMode(mode: BattleMode): void {
+    this.mode = mode;
+    this.el.classList.toggle('auto', mode === 'auto');
+    this.el.classList.toggle('manual', mode === 'manual');
+    this.hint.textContent =
+      mode === 'auto'
+        ? 'スキルは作戦どおりに出る / 地面をタップで歩く / 敵をタップで狙いを定める'
+        : 'WASD 移動 / マウスで狙う / 敵の予兆が満ちる直前に回避かガード / Tab 傷の勘定';
+  }
+
+  setSpeed(speed: number): void {
+    this.speedButton.textContent = `×${speed}`;
   }
 
   setKeybinds(binds: Keybinds): void {
     ACTIVE_SLOT_ACTIONS.forEach((action, i) => (this.slots[i]!.key.textContent = bindingLabel(binds[action])));
     this.dodge.key.textContent = bindingLabel(binds.dodge);
     this.guard.key.textContent = bindingLabel(binds.guard);
+    this.trumpKey.textContent = bindingLabel(binds.trump);
     this.lockKey = bindingLabel(binds.lockOn);
   }
 
   update(world: CombatWorld, player: Unit, dodgeReadyAt: number, lockTarget: Unit | null): void {
-    const lockText = lockTarget ? `捕捉:${lockTarget.name}(ホイールで切り替え)` : `${this.lockKey} でターゲット固定`;
+    const lockText =
+      this.mode === 'auto'
+        ? lockTarget
+          ? `狙い:${lockTarget.name}(もう一度タップで外す)`
+          : '狙い:一番近い敵'
+        : lockTarget
+          ? `捕捉:${lockTarget.name}(ホイールで切り替え)`
+          : `${this.lockKey} でターゲット固定`;
     if (this.lock.textContent !== lockText) this.lock.textContent = lockText;
     this.lock.classList.toggle('on', !!lockTarget);
-    this.guard.shade.style.height = player.guardSince !== null ? '0%' : '';
-    this.guard.shade.parentElement!.classList.toggle('active', player.guardSince !== null);
+
     this.hpFill.style.width = `${Math.max(0, (player.hp / player.maxHp) * 100)}%`;
     this.hpText.textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
-    this.slotSkills.forEach((skill, i) => {
-      if (!skill) return;
-      const readyAt = player.cooldowns[skill] ?? 0;
-      const left = Math.max(0, readyAt - world.time) / ACTIVE_SKILLS[skill].cooldown;
-      this.slots[i]!.shade.style.height = `${left * 100}%`;
-    });
-    this.dodge.shade.style.height = `${(Math.max(0, dodgeReadyAt - world.time) / this.dodgeCooldown) * 100}%`;
+    const cooldownLeft = (skill: ActiveSkillId) => Math.max(0, (player.cooldowns[skill] ?? 0) - world.time) / ACTIVE_SKILLS[skill].cooldown;
+
+    if (this.mode === 'manual') {
+      this.slotSkills.forEach((skill, i) => {
+        if (skill) this.slots[i]!.shade.style.height = `${cooldownLeft(skill) * 100}%`;
+      });
+      this.dodge.shade.style.height = `${(Math.max(0, dodgeReadyAt - world.time) / this.dodgeCooldown) * 100}%`;
+      this.guard.shade.parentElement!.classList.toggle('active', player.guardSince !== null);
+    } else {
+      this.updateAutoSkills(player, cooldownLeft);
+      this.trumpShade.style.height = `${cooldownLeft(this.trump) * 100}%`;
+      this.trumpButton.disabled = cooldownLeft(this.trump) > 0;
+    }
 
     const parts: string[] = [];
     for (const id of STATUS_IDS) {
@@ -95,10 +164,29 @@ export class Hud {
     if (player.imbue && player.imbue.until > world.time) {
       parts.push(`<b class="imbue">${ACTIVE_SKILLS[player.imbue.skill].name} ${((player.imbue.until - world.time) / 1000).toFixed(1)}秒</b>`);
     }
+    if (world.weatherCall) {
+      parts.push(`<b class="weather">雨 ${((world.weatherCall.until - world.time) / 1000).toFixed(1)}秒</b>`);
+    }
     const html = parts.join('');
     if (html !== this.lastStatusHtml) {
       this.lastStatusHtml = html;
       this.statuses.innerHTML = html;
     }
+  }
+
+  /** 作戦に入っているスキルを1つずつ並べ、クールダウンを見せる */
+  private updateAutoSkills(player: Unit, cooldownLeft: (skill: ActiveSkillId) => number): void {
+    const skills = [...new Set(player.tactics.filter((t) => t.enabled).map((t) => t.skill))];
+    if (skills.join() !== [...this.autoSkills.keys()].join()) {
+      this.autoSkills.clear();
+      this.autoBar.replaceChildren(
+        ...skills.map((skill) => {
+          const shade = h('div', { class: 'shade' });
+          this.autoSkills.set(skill, shade);
+          return h('div', { class: 'chip' }, shade, h('span', { class: 'name' }, ACTIVE_SKILLS[skill].name));
+        }),
+      );
+    }
+    for (const [skill, shade] of this.autoSkills) shade.style.height = `${cooldownLeft(skill) * 100}%`;
   }
 }
