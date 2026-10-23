@@ -18,6 +18,22 @@ export type SkillAction =
   | { type: 'projectile'; speed: number; range: number; radius: number; power: number; buildup: number }
   /** 一定時間、武器の攻撃に属性の追撃を乗せる */
   | { type: 'imbue'; ratio: number; buildup: number; duration: number }
+  /**
+   * 弾をまとめて撃つ。ring は全方位に等間隔、fan は狙った方向へ spread 度に広げる。
+   * spin を与えると、撃つたびに ring の向きがずれる
+   */
+  | {
+      type: 'barrage';
+      pattern: 'ring' | 'fan';
+      count: number;
+      spread?: number;
+      spin?: number;
+      speed: number;
+      radius: number;
+      range: number;
+      power: number;
+      buildup: number;
+    }
   /** 一定時間、天候を変える */
   | { type: 'weather'; field: FieldId; duration: number };
 
@@ -89,6 +105,28 @@ export const ACTIVE_SKILLS = {
     cooldown: 2600,
     action: { type: 'melee', range: 115, arc: 120, power: 36, buildup: 25 },
   },
+  /** 案山子の弾幕。遅い弾を全方位に撒く */
+  strawScatter: {
+    name: '藁くずの散弾',
+    category: 'ranged',
+    element: 'slash',
+    tags: ['attack', 'enemy', 'projectile'],
+    windup: 700,
+    recovery: 300,
+    cooldown: 3600,
+    action: { type: 'barrage', pattern: 'ring', count: 14, spin: 13, speed: 170, radius: 6, range: 700, power: 14, buildup: 20 },
+  },
+  /** 案山子の弾幕。火の粉を扇に撒く。当たると燃える */
+  emberFan: {
+    name: '火の粉の扇',
+    category: 'ranged',
+    element: 'fire',
+    tags: ['attack', 'enemy', 'projectile'],
+    windup: 600,
+    recovery: 300,
+    cooldown: 4200,
+    action: { type: 'barrage', pattern: 'fan', count: 5, spread: 50, speed: 210, radius: 6, range: 650, power: 12, buildup: 30 },
+  },
 } as const satisfies Record<string, ActiveSkillDef>;
 
 export type ActiveSkillId = keyof typeof ACTIVE_SKILLS;
@@ -109,5 +147,6 @@ export function skillReach(def: ActiveSkillDef): number | undefined {
   const a = def.action;
   if (a.type === 'melee') return a.range;
   if (a.type === 'projectile') return a.range * 0.9;
+  if (a.type === 'barrage') return a.range * 0.7;
   return undefined;
 }

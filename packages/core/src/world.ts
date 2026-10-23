@@ -5,6 +5,7 @@ import { fieldDef, type FieldId } from './data/fields';
 import { STATUS_IDS, statusDef, statusForElement, type StatusId } from './data/statuses';
 import { activeSkillDef, skillElement, skillReach, type ActiveSkillId } from './data/skills';
 import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
+import { matchCombos, type ComboId } from './data/combos';
 import { passiveDef, type PassiveId } from './data/passives';
 import { conditionDef, type ConditionId } from './data/conditions';
 import { INTERACTIONS } from './data/interactions';
@@ -63,8 +64,10 @@ export interface Unit {
   /** ジャストガードになる構えか。連打した構えはならない */
   guardIsFresh: boolean;
   buffs: Buff[];
-  /** 自分で動く者。近くの相手にこのスキルを振るう */
-  ai?: { skill: ActiveSkillId; enabled: boolean };
+  /** 自分で動く者。並んだ順に、使えて届くスキルを近くの相手に使う */
+  ai?: { skills: ActiveSkillId[]; enabled: boolean };
+  /** 回る弾幕の今の向き */
+  barrageSpin: number;
   /** 作戦。autoBattle が真なら、上の行から順に見て最初に使えるスキルを使う */
   tactics: Tactic[];
   autoBattle: boolean;
@@ -93,7 +96,7 @@ export interface UnitSpec {
   resist?: Partial<Record<ElementId, number>>;
   passives?: PassiveId[];
   conditions?: ConditionId[];
-  ai?: ActiveSkillId;
+  ai?: ActiveSkillId | ActiveSkillId[];
   tactics?: Tactic[];
   autoBattle?: boolean;
 }
@@ -127,6 +130,11 @@ export interface DamageRecord {
   amount: number;
   depth: number;
   via: string[];
+  /** 発動元に添えた相互作用のラベル(濡れで倍など) */
+  qualifiers: string[];
+  tags: string[];
+  /** 成立したコンボ */
+  combos: ComboId[];
   /** 連鎖や条件が絡んだヒット。大きく表示する */
   emphasized: boolean;
 }
@@ -274,7 +282,8 @@ export class CombatWorld {
       guardReleasedAt: -Infinity,
       guardIsFresh: false,
       buffs: [],
-      ai: spec.ai ? { skill: spec.ai, enabled: true } : undefined,
+      ai: spec.ai ? { skills: Array.isArray(spec.ai) ? [...spec.ai] : [spec.ai], enabled: true } : undefined,
+      barrageSpin: 0,
       tactics: spec.tactics ? spec.tactics.map((t) => ({ ...t })) : [],
       autoBattle: spec.autoBattle ?? false,
       passives: spec.passives ?? [],
@@ -473,6 +482,34 @@ export class CombatWorld {
         this.processHits();
         break;
       }
+      case 'barrage': {
+        const element = skillElement(def);
+        const count = Math.max(1, action.count);
+        let angles: number[];
+        if (action.pattern === 'ring') {
+          unit.barrageSpin += ((action.spin ?? 0) * Math.PI) / 180;
+          angles = Array.from({ length: count }, (_, i) => unit.barrageSpin + (i / count) * Math.PI * 2);
+        } else {
+          const spread = ((action.spread ?? 0) * Math.PI) / 180;
+          angles = Array.from({ length: count }, (_, i) => angle - spread / 2 + (count > 1 ? (spread * i) / (count - 1) : spread / 2));
+        }
+        for (const a of angles) {
+          this.projectiles.push({
+            id: this.nextId++,
+            ownerId: unit.id,
+            skill: pending.skill,
+            element,
+            x: unit.x + Math.cos(a) * unit.radius,
+            y: unit.y + Math.sin(a) * unit.radius,
+            vx: Math.cos(a) * action.speed,
+            vy: Math.sin(a) * action.speed,
+            radius: action.radius,
+            traveled: 0,
+            range: action.range,
+          });
+        }
+        break;
+      }
       case 'projectile': {
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
@@ -574,15 +611,17 @@ export class CombatWorld {
   private updateAi(): void {
     for (const unit of this.units.values()) {
       if (unit.autoBattle) this.runTactics(unit);
-      if (!unit.ai?.enabled || !this.canUseSkill(unit.id, unit.ai.skill)) continue;
-      const action = activeSkillDef(unit.ai.skill).action;
-      const reach = action.type === 'melee' ? action.range : action.type === 'projectile' ? action.range : 0;
-      const target = this.opponentsOf(unit)
-        .map((u) => ({ u, d: Math.hypot(u.x - unit.x, u.y - unit.y) - u.radius }))
-        .filter(({ d }) => d <= reach * 0.9)
-        .sort((a, b) => a.d - b.d)[0]?.u;
-      // 敵の振りかぶりは向きを決め打ちにする。見てから横へ避けられるように
-      if (target) this.useSkill(unit.id, unit.ai.skill, target);
+      if (!unit.ai?.enabled) continue;
+      for (const skill of unit.ai.skills) {
+        if (!this.canUseSkill(unit.id, skill)) continue;
+        const reach = skillReach(activeSkillDef(skill)) ?? 0;
+        const target = this.opponentsOf(unit)
+          .map((u) => ({ u, d: Math.hypot(u.x - unit.x, u.y - unit.y) - u.radius }))
+          .filter(({ d }) => d <= reach * 0.9)
+          .sort((a, b) => a.d - b.d)[0]?.u;
+        // 敵の振りかぶりは向きを決め打ちにする。見てから横へ避けられるように
+        if (target && this.useSkill(unit.id, skill, target)) break;
+      }
     }
   }
 
@@ -673,7 +712,7 @@ export class CombatWorld {
   private queueAttack(attacker: Unit, target: Unit, skillId: ActiveSkillId): void {
     const def = activeSkillDef(skillId);
     const action = def.action;
-    if (action.type !== 'melee' && action.type !== 'projectile') return;
+    if (action.type !== 'melee' && action.type !== 'projectile' && action.type !== 'barrage') return;
     const element = skillElement(def);
     this.enqueue({
       attackerId: attacker.id,
@@ -801,6 +840,9 @@ export class CombatWorld {
       amount,
       depth: hit.depth,
       via,
+      qualifiers,
+      tags: [...hit.tags],
+      combos: matchCombos([...qualifiers, ...via], hit.tags),
       emphasized: hit.depth > 0 || bonuses.length > 0,
     };
     this.log.push(record);

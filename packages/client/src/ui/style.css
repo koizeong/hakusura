@@ -638,3 +638,93 @@ canvas {
     display: none;
   }
 }
+
+/* コンボ */
+.combo {
+  position: absolute;
+  right: 16px;
+  top: 30%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  pointer-events: none !important;
+  text-shadow: 0 0 4px #000, 0 0 2px #000;
+}
+
+.combo .streak {
+  opacity: 0;
+  transition: opacity 0.3s;
+  color: #e8dcc8;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.combo .streak.shown {
+  opacity: 1;
+}
+
+.combo .streak b {
+  font-size: 40px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.combo .streak span {
+  font-size: 18px;
+}
+
+.combo .streak small {
+  font-size: 12px;
+  color: var(--dim);
+  margin-left: 6px;
+}
+
+.combo-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.combo-line {
+  font-size: 22px;
+  letter-spacing: 0.15em;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.combo-line .count {
+  font-size: 15px;
+  letter-spacing: 0;
+}
+
+.pop {
+  animation: pop 0.25s ease-out;
+}
+
+@keyframes pop {
+  from {
+    transform: scale(1.35);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 760px) {
+  .combo {
+    right: 10px;
+    top: 64px;
+  }
+
+  .combo .streak b {
+    font-size: 30px;
+  }
+
+  .combo-line {
+    font-size: 18px;
+  }
+}

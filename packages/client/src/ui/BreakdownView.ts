@@ -1,4 +1,4 @@
-import { ELEMENTS, type Breakdown, type BreakdownRow } from '@hakusura/core';
+import { COMBOS, ELEMENTS, type Breakdown, type BreakdownRow } from '@hakusura/core';
 import { formatNumber, h, percent } from './dom';
 
 /** Tab で開く与ダメージの内訳 */
@@ -37,6 +37,7 @@ export class BreakdownView {
           b.byElement.map((r) => ({ ...r, key: ELEMENTS[r.element].name })),
           (_, i) => elementColor(b.byElement[i]!.element),
         ),
+        table('コンボ', b.byCombo, (_, i) => `#${COMBOS[b.byCombo[i]!.combo].color.toString(16).padStart(6, '0')}`),
         table('条件文・パッシブ', b.byVia, undefined, '1ヒットに複数が関わると、それぞれに数える'),
       ),
       h('p', { class: 'hint' }, 'Tab で閉じる'),

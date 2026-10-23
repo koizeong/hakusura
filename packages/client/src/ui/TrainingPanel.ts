@@ -21,6 +21,9 @@ import { createTacticsEditor } from './TacticsEditor';
 
 export type BattleMode = 'auto' | 'manual';
 
+export const ENEMY_ATTACKS = { none: 'しない', swipe: '薙ぎだけ', barrage: '薙ぎと弾幕' } as const;
+export type EnemyAttack = keyof typeof ENEMY_ATTACKS;
+
 export interface TrainingHost {
   world: CombatWorld;
   player: Unit;
@@ -29,6 +32,7 @@ export interface TrainingHost {
   keybinds: Keybinds;
   walking: boolean;
   mode: BattleMode;
+  setEnemyAttack(attack: EnemyAttack): void;
   setFloor(field: FieldId, on: boolean): void;
   resetMeasure(): void;
 }
@@ -69,7 +73,11 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
     'div',
     { class: 'choices' },
     ...floorFields.map((id) =>
-      checkbox(FIELDS[id].name, world.floors.some((f) => f.field === id), (on) => host.setFloor(id, on)),
+      checkbox(
+        FIELDS[id].name,
+        world.floors.some((f) => f.field === id),
+        (on) => host.setFloor(id, on),
+      ),
     ),
   );
 
@@ -77,12 +85,7 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
     'div',
     { class: 'choices' },
     ...STATUS_IDS.map((id) =>
-      checkbox(
-        STATUSES[id].name,
-        false,
-        (on) => host.scarecrows.forEach((s) => world.forceStatus(s.id, id, on)),
-        STATUSES[id].color,
-      ),
+      checkbox(STATUSES[id].name, false, (on) => host.scarecrows.forEach((s) => world.forceStatus(s.id, id, on)), STATUSES[id].color),
     ),
   );
 
@@ -175,7 +178,18 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
         'div',
         { class: 'choices' },
         checkbox('歩かせる', host.walking, (on) => (host.walking = on)),
-        checkbox('反撃させる', true, (on) => host.scarecrows.forEach((s) => s.ai && (s.ai.enabled = on))),
+        h(
+          'label',
+          { class: 'attack-select' },
+          '攻め ',
+          h(
+            'select',
+            { onchange: blurAfter((e) => host.setEnemyAttack((e.target as HTMLSelectElement).value as EnemyAttack)) },
+            ...(Object.keys(ENEMY_ATTACKS) as EnemyAttack[]).map((id) =>
+              h('option', { value: id, selected: id === 'barrage' }, ENEMY_ATTACKS[id]),
+            ),
+          ),
+        ),
       ),
     ),
     section('パッシブ', passives),
