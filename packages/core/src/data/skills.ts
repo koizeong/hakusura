@@ -13,8 +13,12 @@ export const SKILL_CATEGORIES = {
 export type SkillCategory = keyof typeof SKILL_CATEGORIES;
 
 export type SkillAction =
-  /** 狙った方向の扇形 arc 度、range ピクセルに当たる */
-  | { type: 'melee'; range: number; arc: number; power: number; buildup: number }
+  /** 狙った方向の扇形 arc 度、range ピクセルに当たる。clearsProjectiles なら範囲内の敵の弾をかき消す */
+  | { type: 'melee'; range: number; arc: number; power: number; buildup: number; clearsProjectiles?: boolean }
+  /** 自分の周り radius の相手全てに当たる */
+  | { type: 'nova'; radius: number; power: number; buildup: number }
+  /** 狙った相手の足元に、一定時間だけ床の状態を敷く */
+  | { type: 'floor'; field: FieldId; radius: number; duration: number }
   | { type: 'projectile'; speed: number; range: number; radius: number; power: number; buildup: number }
   /** 一定時間、武器の攻撃に属性の追撃を乗せる */
   | { type: 'imbue'; ratio: number; buildup: number; duration: number }
@@ -42,6 +46,8 @@ export interface ActiveSkillDef {
   category: SkillCategory;
   /** 攻撃と付与のスキルは必ず持つ */
   element?: ElementId;
+  /** 画面に出す説明。切り札は選ぶときに見せる */
+  description?: string;
   tags: readonly string[];
   /** 使ってから効果が出るまでの振りかぶり(ミリ秒)。この間に昏倒すると潰れる */
   windup: number;
@@ -62,7 +68,7 @@ export const ACTIVE_SKILLS = {
     windup: 280,
     recovery: 420,
     cooldown: 1100,
-    action: { type: 'melee', range: 105, arc: 130, power: 42, buildup: 55 },
+    action: { type: 'melee', range: 110, arc: 150, power: 52, buildup: 55, clearsProjectiles: true },
   },
   thunderGun: {
     name: '雷管銃',
@@ -72,7 +78,7 @@ export const ACTIVE_SKILLS = {
     windup: 320,
     recovery: 380,
     cooldown: 2400,
-    action: { type: 'projectile', speed: 900, range: 750, radius: 7, power: 34, buildup: 60 },
+    action: { type: 'projectile', speed: 900, range: 750, radius: 7, power: 26, buildup: 60 },
   },
   emberOil: {
     name: '燠火の塗油',
@@ -84,15 +90,37 @@ export const ACTIVE_SKILLS = {
     cooldown: 20000,
     action: { type: 'imbue', ratio: 0.5, buildup: 40, duration: 15000 },
   },
-  /** 切り札。雨を呼ぶ */
+  /** 切り札。tags に trump を持つスキルから1つ選んでビルドに入れる */
   rainBell: {
     name: '雨乞いの鈴',
     category: 'imbue',
+    description: '12秒、雨を呼ぶ。全員が濡れる',
     tags: ['buff', 'trump'],
     windup: 600,
     recovery: 300,
     cooldown: 40000,
     action: { type: 'weather', field: 'rain', duration: 12000 },
+  },
+  oilFlask: {
+    name: '油壺の投擲',
+    category: 'imbue',
+    description: '狙った敵の足元に油溜まりを撒く(10秒)',
+    tags: ['trump'],
+    windup: 400,
+    recovery: 300,
+    cooldown: 30000,
+    action: { type: 'floor', field: 'oilPool', radius: 140, duration: 10000 },
+  },
+  thunderPrayer: {
+    name: '雷鳴の祈祷',
+    category: 'melee',
+    element: 'lightning',
+    description: '周りの敵すべてに雷を落とし、感電させる',
+    tags: ['attack', 'trump'],
+    windup: 700,
+    recovery: 400,
+    cooldown: 45000,
+    action: { type: 'nova', radius: 280, power: 30, buildup: 100 },
   },
   /** 案山子の反撃。大きく振りかぶるので見てから避けられる */
   strawSwipe: {
@@ -113,8 +141,8 @@ export const ACTIVE_SKILLS = {
     tags: ['attack', 'enemy', 'projectile'],
     windup: 700,
     recovery: 300,
-    cooldown: 3600,
-    action: { type: 'barrage', pattern: 'ring', count: 14, spin: 13, speed: 170, radius: 6, range: 700, power: 14, buildup: 20 },
+    cooldown: 5200,
+    action: { type: 'barrage', pattern: 'ring', count: 9, spin: 17, speed: 170, radius: 6, range: 700, power: 14, buildup: 20 },
   },
   /** 案山子の弾幕。火の粉を扇に撒く。当たると燃える */
   emberFan: {
@@ -124,8 +152,8 @@ export const ACTIVE_SKILLS = {
     tags: ['attack', 'enemy', 'projectile'],
     windup: 600,
     recovery: 300,
-    cooldown: 4200,
-    action: { type: 'barrage', pattern: 'fan', count: 5, spread: 50, speed: 210, radius: 6, range: 650, power: 12, buildup: 30 },
+    cooldown: 5600,
+    action: { type: 'barrage', pattern: 'fan', count: 3, spread: 36, speed: 210, radius: 6, range: 650, power: 12, buildup: 30 },
   },
 } as const satisfies Record<string, ActiveSkillDef>;
 
@@ -137,6 +165,9 @@ export function activeSkillDef(id: ActiveSkillId): ActiveSkillDef {
 }
 
 /** 攻撃と付与のスキルの属性 */
+/** 切り札として選べるスキル */
+export const TRUMP_SKILL_IDS = ACTIVE_SKILL_IDS.filter((id) => (ACTIVE_SKILLS[id].tags as readonly string[]).includes('trump'));
+
 export function skillElement(def: ActiveSkillDef): ElementId {
   if (!def.element) throw new Error(`${def.name} には属性がない`);
   return def.element;
@@ -148,5 +179,7 @@ export function skillReach(def: ActiveSkillDef): number | undefined {
   if (a.type === 'melee') return a.range;
   if (a.type === 'projectile') return a.range * 0.9;
   if (a.type === 'barrage') return a.range * 0.7;
+  if (a.type === 'floor') return 600;
+  if (a.type === 'nova') return a.radius * 0.85;
   return undefined;
 }

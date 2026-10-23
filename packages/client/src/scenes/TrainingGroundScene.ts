@@ -7,7 +7,9 @@ import {
   FIELDS,
   STATUSES,
   STATUS_IDS,
+  TRUMP_SKILL_IDS,
   activeSkillDef,
+  skillReach,
   dealtBy,
   skillElement,
   summarize,
@@ -44,8 +46,18 @@ const LOCK_BREAK = 850;
 const SLOWMO = { scale: 0.3, duration: 260 };
 /** 硬直中に押したスキルを覚えておく時間 */
 const INPUT_BUFFER = 350;
-/** 切り札のスキル */
-const TRUMP: ActiveSkillId = 'rainBell';
+const TRUMP_STORAGE_KEY = 'hakusura.trump';
+
+/** ビルドに入れた切り札。前に選んだものを覚えておく */
+function loadTrump(): ActiveSkillId {
+  try {
+    const saved = localStorage.getItem(TRUMP_STORAGE_KEY);
+    if (saved && (TRUMP_SKILL_IDS as string[]).includes(saved)) return saved as ActiveSkillId;
+  } catch {
+    // 読めなければ既定の切り札にする
+  }
+  return 'rainBell';
+}
 /** 早送りの段階 */
 const SPEEDS = [1, 2, 3];
 /** タップで歩かせた後、作戦の寄り道に戻るまでの間 */
@@ -106,7 +118,6 @@ export class TrainingGroundScene extends Phaser.Scene {
   /** タップで指した行き先 */
   private moveTo: { x: number; y: number } | null = null;
   private tapHoldUntil = 0;
-  private trumpQueuedUntil = -Infinity;
   private stick: { id: number; startX: number; startY: number; x: number; y: number; downAt: number; dragged: boolean } | null = null;
   private stickGfx!: Phaser.GameObjects.Graphics;
   private combo!: ComboView;
@@ -130,6 +141,7 @@ export class TrainingGroundScene extends Phaser.Scene {
       conditions: ['twinStrikeOnBurning', 'shiftingElement', 'rainSoaked'],
       tactics: loadTactics(),
       autoBattle: true,
+      trump: loadTrump(),
     });
     SCARECROW_SPOTS.forEach((spot, i) => {
       const unit = this.world.addUnit({
@@ -158,7 +170,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.keybinds = loadKeybinds();
     this.input2 = new InputController(this.keybinds, this.game.canvas);
     this.input2.onWheel = (dir) => this.switchLock(dir);
-    this.hud = new Hud(SLOT_SKILLS, DODGE.cooldown, TRUMP, {
+    this.hud = new Hud(SLOT_SKILLS, DODGE.cooldown, this.player.trump!, {
       onTrump: () => this.useTrump(),
       onSpeed: () => this.cycleSpeed(),
       onBreakdown: () => this.toggleBreakdown(),
@@ -194,6 +206,7 @@ export class TrainingGroundScene extends Phaser.Scene {
       },
       setFloor: (field: FieldId, on: boolean) => this.setFloor(field, on),
       setEnemyAttack: (attack: EnemyAttack) => this.setEnemyAttack(attack),
+      setTrump: (skill: ActiveSkillId) => this.setTrump(skill),
       resetMeasure: () => this.world.resetLog(),
     };
     const panel = createTrainingPanel(host);
@@ -227,16 +240,22 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.cameras.main.setZoom(Phaser.Math.Clamp(Math.min(width / 1000, height / 700), floor, 1));
   }
 
-  /** 切り札は振りかぶり・硬直中に押しても、明けたら出す */
+  /** 切り札は予約する。硬直中なら明けしだい、届かなければ寄ってから出る */
   private useTrump(): void {
-    if (!this.world.canUseSkill(this.player.id, TRUMP) && (this.player.cooldowns[TRUMP] ?? 0) > this.world.time) return;
-    this.trumpQueuedUntil = this.world.time + 1500;
+    const trump = this.player.trump;
+    if (!trump) return;
+    this.world.queueSkill(this.player.id, trump, skillReach(activeSkillDef(trump)) !== undefined ? 6000 : 1500);
   }
 
-  private tryTrump(): void {
-    if (this.trumpQueuedUntil < this.world.time) return;
-    const p = this.player;
-    if (this.world.useSkill(p.id, TRUMP, { x: p.x + Math.cos(this.facing), y: p.y + Math.sin(this.facing) })) this.trumpQueuedUntil = -Infinity;
+  private setTrump(skill: ActiveSkillId): void {
+    this.player.trump = skill;
+    this.player.queued = undefined;
+    this.hud.setTrump(skill);
+    try {
+      localStorage.setItem(TRUMP_STORAGE_KEY, skill);
+    } catch {
+      // 保存できなくても、この場では効く
+    }
   }
 
   private cycleSpeed(): void {
@@ -312,7 +331,8 @@ export class TrainingGroundScene extends Phaser.Scene {
   }
 
   private setFloor(field: FieldId, on: boolean): void {
-    this.world.floors = this.world.floors.filter((f) => f.field !== field);
+    // 切り札で撒いた床は残す
+    this.world.floors = this.world.floors.filter((f) => f.field !== field || f.until !== undefined);
     if (on) for (const spot of FLOOR_SPOTS[field]) this.world.addFloor(field, spot.x, spot.y, spot.radius);
   }
 
@@ -352,7 +372,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.draw();
     this.drawStick();
     this.combo.update(this.time.now);
-    this.hud.update(world, player, this.dodgeReadyAt, this.lockTarget);
+    this.hud.update(world, player, this.dodgeReadyAt, this.lockTarget, !!player.queued && player.queued.until >= world.time);
     if (this.breakdown.visible && world.time - this.lastBreakdown > 250) {
       this.lastBreakdown = world.time;
       this.breakdown.render(summarize(dealtBy(world.log, player.id), world.time));
@@ -375,8 +395,6 @@ export class TrainingGroundScene extends Phaser.Scene {
       this.facing = player.facing;
     }
     if (input.consumePressed('trump')) this.useTrump();
-    // 作戦より先に切り札を出す
-    this.tryTrump();
 
     let mx = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
     let my = (input.isDown('down') ? 1 : 0) - (input.isDown('up') ? 1 : 0);
@@ -402,6 +420,10 @@ export class TrainingGroundScene extends Phaser.Scene {
         mx = dx;
         my = dy;
       }
+    } else if (world.queuedGoal(player.id)) {
+      const goal = world.queuedGoal(player.id)!;
+      mx = goal.x - player.x;
+      my = goal.y - player.y;
     } else if (world.time >= this.tapHoldUntil) {
       // 作戦のスキルが届かなければ寄っていく
       const goal = world.autoMoveGoal(player.id);
@@ -791,7 +813,23 @@ export class TrainingGroundScene extends Phaser.Scene {
         this.tweens.add({ targets: fx, alpha: 0, duration: 400, onComplete: () => fx.destroy() });
         break;
       }
+      case 'nova': {
+        const fx = this.add.graphics().setDepth(29);
+        const color = ELEMENTS[event.element].color;
+        fx.fillStyle(color, 0.18).fillCircle(event.x, event.y, event.radius);
+        fx.lineStyle(3, color, 0.9).strokeCircle(event.x, event.y, event.radius);
+        this.cameras.main.shake(140, 0.005);
+        this.tweens.add({ targets: fx, alpha: 0, duration: 500, onComplete: () => fx.destroy() });
+        break;
+      }
       case 'projectileEnd': {
+        if (event.cleared) {
+          // 近攻撃でかき消した弾
+          const fx = this.add.graphics().setDepth(29);
+          fx.lineStyle(2, 0xe6dccb, 0.8).strokeCircle(event.x, event.y, 6);
+          this.tweens.add({ targets: fx, alpha: 0, scale: 2, duration: 220, onComplete: () => fx.destroy() });
+          return;
+        }
         if (!event.hit) return;
         const fx = this.add.graphics().setDepth(29);
         fx.fillStyle(0xffffff, 0.6).fillCircle(event.x, event.y, 8);

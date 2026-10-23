@@ -1,4 +1,8 @@
 import {
+  ACTIVE_SKILLS,
+  TRUMP_SKILL_IDS,
+  activeSkillDef,
+  type ActiveSkillId,
   CONDITIONS,
   CONDITION_IDS,
   ELEMENTS,
@@ -33,6 +37,7 @@ export interface TrainingHost {
   walking: boolean;
   mode: BattleMode;
   setEnemyAttack(attack: EnemyAttack): void;
+  setTrump(skill: ActiveSkillId): void;
   setFloor(field: FieldId, on: boolean): void;
   resetMeasure(): void;
 }
@@ -163,11 +168,32 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
     ),
   );
 
+  const trumpNote = h('small', { class: 'note' }, activeSkillDef(host.player.trump ?? 'rainBell').description ?? '');
+  const trumps = h(
+    'div',
+    { class: 'trump-select' },
+    h(
+      'select',
+      {
+        onchange: blurAfter((e) => {
+          const id = (e.target as HTMLSelectElement).value as ActiveSkillId;
+          host.setTrump(id);
+          trumpNote.textContent = activeSkillDef(id).description ?? '';
+        }),
+      },
+      ...TRUMP_SKILL_IDS.map((id) =>
+        h('option', { value: id, selected: id === host.player.trump }, `${ACTIVE_SKILLS[id].name}(${ACTIVE_SKILLS[id].cooldown / 1000}秒)`),
+      ),
+    ),
+    trumpNote,
+  );
+
   const body = h(
     'div',
     { class: 'panel-body' },
     section('戦い方', mode),
     section('作戦', createTacticsEditor(host.player.tactics)),
+    section('切り札', trumps),
     section('天候', weather),
     section('床', floors),
     section('案山子に刻む状態', statuses),

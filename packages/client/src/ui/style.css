@@ -728,3 +728,19 @@ canvas {
     font-size: 18px;
   }
 }
+
+.trump-select select {
+  width: 100%;
+}
+
+.trump-select .note {
+  display: block;
+  color: var(--dim);
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.trump.queued {
+  border-color: #e8b070;
+  box-shadow: 0 0 10px rgba(232, 176, 112, 0.5);
+}

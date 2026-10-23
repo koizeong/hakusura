@@ -68,6 +68,10 @@ export interface Unit {
   ai?: { skills: ActiveSkillId[]; enabled: boolean };
   /** 回る弾幕の今の向き */
   barrageSpin: number;
+  /** ビルドに入れた切り札 */
+  trump?: ActiveSkillId;
+  /** 予約したスキル。作戦より先に、使えるようになりしだい使う */
+  queued?: { skill: ActiveSkillId; until: number };
   /** 作戦。autoBattle が真なら、上の行から順に見て最初に使えるスキルを使う */
   tactics: Tactic[];
   autoBattle: boolean;
@@ -99,6 +103,7 @@ export interface UnitSpec {
   ai?: ActiveSkillId | ActiveSkillId[];
   tactics?: Tactic[];
   autoBattle?: boolean;
+  trump?: ActiveSkillId;
 }
 
 export interface Hit {
@@ -161,7 +166,9 @@ export type CombatEvent =
   | { type: 'dodged'; unitId: string }
   | { type: 'weatherCalled'; field: FieldId; until: number }
   | { type: 'imbue'; unitId: string; element: ElementId; until: number }
-  | { type: 'projectileEnd'; projectileId: number; x: number; y: number; hit: boolean }
+  /** cleared なら近攻撃でかき消された */
+  | { type: 'projectileEnd'; projectileId: number; x: number; y: number; hit: boolean; cleared?: boolean }
+  | { type: 'nova'; unitId: string; x: number; y: number; radius: number; element: ElementId }
   | { type: 'fell'; unitId: string };
 
 export interface Projectile {
@@ -184,6 +191,8 @@ export interface FloorPatch {
   x: number;
   y: number;
   radius: number;
+  /** この時刻に消える。なければ消えない */
+  until?: number;
 }
 
 interface Source {
@@ -286,6 +295,7 @@ export class CombatWorld {
       barrageSpin: 0,
       tactics: spec.tactics ? spec.tactics.map((t) => ({ ...t })) : [],
       autoBattle: spec.autoBattle ?? false,
+      trump: spec.trump,
       passives: spec.passives ?? [],
       conditions: spec.conditions ?? [],
     };
@@ -293,8 +303,8 @@ export class CombatWorld {
     return unit;
   }
 
-  addFloor(field: FieldId, x: number, y: number, radius: number): FloorPatch {
-    const patch = { id: this.nextId++, field, x, y, radius };
+  addFloor(field: FieldId, x: number, y: number, radius: number, until?: number): FloorPatch {
+    const patch: FloorPatch = { id: this.nextId++, field, x, y, radius, until };
     this.floors.push(patch);
     return patch;
   }
@@ -479,6 +489,17 @@ export class CombatWorld {
           const justDodging = this.time - other.dodgeStartedAt <= DEFENSE.justDodgeWindow && reaches(other, other.dodgeOrigin);
           if (reaches(other, other) || justDodging) this.queueAttack(unit, other, pending.skill);
         }
+        if (action.clearsProjectiles) {
+          this.projectiles = this.projectiles.filter((p) => {
+            const owner = this.units.get(p.ownerId);
+            if (!owner || owner.team === unit.team) return true;
+            const dx = p.x - unit.x;
+            const dy = p.y - unit.y;
+            const inArc = Math.hypot(dx, dy) <= action.range + p.radius && Math.abs(normalizeAngle(Math.atan2(dy, dx) - angle)) <= half;
+            if (inArc) this.events.push({ type: 'projectileEnd', projectileId: p.id, x: p.x, y: p.y, hit: false, cleared: true });
+            return !inArc;
+          });
+        }
         this.processHits();
         break;
       }
@@ -535,6 +556,19 @@ export class CombatWorld {
       }
       case 'weather': {
         this.callWeather(action.field, action.duration);
+        break;
+      }
+      case 'nova': {
+        this.events.push({ type: 'nova', unitId: unit.id, x: unit.x, y: unit.y, radius: action.radius, element: skillElement(def) });
+        for (const other of this.opponentsOf(unit)) {
+          if (Math.hypot(other.x - unit.x, other.y - unit.y) <= action.radius + other.radius) this.queueAttack(unit, other, pending.skill);
+        }
+        this.processHits();
+        break;
+      }
+      case 'floor': {
+        const at = target ?? { x: unit.x + Math.cos(angle) * 200, y: unit.y + Math.sin(angle) * 200 };
+        this.addFloor(action.field, at.x, at.y, action.radius, this.time + action.duration);
         break;
       }
     }
@@ -597,7 +631,42 @@ export class CombatWorld {
     return null;
   }
 
+  /** スキルを予約する。硬直中なら明けしだい、届かなければ届きしだい使う */
+  queueSkill(unitId: string, skill: ActiveSkillId, ms: number): void {
+    const unit = this.units.get(unitId);
+    if (!unit || (unit.cooldowns[skill] ?? 0) > this.time) return;
+    unit.queued = { skill, until: this.time + ms };
+  }
+
+  /** 予約したスキルが届かない相手。届くまで寄る先になる */
+  queuedGoal(unitId: string): Unit | undefined {
+    const unit = this.units.get(unitId);
+    if (!unit?.queued || unit.queued.until < this.time) return undefined;
+    const reach = skillReach(activeSkillDef(unit.queued.skill));
+    const target = this.tacticTarget(unit);
+    if (reach === undefined || !target) return undefined;
+    return this.inReach(unit, target, reach) ? undefined : target;
+  }
+
+  /** 予約を使えたか。使えないのが届かないせいだけなら、作戦は続けてよい */
+  private runQueued(unit: Unit): 'used' | 'wait' | 'continue' {
+    const queued = unit.queued;
+    if (!queued) return 'continue';
+    if (queued.until < this.time) {
+      unit.queued = undefined;
+      return 'continue';
+    }
+    if (!this.canUseSkill(unit.id, queued.skill)) return 'wait';
+    if (this.queuedGoal(unit.id)) return 'continue';
+    const target = this.tacticTarget(unit);
+    const aim = target ?? { x: unit.x + Math.cos(unit.facing), y: unit.y + Math.sin(unit.facing) };
+    if (!this.useSkill(unit.id, queued.skill, aim, target?.id)) return 'wait';
+    unit.queued = undefined;
+    return 'used';
+  }
+
   private runTactics(unit: Unit): void {
+    if (this.runQueued(unit) !== 'continue') return;
     const target = this.tacticTarget(unit);
     for (const tactic of unit.tactics) {
       if (!this.tacticReady(unit, tactic, target)) continue;
@@ -670,6 +739,8 @@ export class CombatWorld {
       }
     }
 
+    this.floors = this.floors.filter((f) => f.until === undefined || f.until > this.time);
+
     const due = this.pending.filter((p) => p.at <= this.time);
     this.pending = this.pending.filter((p) => p.at > this.time);
     for (const p of due) this.executeSkill(p);
@@ -712,7 +783,7 @@ export class CombatWorld {
   private queueAttack(attacker: Unit, target: Unit, skillId: ActiveSkillId): void {
     const def = activeSkillDef(skillId);
     const action = def.action;
-    if (action.type !== 'melee' && action.type !== 'projectile' && action.type !== 'barrage') return;
+    if (action.type !== 'melee' && action.type !== 'projectile' && action.type !== 'barrage' && action.type !== 'nova') return;
     const element = skillElement(def);
     this.enqueue({
       attackerId: attacker.id,

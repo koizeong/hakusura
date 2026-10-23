@@ -33,6 +33,8 @@ export class Hud {
   private trumpButton: HTMLButtonElement;
   private trumpShade: HTMLElement;
   private trumpKey: HTMLElement;
+  private trumpName: HTMLElement;
+  private trumpLabel: HTMLElement;
   private speedButton: HTMLButtonElement;
   private hint: HTMLElement;
 
@@ -64,13 +66,15 @@ export class Hud {
     this.autoBar = h('div', { class: 'auto-skills' });
     this.trumpShade = h('div', { class: 'shade' });
     this.trumpKey = h('span', { class: 'key' });
+    this.trumpName = h('span', { class: 'name' }, ACTIVE_SKILLS[trump].name);
+    this.trumpLabel = h('span', { class: 'label' }, '切り札');
     this.trumpButton = h(
       'button',
       { class: 'trump', onclick: (e: Event) => (actions.onTrump(), (e.currentTarget as HTMLElement).blur()) },
       this.trumpShade,
       this.trumpKey,
-      h('span', { class: 'label' }, '切り札'),
-      h('span', { class: 'name' }, ACTIVE_SKILLS[trump].name),
+      this.trumpLabel,
+      this.trumpName,
     );
     this.speedButton = h('button', { class: 'speed', onclick: (e: Event) => (actions.onSpeed(), (e.currentTarget as HTMLElement).blur()) }, '×1');
     const breakdownButton = h(
@@ -112,6 +116,11 @@ export class Hud {
         : 'WASD 移動 / マウスで狙う / 敵の予兆が満ちる直前に回避かガード / Tab 傷の勘定';
   }
 
+  setTrump(skill: ActiveSkillId): void {
+    this.trump = skill;
+    this.trumpName.textContent = ACTIVE_SKILLS[skill].name;
+  }
+
   setSpeed(speed: number): void {
     this.speedButton.textContent = `×${speed}`;
   }
@@ -124,7 +133,7 @@ export class Hud {
     this.lockKey = bindingLabel(binds.lockOn);
   }
 
-  update(world: CombatWorld, player: Unit, dodgeReadyAt: number, lockTarget: Unit | null): void {
+  update(world: CombatWorld, player: Unit, dodgeReadyAt: number, lockTarget: Unit | null, trumpQueued = false): void {
     const lockText =
       this.mode === 'auto'
         ? lockTarget
@@ -150,6 +159,8 @@ export class Hud {
       this.updateAutoSkills(player, cooldownLeft);
       this.trumpShade.style.height = `${cooldownLeft(this.trump) * 100}%`;
       this.trumpButton.disabled = cooldownLeft(this.trump) > 0;
+      this.trumpButton.classList.toggle('queued', trumpQueued);
+      this.trumpLabel.textContent = trumpQueued ? '構え中' : '切り札';
     }
 
     const parts: string[] = [];
