@@ -1,16 +1,8 @@
 import {
-  ACTIVE_SKILLS,
-  TRUMP_SKILL_IDS,
-  activeSkillDef,
-  type ActiveSkillId,
-  CONDITIONS,
-  CONDITION_IDS,
   ELEMENTS,
   ELEMENT_IDS,
   FIELDS,
   FIELD_IDS,
-  PASSIVES,
-  PASSIVE_IDS,
   STATUSES,
   STATUS_IDS,
   type CombatWorld,
@@ -21,7 +13,6 @@ import {
 import { INPUT_ACTIONS, INPUT_ACTION_IDS, bindingLabel, saveKeybinds, type Binding, type Keybinds } from '../input/keybinds';
 import type { InputController } from '../input/InputController';
 import { h, signedPercent } from './dom';
-import { createTacticsEditor } from './TacticsEditor';
 
 export type BattleMode = 'auto' | 'manual';
 
@@ -37,14 +28,13 @@ export interface TrainingHost {
   walking: boolean;
   mode: BattleMode;
   setEnemyAttack(attack: EnemyAttack): void;
-  setTrump(skill: ActiveSkillId): void;
   setFloor(field: FieldId, on: boolean): void;
   resetMeasure(): void;
 }
 
 const RESIST_STEPS = [-1, -0.5, 0, 0.25, 0.5, 0.75, 1];
 
-/** 試し斬り場の支度。天候・床・案山子・装備をここで切り替える */
+/** 試し斬り場。天候・床・案山子をここで切り替える。ビルドは「支度」の画面で組む */
 export function createTrainingPanel(host: TrainingHost): HTMLElement {
   const { world } = host;
   // 操作がキーに奪われないよう、触ったら必ずフォーカスを外す
@@ -116,40 +106,6 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
     ),
   );
 
-  const toggleLoadout = <T extends string>(list: T[], id: T, on: boolean) => {
-    const i = list.indexOf(id);
-    if (on && i < 0) list.push(id);
-    if (!on && i >= 0) list.splice(i, 1);
-  };
-
-  const passives = h(
-    'div',
-    { class: 'loadout' },
-    ...PASSIVE_IDS.map((id) =>
-      checkbox(
-        PASSIVES[id].name,
-        host.player.passives.includes(id),
-        (on) => toggleLoadout(host.player.passives, id, on),
-        undefined,
-        PASSIVES[id].description,
-      ),
-    ),
-  );
-
-  const conditions = h(
-    'div',
-    { class: 'loadout' },
-    ...CONDITION_IDS.map((id) =>
-      checkbox(
-        `${CONDITIONS[id].rule.label}`,
-        host.player.conditions.includes(id),
-        (on) => toggleLoadout(host.player.conditions, id, on),
-        undefined,
-        `${CONDITIONS[id].no}. ${CONDITIONS[id].text}(コスト ${CONDITIONS[id].cost}%)`,
-      ),
-    ),
-  );
-
   const mode = h(
     'div',
     { class: 'choices' },
@@ -168,32 +124,10 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
     ),
   );
 
-  const trumpNote = h('small', { class: 'note' }, activeSkillDef(host.player.trump ?? 'rainBell').description ?? '');
-  const trumps = h(
-    'div',
-    { class: 'trump-select' },
-    h(
-      'select',
-      {
-        onchange: blurAfter((e) => {
-          const id = (e.target as HTMLSelectElement).value as ActiveSkillId;
-          host.setTrump(id);
-          trumpNote.textContent = activeSkillDef(id).description ?? '';
-        }),
-      },
-      ...TRUMP_SKILL_IDS.map((id) =>
-        h('option', { value: id, selected: id === host.player.trump }, `${ACTIVE_SKILLS[id].name}(${ACTIVE_SKILLS[id].cooldown / 1000}秒)`),
-      ),
-    ),
-    trumpNote,
-  );
-
   const body = h(
     'div',
     { class: 'panel-body' },
     section('戦い方', mode),
-    section('作戦', createTacticsEditor(host.player.tactics)),
-    section('切り札', trumps),
     section('天候', weather),
     section('床', floors),
     section('案山子に刻む状態', statuses),
@@ -218,8 +152,6 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
         ),
       ),
     ),
-    section('パッシブ', passives),
-    section('条件文', conditions),
     h('button', { class: 'reset', onclick: blurAfter(() => host.resetMeasure()) }, '勘定をやり直す'),
     keybindSection(host),
   );

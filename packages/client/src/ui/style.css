@@ -744,3 +744,295 @@ canvas {
   border-color: #e8b070;
   box-shadow: 0 0 10px rgba(232, 176, 112, 0.5);
 }
+
+/* 支度 */
+.build-screen {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 9, 8, 0.96);
+  display: flex;
+  justify-content: center;
+  overflow-y: auto;
+  z-index: 10;
+}
+
+.build-screen.hidden {
+  display: none;
+}
+
+.build-inner {
+  width: min(880px, 100%);
+  padding: 14px 16px 40px;
+  box-sizing: border-box;
+}
+
+.build-inner header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.build-inner h2 {
+  font-size: 22px;
+  color: #c9b79c;
+}
+
+.build-inner h3 {
+  font-size: 14px;
+  color: var(--dim);
+  margin: 12px 0 6px;
+}
+
+.build-inner .close {
+  padding: 8px 14px;
+  font-size: 14px;
+  border-color: var(--rust);
+}
+
+.build-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 14px;
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+}
+
+.build-stats span {
+  display: flex;
+  gap: 4px;
+  align-items: baseline;
+}
+
+.build-stats small {
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.build-inner .problems {
+  color: #c25a4a;
+  font-size: 13px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.tabs button {
+  flex: 1;
+  padding: 8px 4px;
+  font-size: 14px;
+  border-bottom: none;
+}
+
+.tabs button.on {
+  background: #3a2a1e;
+  border-color: var(--rust);
+  color: #e8dcc8;
+}
+
+.equipment {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.slots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.slot-row {
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  padding: 6px;
+  cursor: pointer;
+}
+
+.slot-row.selected {
+  border-color: #c9b79c;
+  background: rgba(201, 183, 156, 0.06);
+}
+
+.slot-row .slot-name {
+  width: 52px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--dim);
+  padding-top: 2px;
+}
+
+.slot-row .empty,
+.candidates .empty {
+  color: var(--dim);
+  font-size: 13px;
+}
+
+.slot-row .item-card {
+  flex: 1;
+  border: none;
+  padding: 0;
+}
+
+.candidates h3 {
+  margin-top: 0;
+}
+
+.loot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.loot select {
+  max-width: 100%;
+  margin: 4px 0;
+}
+
+.loot small {
+  color: var(--dim);
+}
+
+.item-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.item-card {
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.item-card.artifact {
+  border-color: #6b5a2a;
+}
+
+.item-card.artifact b {
+  color: #d8c25a;
+}
+
+.item-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.item-head small {
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.item-head .total {
+  margin-left: auto;
+}
+
+.affix.good {
+  color: #c9d1b0;
+}
+
+.affix.bad {
+  color: #c25a4a;
+}
+
+.affix.condition {
+  color: #d8a860;
+  font-size: 12px;
+}
+
+.artifact-text {
+  margin: 2px 0;
+  font-size: 12px;
+  color: #c9b79c;
+}
+
+.item-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.item-actions button {
+  padding: 4px 12px;
+}
+
+button.discard {
+  color: #a08070;
+}
+
+.skill-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 4px 8px;
+  align-items: baseline;
+  padding: 6px 4px;
+  border-bottom: 1px solid #241f1b;
+  cursor: pointer;
+}
+
+.skill-row small {
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.skills .counter {
+  font-size: 13px;
+  color: #c9b79c;
+}
+
+.tactic.missing {
+  border-color: #6a2a22;
+}
+
+.code textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: #15120f;
+  color: var(--text);
+  border: 1px solid var(--line);
+  font-family: monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.code button {
+  margin-top: 4px;
+  padding: 6px 14px;
+}
+
+.code .message {
+  color: #c9b79c;
+  font-size: 13px;
+}
+
+.hud .corner .build-button {
+  border-color: var(--rust);
+}
+
+@media (max-width: 760px) {
+  .equipment {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .build-inner {
+    padding: 10px 10px 40px;
+  }
+
+  .tabs button {
+    font-size: 13px;
+  }
+}

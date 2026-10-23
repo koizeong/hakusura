@@ -12,6 +12,7 @@ export interface HudActions {
   onTrump(): void;
   onSpeed(): void;
   onBreakdown(): void;
+  onBuild(): void;
 }
 
 /** 画面下の体力・状態・スキル枠と、自動のときの切り札・早送り */
@@ -41,7 +42,7 @@ export class Hud {
   constructor(
     private slotSkills: readonly (ActiveSkillId | null)[],
     private dodgeCooldown: number,
-    private trump: ActiveSkillId,
+    private trump: ActiveSkillId | undefined,
     actions: HudActions,
   ) {
     this.hpFill = h('div', { class: 'hp-fill' });
@@ -66,7 +67,7 @@ export class Hud {
     this.autoBar = h('div', { class: 'auto-skills' });
     this.trumpShade = h('div', { class: 'shade' });
     this.trumpKey = h('span', { class: 'key' });
-    this.trumpName = h('span', { class: 'name' }, ACTIVE_SKILLS[trump].name);
+    this.trumpName = h('span', { class: 'name' }, trump ? ACTIVE_SKILLS[trump].name : 'なし');
     this.trumpLabel = h('span', { class: 'label' }, '切り札');
     this.trumpButton = h(
       'button',
@@ -82,11 +83,12 @@ export class Hud {
       { class: 'breakdown-button', onclick: (e: Event) => (actions.onBreakdown(), (e.currentTarget as HTMLElement).blur()) },
       '勘定',
     );
+    const buildButton = h('button', { class: 'build-button', onclick: (e: Event) => (actions.onBuild(), (e.currentTarget as HTMLElement).blur()) }, '支度');
     this.hint = h('p', { class: 'hint' });
     this.el = h(
       'div',
       { class: 'hud' },
-      h('div', { class: 'corner' }, this.speedButton, breakdownButton),
+      h('div', { class: 'corner' }, buildButton, this.speedButton, breakdownButton),
       h(
         'div',
         { class: 'bottom' },
@@ -116,9 +118,9 @@ export class Hud {
         : 'WASD 移動 / マウスで狙う / 敵の予兆が満ちる直前に回避かガード / Tab 傷の勘定';
   }
 
-  setTrump(skill: ActiveSkillId): void {
+  setTrump(skill: ActiveSkillId | undefined): void {
     this.trump = skill;
-    this.trumpName.textContent = ACTIVE_SKILLS[skill].name;
+    this.trumpName.textContent = skill ? ACTIVE_SKILLS[skill].name : 'なし';
   }
 
   setSpeed(speed: number): void {
@@ -157,8 +159,9 @@ export class Hud {
       this.guard.shade.parentElement!.classList.toggle('active', player.guardSince !== null);
     } else {
       this.updateAutoSkills(player, cooldownLeft);
-      this.trumpShade.style.height = `${cooldownLeft(this.trump) * 100}%`;
-      this.trumpButton.disabled = cooldownLeft(this.trump) > 0;
+      const trumpLeft = this.trump ? cooldownLeft(this.trump) : 1;
+      this.trumpShade.style.height = `${trumpLeft * 100}%`;
+      this.trumpButton.disabled = !this.trump || trumpLeft > 0;
       this.trumpButton.classList.toggle('queued', trumpQueued);
       this.trumpLabel.textContent = trumpQueued ? '構え中' : '切り札';
     }
@@ -187,7 +190,7 @@ export class Hud {
 
   /** 作戦に入っているスキルを1つずつ並べ、クールダウンを見せる */
   private updateAutoSkills(player: Unit, cooldownLeft: (skill: ActiveSkillId) => number): void {
-    const skills = [...new Set(player.tactics.filter((t) => t.enabled).map((t) => t.skill))];
+    const skills = [...new Set(player.tactics.filter((t) => t.enabled && player.actives.includes(t.skill)).map((t) => t.skill))];
     if (skills.join() !== [...this.autoSkills.keys()].join()) {
       this.autoSkills.clear();
       this.autoBar.replaceChildren(

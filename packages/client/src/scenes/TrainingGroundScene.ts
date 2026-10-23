@@ -3,11 +3,11 @@ import {
   ACTIVE_SKILLS,
   CombatWorld,
   DEFENSE,
+  applyBuild,
   ELEMENTS,
   FIELDS,
   STATUSES,
   STATUS_IDS,
-  TRUMP_SKILL_IDS,
   activeSkillDef,
   skillReach,
   dealtBy,
@@ -24,7 +24,8 @@ import { BreakdownView } from '../ui/BreakdownView';
 import { Hud } from '../ui/Hud';
 import { createTrainingPanel, type BattleMode, type EnemyAttack } from '../ui/TrainingPanel';
 import { ComboView } from '../ui/ComboView';
-import { loadTactics } from '../ui/TacticsEditor';
+import { BuildScreen } from '../ui/BuildScreen';
+import { loadBuildState, resetBuildState, saveBuildState, type BuildState } from '../ui/buildStore';
 
 const ARENA = { width: 1600, height: 1000 };
 const FONT = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif';
@@ -46,18 +47,6 @@ const LOCK_BREAK = 850;
 const SLOWMO = { scale: 0.3, duration: 260 };
 /** 硬直中に押したスキルを覚えておく時間 */
 const INPUT_BUFFER = 350;
-const TRUMP_STORAGE_KEY = 'hakusura.trump';
-
-/** ビルドに入れた切り札。前に選んだものを覚えておく */
-function loadTrump(): ActiveSkillId {
-  try {
-    const saved = localStorage.getItem(TRUMP_STORAGE_KEY);
-    if (saved && (TRUMP_SKILL_IDS as string[]).includes(saved)) return saved as ActiveSkillId;
-  } catch {
-    // 読めなければ既定の切り札にする
-  }
-  return 'rainBell';
-}
 /** 早送りの段階 */
 const SPEEDS = [1, 2, 3];
 /** タップで歩かせた後、作戦の寄り道に戻るまでの間 */
@@ -121,6 +110,8 @@ export class TrainingGroundScene extends Phaser.Scene {
   private stick: { id: number; startX: number; startY: number; x: number; y: number; downAt: number; dragged: boolean } | null = null;
   private stickGfx!: Phaser.GameObjects.Graphics;
   private combo!: ComboView;
+  private buildState!: BuildState;
+  private buildScreen!: BuildScreen;
 
   constructor() {
     super('TrainingGround');
@@ -137,12 +128,10 @@ export class TrainingGroundScene extends Phaser.Scene {
       // 弾幕を抜けやすいよう、当たり判定は見た目より小さい
       radius: 8,
       maxHp: 300,
-      passives: ['sootPrayer', 'bloodCallsThunder', 'readTheBlow', 'parryStance'],
-      conditions: ['twinStrikeOnBurning', 'shiftingElement', 'rainSoaked'],
-      tactics: loadTactics(),
       autoBattle: true,
-      trump: loadTrump(),
     });
+    this.buildState = loadBuildState(Math.random);
+    applyBuild(this.world, this.player, this.buildState.build);
     SCARECROW_SPOTS.forEach((spot, i) => {
       const unit = this.world.addUnit({
         id: `scarecrow${i}`,
@@ -174,6 +163,7 @@ export class TrainingGroundScene extends Phaser.Scene {
       onTrump: () => this.useTrump(),
       onSpeed: () => this.cycleSpeed(),
       onBreakdown: () => this.toggleBreakdown(),
+      onBuild: () => this.openBuild(),
     });
     this.hud.setKeybinds(this.keybinds);
     this.hud.setMode(this.mode);
@@ -206,7 +196,6 @@ export class TrainingGroundScene extends Phaser.Scene {
       },
       setFloor: (field: FieldId, on: boolean) => this.setFloor(field, on),
       setEnemyAttack: (attack: EnemyAttack) => this.setEnemyAttack(attack),
-      setTrump: (skill: ActiveSkillId) => this.setTrump(skill),
       resetMeasure: () => this.world.resetLog(),
     };
     const panel = createTrainingPanel(host);
@@ -219,7 +208,21 @@ export class TrainingGroundScene extends Phaser.Scene {
     if (import.meta.env.DEV) (window as unknown as { hakusura: unknown }).hakusura = { world: this.world, scene: this };
 
     const ui = document.getElementById('ui')!;
-    ui.replaceChildren(panel, this.hud.el, this.combo.el, this.breakdown.el);
+    this.buildScreen = new BuildScreen({
+      get state() {
+        return scene.buildState;
+      },
+      world: this.world,
+      player: this.player,
+      random: Math.random,
+      onChange: () => this.onBuildChange(),
+      onClose: () => {},
+      onReset: () => {
+        this.buildState = resetBuildState(Math.random);
+        this.onBuildChange();
+      },
+    });
+    ui.replaceChildren(panel, this.hud.el, this.combo.el, this.breakdown.el, this.buildScreen.el);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => ui.replaceChildren());
   }
 
@@ -247,15 +250,17 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.world.queueSkill(this.player.id, trump, skillReach(activeSkillDef(trump)) !== undefined ? 6000 : 1500);
   }
 
-  private setTrump(skill: ActiveSkillId): void {
-    this.player.trump = skill;
-    this.player.queued = undefined;
-    this.hud.setTrump(skill);
-    try {
-      localStorage.setItem(TRUMP_STORAGE_KEY, skill);
-    } catch {
-      // 保存できなくても、この場では効く
-    }
+  private openBuild(): void {
+    this.breakdown.el.classList.add('hidden');
+    this.buildScreen.open();
+  }
+
+  /** 支度が変わったら、すぐ戦いに反映して覚えておく */
+  private onBuildChange(): void {
+    applyBuild(this.world, this.player, this.buildState.build);
+    if (this.player.queued && this.player.queued.skill !== this.player.trump) this.player.queued = undefined;
+    this.hud.setTrump(this.player.trump);
+    saveBuildState(this.buildState);
   }
 
   private cycleSpeed(): void {
@@ -337,6 +342,8 @@ export class TrainingGroundScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number): void {
+    // 支度の間は戦いを止める
+    if (this.buildScreen.visible) return;
     const dt = Math.min(delta, 50) * (time < this.slowUntil ? SLOWMO.scale : 1) * this.speed;
     const world = this.world;
     const input = this.input2;
@@ -434,7 +441,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     }
     const len = Math.hypot(mx, my);
     // 自動では攻撃中も足を止めない
-    const speed = world.isIncapacitated(player) ? 0 : AUTO_MOVE_SPEED * throttle;
+    const speed = world.isIncapacitated(player) ? 0 : AUTO_MOVE_SPEED * throttle * world.statOf(player, 'moveSpeed');
     const step = len > 0 ? Math.min((speed * dt) / 1000, this.moveTo ? Math.hypot(this.moveTo.x - player.x, this.moveTo.y - player.y) : Infinity) : 0;
     this.moveBy(len > 0 ? (mx / len) * step : 0, len > 0 ? (my / len) * step : 0);
   }
@@ -479,7 +486,7 @@ export class TrainingGroundScene extends Phaser.Scene {
       this.dodge = { vx: dir.x * DODGE.speed, vy: dir.y * DODGE.speed, until: world.time + DODGE.duration };
       this.dodgeReadyAt = world.time + DODGE.cooldown;
     }
-    const speed = incapacitated ? 0 : MOVE_SPEED * (busy ? BUSY_MOVE : guarding ? GUARD_MOVE : 1);
+    const speed = incapacitated ? 0 : MOVE_SPEED * (busy ? BUSY_MOVE : guarding ? GUARD_MOVE : 1) * world.statOf(player, 'moveSpeed');
     let vx = mx * speed;
     let vy = my * speed;
     if (this.dodge) {
