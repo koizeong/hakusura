@@ -6,6 +6,10 @@ import { STATUS_IDS, statusDef, statusForElement, type StatusId } from './data/s
 import { activeSkillDef, skillElement, skillReach, type ActiveSkillId } from './data/skills';
 import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import { matchCombos, type ComboId } from './data/combos';
+import { artifactDef, type ArtifactId, type ArtifactTraits } from './data/artifacts';
+import { affixModifier, type Item } from './data/equipment';
+import { statDef, type StatId } from './data/stats';
+import { multiplierOf } from './damage';
 import { passiveDef, type PassiveId } from './data/passives';
 import { conditionDef, type ConditionId } from './data/conditions';
 import { INTERACTIONS } from './data/interactions';
@@ -79,6 +83,17 @@ export interface Unit {
   focusId?: string;
   passives: PassiveId[];
   conditions: ConditionId[];
+  /** 着けている装備。アーティファクトもここに入る */
+  equipment: Item[];
+  artifacts: ArtifactId[];
+  /** ビルドに入れたアクティブ。空なら制限しない */
+  actives: ActiveSkillId[];
+  /** 補正値をかける前の最大HP */
+  baseMaxHp: number;
+  /** 最後に動いた時刻 */
+  lastMovedAt: number;
+  /** 歩いた跡を残すまでの距離 */
+  trailAcc: number;
 }
 
 export interface Buff {
@@ -201,9 +216,11 @@ interface Source {
   via: readonly string[];
   depth: number;
   hit?: Hit;
+  /** 受けたダメージ(on: 'hurt' のとき) */
+  amount?: number;
 }
 
-type RuleKind = 'interaction' | 'reaction' | 'passive' | 'condition';
+type RuleKind = 'interaction' | 'reaction' | 'passive' | 'condition' | 'artifact';
 
 interface PendingAction {
   unitId: string;
@@ -298,6 +315,12 @@ export class CombatWorld {
       trump: spec.trump,
       passives: spec.passives ?? [],
       conditions: spec.conditions ?? [],
+      equipment: [],
+      artifacts: [],
+      actives: [],
+      baseMaxHp: maxHp,
+      lastMovedAt: 0,
+      trailAcc: 0,
     };
     this.units.set(unit.id, unit);
     return unit;
@@ -359,6 +382,15 @@ export class CombatWorld {
     const dist = Math.hypot(x - unit.x, y - unit.y);
     unit.x = x;
     unit.y = y;
+    if (dist > 0.5) unit.lastMovedAt = this.time;
+    const trail = this.traitsOf(unit).trail;
+    if (trail) {
+      unit.trailAcc += dist;
+      if (unit.trailAcc >= trail.every) {
+        unit.trailAcc = 0;
+        this.addFloor(trail.field, x, y, trail.radius, this.time + trail.duration);
+      }
+    }
     for (const status of STATUS_IDS) {
       const def = statusDef(status);
       if (!def.moveDamage || !def.element || !this.isActive(unit, status)) continue;
@@ -443,7 +475,7 @@ export class CombatWorld {
     const unit = this.units.get(unitId);
     if (!unit || !this.canUseSkill(unitId, skillId)) return false;
     const def = activeSkillDef(skillId);
-    unit.cooldowns[skillId] = this.time + def.cooldown;
+    unit.cooldowns[skillId] = this.time + def.cooldown * this.statOf(unit, 'cooldown', [...def.tags, def.category, skillId]);
     unit.windupUntil = this.time + def.windup;
     unit.busyUntil = this.time + def.windup + def.recovery;
     const angle = Math.atan2(aim.y - unit.y, aim.x - unit.x);
@@ -465,13 +497,15 @@ export class CombatWorld {
     const action = def.action;
     switch (action.type) {
       case 'melee': {
+        const range = action.range * this.statOf(unit, 'meleeRange', def.tags);
+        const minRange = this.traitsOf(unit).meleeMinRange;
         this.events.push({
           type: 'swing',
           unitId: unit.id,
           x: unit.x,
           y: unit.y,
           angle,
-          range: action.range,
+          range,
           arc: action.arc,
           element: skillElement(def),
         });
@@ -480,9 +514,11 @@ export class CombatWorld {
           const dx = at.x - unit.x;
           const dy = at.y - unit.y;
           const dist = Math.hypot(dx, dy);
-          if (dist > action.range + other.radius) return false;
+          if (dist > range + other.radius) return false;
+          // 錆鉄の長柄のように、近すぎる相手に当たらない
+          if (minRange > 0 && dist - other.radius < minRange) return false;
           const diff = Math.abs(normalizeAngle(Math.atan2(dy, dx) - angle));
-          return dist <= unit.radius + other.radius || diff <= half;
+          return (minRange === 0 && dist <= unit.radius + other.radius) || diff <= half;
         };
         for (const other of this.opponentsOf(unit)) {
           // 回避で範囲の外へ抜けていても、避け始めた位置に当たるならジャスト回避の判定に回す
@@ -495,7 +531,7 @@ export class CombatWorld {
             if (!owner || owner.team === unit.team) return true;
             const dx = p.x - unit.x;
             const dy = p.y - unit.y;
-            const inArc = Math.hypot(dx, dy) <= action.range + p.radius && Math.abs(normalizeAngle(Math.atan2(dy, dx) - angle)) <= half;
+            const inArc = Math.hypot(dx, dy) <= range + p.radius && Math.abs(normalizeAngle(Math.atan2(dy, dx) - angle)) <= half;
             if (inArc) this.events.push({ type: 'projectileEnd', projectileId: p.id, x: p.x, y: p.y, hit: false, cleared: true });
             return !inArc;
           });
@@ -532,21 +568,24 @@ export class CombatWorld {
         break;
       }
       case 'projectile': {
-        const cos = Math.cos(angle);
-        const sin = Math.sin(angle);
-        this.projectiles.push({
-          id: this.nextId++,
-          ownerId: unit.id,
-          skill: pending.skill,
-          element: skillElement(def),
-          x: unit.x + cos * unit.radius,
-          y: unit.y + sin * unit.radius,
-          vx: cos * action.speed,
-          vy: sin * action.speed,
-          radius: action.radius,
-          traveled: 0,
-          range: action.range,
-        });
+        // 双子の銃のように弾が増えたら、少しずつ角度をずらして撃つ
+        const count = Math.max(1, 1 + Math.round(this.statOf(unit, 'projectiles', def.tags)));
+        for (let i = 0; i < count; i++) {
+          const a = angle + (i - (count - 1) / 2) * ((7 * Math.PI) / 180);
+          this.projectiles.push({
+            id: this.nextId++,
+            ownerId: unit.id,
+            skill: pending.skill,
+            element: skillElement(def),
+            x: unit.x + Math.cos(a) * unit.radius,
+            y: unit.y + Math.sin(a) * unit.radius,
+            vx: Math.cos(a) * action.speed,
+            vy: Math.sin(a) * action.speed,
+            radius: action.radius,
+            traveled: 0,
+            range: action.range,
+          });
+        }
         break;
       }
       case 'imbue': {
@@ -603,10 +642,19 @@ export class CombatWorld {
   /** 作戦の1行が今使えるか。届くかどうかは見ない */
   private tacticReady(unit: Unit, tactic: Tactic, target: Unit | undefined): boolean {
     if (!tactic.enabled || !this.canUseSkill(unit.id, tactic.skill)) return false;
+    if (unit.actives.length > 0 && !unit.actives.includes(tactic.skill)) return false;
     const def = activeSkillDef(tactic.skill);
     if (skillReach(def) !== undefined && !target) return false;
     const ctx = this.context(target ?? unit, unit, {});
     return TACTIC_CONDITIONS[tactic.condition].when.every((p) => evaluatePredicate(p, ctx));
+  }
+
+  /** そのスキルが届く距離。近攻撃の射程の補正も含む。届かせる必要がなければ undefined */
+  reachOf(unit: Unit, skill: ActiveSkillId): number | undefined {
+    const def = activeSkillDef(skill);
+    const reach = skillReach(def);
+    if (reach === undefined) return undefined;
+    return def.action.type === 'melee' ? reach * this.statOf(unit, 'meleeRange', def.tags) : reach;
   }
 
   private inReach(unit: Unit, target: Unit, reach: number): boolean {
@@ -624,7 +672,7 @@ export class CombatWorld {
     if (!target) return null;
     for (const tactic of unit.tactics) {
       if (!this.tacticReady(unit, tactic, target)) continue;
-      const reach = skillReach(activeSkillDef(tactic.skill));
+      const reach = this.reachOf(unit, tactic.skill);
       if (reach === undefined || this.inReach(unit, target, reach)) return null;
       return { x: target.x, y: target.y, stopAt: reach * 0.8 + target.radius };
     }
@@ -642,7 +690,7 @@ export class CombatWorld {
   queuedGoal(unitId: string): Unit | undefined {
     const unit = this.units.get(unitId);
     if (!unit?.queued || unit.queued.until < this.time) return undefined;
-    const reach = skillReach(activeSkillDef(unit.queued.skill));
+    const reach = this.reachOf(unit, unit.queued.skill);
     const target = this.tacticTarget(unit);
     if (reach === undefined || !target) return undefined;
     return this.inReach(unit, target, reach) ? undefined : target;
@@ -670,7 +718,7 @@ export class CombatWorld {
     const target = this.tacticTarget(unit);
     for (const tactic of unit.tactics) {
       if (!this.tacticReady(unit, tactic, target)) continue;
-      const reach = skillReach(activeSkillDef(tactic.skill));
+      const reach = this.reachOf(unit, tactic.skill);
       if (reach !== undefined && (!target || !this.inReach(unit, target, reach))) continue;
       const aim = target ?? { x: unit.x + Math.cos(unit.facing), y: unit.y + Math.sin(unit.facing) };
       if (this.useSkill(unit.id, tactic.skill, aim, reach !== undefined ? target?.id : undefined)) return;
@@ -725,7 +773,7 @@ export class CombatWorld {
           }
           continue;
         }
-        if (!st.forced && this.isBlocked(unit, status, undefined)) {
+        if (!st.forced && this.isBlocked(unit, status, st.activatorId ? this.units.get(st.activatorId) : undefined)) {
           st.activeUntil = 0;
           this.events.push({ type: 'statusEnded', unitId: unit.id, status });
           continue;
@@ -841,12 +889,55 @@ export class CombatWorld {
       for (const rule of passiveDef(id).rules ?? []) out.push({ rule, kind: 'passive' });
     }
     for (const id of attacker.conditions) out.push({ rule: conditionDef(id).rule, kind: 'condition' });
-    return out;
+    for (const id of attacker.artifacts) {
+      for (const rule of artifactDef(id).rules ?? []) out.push({ rule, kind: 'artifact' });
+    }
+    // 煤けた聖火のように、自分には効かせないルールを除く
+    const ignored = this.traitsOf(attacker).ignoreRules;
+    return ignored.length > 0 ? out.filter(({ rule }) => !ignored.includes(rule.label)) : out;
   }
 
-  private modifiersFor(attacker: Unit | undefined): Modifier[] {
-    if (!attacker) return [];
-    return attacker.passives.flatMap((id) => passiveDef(id).modifiers ?? []);
+  /** stat に効く補正値。パッシブ・装備・アーティファクトから集める */
+  modifiersFor(unit: Unit | undefined, stat: StatId = 'damage'): Modifier[] {
+    if (!unit) return [];
+    const all: Modifier[] = [
+      ...unit.passives.flatMap((id) => passiveDef(id).modifiers ?? []),
+      ...unit.equipment.flatMap((item) => item.affixes.map(affixModifier)),
+      ...unit.artifacts.flatMap((id) => artifactDef(id).modifiers ?? []),
+    ];
+    return all.filter((m) => (m.stat ?? 'damage') === stat);
+  }
+
+  /**
+   * 能力の値。mult の項目は倍率(1 で補正なし)、add の項目は足した値を返す。
+   * 条件つきの補正(on: 'stat' のルール)は、今の状態で満たしていれば含める
+   */
+  statOf(unit: Unit, stat: StatId, tags: Iterable<string> = []): number {
+    const tagSet = new Set(tags);
+    const mods = this.modifiersFor(unit, stat);
+    const ctx = this.context(unit, unit, { hitTags: tagSet });
+    const bonuses: RuleBonus[] = [];
+    for (const { rule } of this.rulesFor(unit)) {
+      if (rule.on !== 'stat' || rule.stat !== stat || !(rule.tags ?? []).every((t) => tagSet.has(t)) || !ruleMatches(rule, ctx)) continue;
+      bonuses.push({ label: rule.label, add: rule.add });
+    }
+    if (statDef(stat).kind === 'add') {
+      return mods.filter((m) => m.tags.every((t) => tagSet.has(t))).reduce((s, m) => s + m.value, 0) + bonuses.reduce((s, b) => s + b.add, 0);
+    }
+    return multiplierOf(mods, bonuses, tagSet);
+  }
+
+  /** アーティファクトの特別な効果をまとめる */
+  traitsOf(unit: Unit | undefined): { ignoreRules: string[]; frontGuard: boolean; trail?: ArtifactTraits['trail']; meleeMinRange: number } {
+    const out = { ignoreRules: [] as string[], frontGuard: false, trail: undefined as ArtifactTraits['trail'], meleeMinRange: 0 };
+    for (const id of unit?.artifacts ?? []) {
+      const t: ArtifactTraits = artifactDef(id).traits ?? {};
+      out.ignoreRules.push(...(t.ignoreRules ?? []));
+      out.frontGuard ||= !!t.frontGuard;
+      out.trail ??= t.trail;
+      out.meleeMinRange = Math.max(out.meleeMinRange, t.meleeMinRange ?? 0);
+    }
+    return out;
   }
 
   private context(target: Unit, attacker: Unit | undefined, extra: Partial<PredicateContext>): PredicateContext {
@@ -856,6 +947,11 @@ export class CombatWorld {
       weather: this.weather,
       attackerImbued: !!attacker?.imbue && attacker.imbue.until > this.time,
       attackerHasBuff: (label) => !!attacker?.buffs.some((b) => b.label === label && b.until > this.time && b.charges > 0),
+      targetStatusCount: () => STATUS_IDS.filter((s) => this.isActive(target, s)).length,
+      attackerStatusCount: () => (attacker ? STATUS_IDS.filter((s) => this.isActive(attacker, s)).length : 0),
+      attackerHpRatio: attacker ? attacker.hp / attacker.maxHp : 0,
+      attackerStillFor: attacker ? this.time - attacker.lastMovedAt : 0,
+      targetOnFloor: (field) => this.floors.some((f) => f.field === field && Math.hypot(target.x - f.x, target.y - f.y) <= f.radius),
       ...extra,
     };
   }
@@ -896,8 +992,9 @@ export class CombatWorld {
       ruleBonuses: bonuses,
       resist: target.resist[hit.element],
     });
-    const amount = defended === 'guarded' ? raw * (1 - DEFENSE.guardReduction) : raw;
-    if (defended === 'guarded') this.events.push({ type: 'guarded', unitId: target.id, blocked: raw - amount });
+    const taken = raw * this.statOf(target, 'damageTaken', hit.tags);
+    const amount = defended === 'guarded' ? taken * (1 - DEFENSE.guardReduction) : taken;
+    if (defended === 'guarded') this.events.push({ type: 'guarded', unitId: target.id, blocked: taken - amount });
     target.hp -= amount;
     const record: DamageRecord = {
       time: this.time,
@@ -927,7 +1024,20 @@ export class CombatWorld {
 
     const source: Source = { attacker, skill: hit.skill, via: hit.via, depth: hit.depth, hit };
     const status = statusForElement(hit.element);
-    if (status && hit.buildup > 0) this.addBuildup(target, status, hit.buildup, source);
+    if (status && hit.buildup > 0) {
+      const buildup = hit.buildup * (attacker ? this.statOf(attacker, 'buildup', hit.tags) : 1);
+      this.addBuildup(target, status, buildup, source);
+    }
+
+    // 被弾したときのルール(棘の鎧、血の返礼など)。対象は攻撃してきた者
+    if (attacker && attacker.team !== target.team && !hit.tags.has('dot') && amount > 0) {
+      const hurtCtx = this.context(attacker, target, { hitTags: hit.tags, hitElement: hit.element });
+      for (const { rule } of this.rulesFor(target)) {
+        if (rule.on !== 'hurt' || !ruleMatches(rule, hurtCtx)) continue;
+        const src: Source = { attacker: target, skill: rule.label, via: [rule.label], depth: hit.depth, hit, amount };
+        for (const action of rule.do) this.runAction(action, rule.label, attacker, src);
+      }
+    }
 
     const hitCtx = this.context(target, attacker, { hitTags: hit.tags, hitElement: hit.element });
     for (const { rule } of rules) {
@@ -962,6 +1072,15 @@ export class CombatWorld {
         this.react('justDodge', target, attacker, hit);
       }
       return 'avoided';
+    }
+
+    // 苔むした大盾:正面からの直撃は全て防ぐ
+    if (direct && attacker && this.traitsOf(target).frontGuard) {
+      const from = Math.atan2(attacker.y - target.y, attacker.x - target.x);
+      if (Math.abs(normalizeAngle(from - target.facing)) <= (DEFENSE.guardArc * Math.PI) / 180) {
+        this.events.push({ type: 'guarded', unitId: target.id, blocked: hit.power });
+        return 'avoided';
+      }
     }
 
     if (target.guardSince === null || !direct) return 'none';
@@ -1014,6 +1133,23 @@ export class CombatWorld {
           via,
         });
         break;
+      case 'reflect':
+        if (src.amount && src.amount > 0) {
+          const element = src.hit?.element ?? 'slash';
+          this.enqueue({
+            attackerId: src.attacker?.id,
+            targetId: target.id,
+            element,
+            power: src.amount * action.ratio,
+            buildup: 0,
+            tags: hitTags(element, ['reflect']),
+            skill: label,
+            source: label,
+            depth: src.depth + 1,
+            via,
+          });
+        }
+        break;
       case 'grantBuff':
         if (src.attacker) {
           src.attacker.buffs.push({
@@ -1028,9 +1164,13 @@ export class CombatWorld {
     }
   }
 
+  /** 状態の蓄積が止まるか。相互作用と攻撃者のルールに加え、かかる本人のルール(油を踏む者など)も見る */
   private isBlocked(unit: Unit, status: StatusId, attacker: Unit | undefined): boolean {
     const ctx = this.context(unit, attacker, { status });
-    return this.rulesFor(attacker).some(({ rule }) => rule.on === 'buildup' && ruleMatches(rule, ctx));
+    if (this.rulesFor(attacker).some(({ rule }) => rule.on === 'buildup' && ruleMatches(rule, ctx))) return true;
+    if (unit === attacker) return false;
+    const own = this.rulesFor(unit).filter(({ kind }) => kind !== 'interaction' && kind !== 'reaction');
+    return own.some(({ rule }) => rule.on === 'buildup' && ruleMatches(rule, ctx));
   }
 
   private addBuildup(unit: Unit, status: StatusId, amount: number, src: Source): void {

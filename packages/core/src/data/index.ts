@@ -8,3 +8,6 @@ export * from './interactions';
 export * from './defense';
 export * from './tactics';
 export * from './combos';
+export * from './stats';
+export * from './equipment';
+export * from './artifacts';

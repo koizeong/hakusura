@@ -29,6 +29,47 @@ export const PASSIVES = {
       },
     ],
   },
+  heavyHand: {
+    name: '重い手',
+    description: '近攻撃のダメージ+40%、移動速度-15%',
+    modifiers: [
+      { tags: ['melee'], value: 0.4 },
+      { stat: 'moveSpeed', tags: [], value: -0.15 },
+    ],
+  },
+  fleetFoot: {
+    name: '逃げ足',
+    description: '移動速度+30%、近攻撃のダメージ-15%',
+    modifiers: [
+      { stat: 'moveSpeed', tags: [], value: 0.3 },
+      { tags: ['melee'], value: -0.15 },
+    ],
+  },
+  emberHeart: {
+    name: '燠の心臓',
+    description: '炎上の蓄積+60%',
+    modifiers: [{ stat: 'buildup', tags: ['fire'], value: 0.6 }],
+  },
+  stormCaller: {
+    name: '嵐を招く者',
+    description: '雨の間、雷のダメージ+50%',
+    rules: [
+      {
+        label: '嵐を招く者',
+        on: 'damage',
+        when: [
+          { type: 'weather', weather: 'rain' },
+          { type: 'hitHasTag', tag: 'lightning' },
+        ],
+        add: 0.5,
+      },
+    ],
+  },
+  bloodletter: {
+    name: '瀉血',
+    description: '自分が出血中なら、与ダメージ+60%',
+    rules: [{ label: '瀉血', on: 'damage', when: [{ type: 'attackerHas', status: 'bleed' }], add: 0.6 }],
+  },
   readTheBlow: {
     name: '見切りの心得',
     description: '敵の直撃を30%の確率で見切る(次の攻撃が倍)',

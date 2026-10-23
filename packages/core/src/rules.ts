@@ -1,6 +1,7 @@
 import type { ElementId } from './data/elements';
 import type { FieldId } from './data/fields';
 import type { StatusId } from './data/statuses';
+import type { StatId } from './data/stats';
 
 /**
  * 効果の発動条件。条件文・パッシブ・状態の相互作用は全てこの部品の組み合わせで書く。
@@ -20,7 +21,17 @@ export type Predicate =
   | { type: 'selfImbued' }
   /** 攻撃者(作戦なら自分)が一時的な強化を持っている */
   | { type: 'selfHasBuff'; label: string }
-  | { type: 'not'; p: Predicate };
+  | { type: 'not'; p: Predicate }
+  /** 相手が min 種類以上の状態にかかっている */
+  | { type: 'targetStatusCount'; min: number }
+  /** 自分がかかっている状態が max 種類以下 */
+  | { type: 'selfStatusCount'; max: number }
+  /** 自分のHPが最大HPの min 以上(1 で満タン) */
+  | { type: 'selfHpRatio'; min: number }
+  /** 自分が ms ミリ秒以上動いていない */
+  | { type: 'selfStill'; ms: number }
+  /** 相手がその床の上にいる */
+  | { type: 'targetOnFloor'; field: FieldId };
 
 export type Action =
   /** 同じ攻撃をもう一度当てる */
@@ -29,7 +40,9 @@ export type Action =
   /** 対象に新しいヒットを落とす */
   | { type: 'strike'; element: ElementId; power: number; buildup: number; tags?: readonly string[] }
   /** 持ち主に一時的な強化を与える。charges 回使うか duration で消える */
-  | { type: 'grantBuff'; label: string; add: number; tags: readonly string[]; duration: number; charges?: number };
+  | { type: 'grantBuff'; label: string; add: number; tags: readonly string[]; duration: number; charges?: number }
+  /** 受けたダメージの ratio を、攻撃してきた相手に返す(on: 'hurt' でだけ意味を持つ) */
+  | { type: 'reflect'; ratio: number };
 
 interface RuleBase {
   /** 内訳や戦闘中の表示に出る名前 */
@@ -48,6 +61,13 @@ export type Rule = RuleBase &
       }
     | /** 状態の蓄積を止める。発動中なら消す */ { on: 'buildup'; block: true }
     | /** ジャスト回避・ジャストガードしたとき。対象は攻撃してきた者 */ { on: 'justDodge' | 'justGuard'; do: readonly Action[] }
+    | /** 条件つきの補正値。tags があれば、そのタグを全て持つときだけ効く */ {
+        on: 'stat';
+        stat: StatId;
+        add: number;
+        tags?: readonly string[];
+      }
+    | /** 攻撃を受けた後。対象は攻撃してきた者 */ { on: 'hurt'; do: readonly Action[] }
     | /** スキルの直撃を受ける直前。chance の確率でジャスト回避・ジャストガードしたことにする */ {
         on: 'incoming';
         chance: number;
@@ -55,15 +75,19 @@ export type Rule = RuleBase &
       }
   );
 
-/** 補正値。tags を全て持つヒットに効く。同じ group 同士は加算、違う group は乗算 */
+/**
+ * 補正値。stat(既定は与ダメージ)に効き、tags を全て持つものにだけ効く。
+ * 同じ group 同士は加算、違う group は乗算。group を省くと、stat と tags が同じものを同じ種類とみなす
+ */
 export interface Modifier {
+  stat?: StatId;
   tags: readonly string[];
   value: number;
   group?: string;
 }
 
 export function modifierGroup(mod: Modifier): string {
-  return mod.group ?? `tags:${[...mod.tags].sort().join('+')}`;
+  return mod.group ?? `${mod.stat ?? 'damage'}:${[...mod.tags].sort().join('+')}`;
 }
 
 export interface PredicateContext {
@@ -76,6 +100,11 @@ export interface PredicateContext {
   status?: StatusId;
   attackerImbued?: boolean;
   attackerHasBuff?(label: string): boolean;
+  targetStatusCount?(): number;
+  attackerStatusCount?(): number;
+  attackerHpRatio?: number;
+  attackerStillFor?: number;
+  targetOnFloor?(field: FieldId): boolean;
 }
 
 export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean {
@@ -100,6 +129,16 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return ctx.attackerHasBuff?.(p.label) ?? false;
     case 'not':
       return !evaluatePredicate(p.p, ctx);
+    case 'targetStatusCount':
+      return (ctx.targetStatusCount?.() ?? 0) >= p.min;
+    case 'selfStatusCount':
+      return (ctx.attackerStatusCount?.() ?? 0) <= p.max;
+    case 'selfHpRatio':
+      return (ctx.attackerHpRatio ?? 0) >= p.min;
+    case 'selfStill':
+      return (ctx.attackerStillFor ?? 0) >= p.ms;
+    case 'targetOnFloor':
+      return ctx.targetOnFloor?.(p.field) ?? false;
   }
 }
 
