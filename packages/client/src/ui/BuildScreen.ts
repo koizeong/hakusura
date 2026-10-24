@@ -13,7 +13,17 @@ import {
   PASSIVE_IDS,
   SKILL_CATEGORIES,
   TRUMP_SKILL_IDS,
+  ELEMENTS,
+  LOOT_WEAPON_TYPE_IDS,
+  WEAPON_KINDS,
+  WEAPON_TYPES,
   activeSkillDef,
+  buildWeapons,
+  isTechnique,
+  resolveSkill,
+  techniqueFits,
+  techniqueRequirement,
+  unusableActives,
   benefitOf,
   buildProblems,
   canEquip,
@@ -26,6 +36,7 @@ import {
   type EquipSlotId,
   type Item,
   type Unit,
+  type WeaponTypeId,
 } from '@hakusura/core';
 import { h, signedPercent } from './dom';
 import { createTacticsEditor } from './TacticsEditor';
@@ -55,6 +66,7 @@ export class BuildScreen {
   private tab: Tab = 'equipment';
   private selectedSlot: EquipSlotId = 'head';
   private lootCondition: ConditionId | '' = '';
+  private lootWeapon: WeaponTypeId = LOOT_WEAPON_TYPE_IDS[0]!;
   private codeMessage = '';
 
   constructor(private host: BuildScreenHost) {}
@@ -99,6 +111,7 @@ export class BuildScreen {
         this.renderPresets(),
         this.renderStats(),
         problems.length > 0 ? h('p', { class: 'problems' }, problems.join(' / ')) : '',
+        this.renderUnusable(),
         h(
           'nav',
           { class: 'tabs' },
@@ -242,6 +255,19 @@ export class BuildScreen {
         ),
         h('button', { disabled: !this.lootCondition, onclick: () => this.lootWithCondition() }, '拾う'),
       ),
+      EQUIP_SLOTS[this.selectedSlot].kind === 'weapon'
+        ? h(
+            'label',
+            {},
+            '武器を選んで1つ拾う ',
+            h(
+              'select',
+              { onchange: (e: Event) => (this.lootWeapon = (e.target as HTMLSelectElement).value as WeaponTypeId) },
+              ...LOOT_WEAPON_TYPE_IDS.map((id) => h('option', { value: id, selected: id === this.lootWeapon }, `${WEAPON_TYPES[id].name}(${weaponSummary(id)})`)),
+            ),
+            h('button', { onclick: () => this.lootWeaponType() }, '拾う'),
+          )
+        : '',
       h('small', {}, `拾い物の山:${state.stash.length - equippedIds.size}個(放置で手に入る想定)`),
     );
 
@@ -305,6 +331,22 @@ export class BuildScreen {
     this.changed();
   }
 
+  private lootWeaponType(): void {
+    this.host.state.stash.unshift(generateItem(() => this.host.random(), { slot: this.selectedSlot, kind: 'weapon', weaponType: this.lootWeapon }));
+    this.changed();
+  }
+
+  /** 今の武器では出ない技を知らせる */
+  private renderUnusable(): HTMLElement | string {
+    const ids = unusableActives(this.build);
+    if (ids.length === 0) return '';
+    const names = ids.map((id) => {
+      const def = activeSkillDef(id);
+      return isTechnique(def) ? `${def.name}(${techniqueRequirement(def, (e) => ELEMENTS[e].name)}が要る)` : def.name;
+    });
+    return h('p', { class: 'problems' }, `今の武器では出ない:${names.join('、')}`);
+  }
+
   // ---- スキル ----
 
   private renderSkills(): HTMLElement {
@@ -321,14 +363,26 @@ export class BuildScreen {
       { class: 'skills' },
       h('p', { class: 'counter' }, `アクティブ ${build.actives.length} / ${BUILD_LIMITS.actives}  ・  スキル合計 ${total} / ${BUILD_LIMITS.skills}`),
       h('h3', {}, 'アクティブ'),
+      h('p', { class: 'note' }, `技は武器の速さ・範囲・属性で出る。今の武器:${buildWeapons(build).map((w) => WEAPON_TYPES[w].name).join('・')}`),
       ...BUILD_ACTIVE_IDS.map((id) => {
         const def = activeSkillDef(id);
+        let detail: string;
+        let usable = true;
+        if (isTechnique(def)) {
+          // 今の武器のうち、最初に合うもので出したときの数値を見せる
+          const weapon = buildWeapons(build).find((w) => techniqueFits(def, w));
+          const r = weapon ? resolveSkill(id, weapon) : undefined;
+          usable = !!r;
+          detail = `${techniqueRequirement(def, (e) => ELEMENTS[e].name)}・${r ? `${WEAPON_TYPES[weapon!].name}で ${(r.cooldown / 1000).toFixed(1)}秒` : '今の武器では出ない'}・${def.description ?? ''}`;
+        } else {
+          detail = `${SKILL_CATEGORIES[def.category]}・${(def.cooldown / 1000).toFixed(1)}秒・${def.description ?? ''}`;
+        }
         return h(
           'label',
-          { class: 'skill-row' },
+          { class: `skill-row${usable ? '' : ' unusable'}` },
           h('input', { type: 'checkbox', checked: build.actives.includes(id), onchange: (e: Event) => toggle(build.actives, id, (e.target as HTMLInputElement).checked) }),
           h('span', {}, def.name),
-          h('small', {}, `${SKILL_CATEGORIES[def.category]}・${(def.cooldown / 1000).toFixed(1)}秒・${def.description ?? ''}`),
+          h('small', {}, detail),
         );
       }),
       h('h3', {}, 'パッシブ'),
@@ -373,7 +427,7 @@ export class BuildScreen {
             },
           }),
           h('span', {}, ACTIVE_SKILLS[id].name),
-          h('small', {}, `${activeSkillDef(id).description ?? ''}(${ACTIVE_SKILLS[id].cooldown / 1000}秒)`),
+          h('small', {}, `${activeSkillDef(id).description ?? ''}(${(resolveSkill(id)?.cooldown ?? 0) / 1000}秒)`),
         ),
       ),
     );
@@ -458,10 +512,18 @@ function itemCard(item: Item, ...actions: HTMLElement[]): HTMLElement {
     { class: `item-card${artifact ? ' artifact' : ''}` },
     h('div', { class: 'item-head' }, h('b', {}, item.name), h('small', {}, kindName), artifact ? '' : h('small', { class: 'total' }, `合計 ${signedPercent(total / 100)}`)),
     artifact ? h('p', { class: 'artifact-text' }, artifact.text) : '',
+    item.weaponType ? h('div', { class: 'weapon-stats' }, weaponSummary(item.weaponType)) : '',
     ...item.affixes.map((a) =>
       h('div', { class: `affix ${benefitOf(a) >= 0 ? 'good' : 'bad'}` }, `${AFFIXES[a.affix].name} ${signedPercent(a.value / 100)}`),
     ),
     item.condition ? h('div', { class: 'affix condition' }, `${CONDITIONS[item.condition].text}(コスト ${CONDITIONS[item.condition].cost}%)`) : '',
     actions.length > 0 ? h('div', { class: 'item-actions' }, ...actions) : '',
   );
+}
+
+/** 武器の性能を一行で */
+function weaponSummary(id: WeaponTypeId): string {
+  const w = WEAPON_TYPES[id];
+  const shape = w.kind === 'melee' ? `扇${w.arc}°` : `弾速${w.speed}`;
+  return `${WEAPON_KINDS[w.kind]}・${ELEMENTS[w.element].name}・威力${w.power}・間隔${(w.interval / 1000).toFixed(2)}秒・射程${w.range}・${shape}`;
 }

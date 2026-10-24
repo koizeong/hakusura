@@ -9,7 +9,10 @@ import {
   STATUSES,
   STATUS_IDS,
   activeSkillDef,
-  skillReach,
+  actionReach,
+  resolveSkill,
+  type SkillAction,
+  type ElementId,
   dealtBy,
   skillElement,
   summarize,
@@ -98,7 +101,7 @@ export class TrainingGroundScene extends Phaser.Scene {
   private buffered: { skill: ActiveSkillId; until: number } | null = null;
   private slowUntil = 0;
   /** 振りかぶりの予兆。効果が出るか潰れるまで描く */
-  private telegraphs: { unitId: string; skill: ActiveSkillId; angle: number; start: number; at: number }[] = [];
+  private telegraphs: { unitId: string; skill: ActiveSkillId; angle: number; start: number; at: number; action: SkillAction; element?: ElementId }[] = [];
   private numberStack = new Map<string, number>();
   private mode: BattleMode = 'auto';
   private speed = 1;
@@ -245,7 +248,8 @@ export class TrainingGroundScene extends Phaser.Scene {
   private useTrump(): void {
     const trump = this.player.trump;
     if (!trump) return;
-    this.world.queueSkill(this.player.id, trump, skillReach(activeSkillDef(trump)) !== undefined ? 6000 : 1500);
+    const def = resolveSkill(trump);
+    this.world.queueSkill(this.player.id, trump, def && actionReach(def.action) !== undefined ? 6000 : 1500);
   }
 
   private openBuild(): void {
@@ -574,11 +578,11 @@ export class TrainingGroundScene extends Phaser.Scene {
     // 振りかぶりの予兆。満ちたときに当たる
     for (const t of this.telegraphs) {
       const unit = world.units.get(t.unitId);
-      const action = ACTIVE_SKILLS[t.skill].action;
+      const action = t.action;
       if (unit && action.type === 'barrage') {
         // 弾幕の予兆。満ちる輪で撃つ瞬間を知らせる
         const progress = Phaser.Math.Clamp((world.time - t.start) / (t.at - t.start), 0, 1);
-        const color = ELEMENTS[activeSkillDef(t.skill).element ?? 'slash'].color;
+        const color = ELEMENTS[t.element ?? 'slash'].color;
         g.lineStyle(2, 0xa83228, 0.5 + progress * 0.4).strokeCircle(unit.x, unit.y, 46 - progress * 22);
         g.fillStyle(color, 0.15 + progress * 0.25).fillCircle(unit.x, unit.y, 24);
         if (action.pattern === 'fan') {
@@ -853,7 +857,15 @@ export class TrainingGroundScene extends Phaser.Scene {
         break;
       }
       case 'windup': {
-        this.telegraphs.push({ unitId: event.unitId, skill: event.skill, angle: event.angle, start: this.world.time, at: event.at });
+        this.telegraphs.push({
+          unitId: event.unitId,
+          skill: event.skill,
+          angle: event.angle,
+          start: this.world.time,
+          at: event.at,
+          action: event.action,
+          element: event.element,
+        });
         break;
       }
       case 'interrupted': {

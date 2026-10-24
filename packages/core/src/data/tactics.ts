@@ -28,7 +28,7 @@ export interface Tactic {
 
 export const DEFAULT_TACTICS: readonly Tactic[] = [
   { skill: 'emberOil', condition: 'imbueOff', enabled: true },
-  { skill: 'thunderGun', condition: 'targetWet', enabled: true },
-  { skill: 'rustGreatsword', condition: 'always', enabled: true },
-  { skill: 'thunderGun', condition: 'always', enabled: true },
+  { skill: 'shoot', condition: 'targetWet', enabled: true },
+  { skill: 'slash', condition: 'always', enabled: true },
+  { skill: 'shoot', condition: 'always', enabled: true },
 ];

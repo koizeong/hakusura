@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld, type UnitSpec } from './world';
 import { DEFENSE, MAX_TRIGGER_DEPTH } from './constants';
-import { ACTIVE_SKILLS, type ActiveSkillId } from './data/skills';
+import { ACTIVE_SKILLS, resolveSkill, type ActiveSkillId } from './data/skills';
 import { STATUSES } from './data/statuses';
 import { summarize, dealtBy } from './breakdown';
+import { SWORD, GUN, pw, TEST_WEAPONS } from './testkit';
 
-const player = (extra: Partial<UnitSpec> = {}): UnitSpec => ({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1e9, ...extra });
+const player = (extra: Partial<UnitSpec> = {}): UnitSpec => ({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1e9, weapons: TEST_WEAPONS, ...extra });
 const dummy = (id: string, x: number, y = 0, extra: Partial<UnitSpec> = {}): UnitSpec => ({
   id,
   name: '案山子',
@@ -16,10 +17,7 @@ const dummy = (id: string, x: number, y = 0, extra: Partial<UnitSpec> = {}): Uni
   ...extra,
 });
 
-const power = (id: ActiveSkillId) => {
-  const a = ACTIVE_SKILLS[id].action;
-  return 'power' in a ? a.power : 0;
-};
+const power = (id: ActiveSkillId) => (id === 'slash' ? pw(SWORD) : id === 'shoot' ? pw(GUN) : pw(resolveSkill(id)!));
 
 /** 振りかぶりと弾の飛翔が済むまで進める */
 function use(w: CombatWorld, skill: ActiveSkillId, at: { x: number; y: number }, targetId?: string, unitId = 'p') {
@@ -30,16 +28,16 @@ function use(w: CombatWorld, skill: ActiveSkillId, at: { x: number; y: number },
   for (let i = 0; i < 300 && (u.windupUntil > w.time || w.projectiles.length > 0); i++) w.update(10);
 }
 
-const slash = (w: CombatWorld, at: { x: number; y: number }) => use(w, 'rustGreatsword', at);
-const shoot = (w: CombatWorld, at: { x: number; y: number }) => use(w, 'thunderGun', at);
+const slash = (w: CombatWorld, at: { x: number; y: number }) => use(w, 'slash', at);
+const shoot = (w: CombatWorld, at: { x: number; y: number }) => use(w, 'shoot', at);
 
 describe('振りかぶりと硬直', () => {
   it('振りかぶりの間は当たらず、済むと当たる', () => {
     const w = new CombatWorld();
     w.addUnit(player());
     const d = w.addUnit(dummy('d', 50));
-    w.useSkill('p', 'rustGreatsword', d);
-    w.update(ACTIVE_SKILLS.rustGreatsword.windup - 10);
+    w.useSkill('p', 'slash', d);
+    w.update(SWORD.windup - 10);
     expect(w.log.length).toBe(0);
     w.update(20);
     expect(w.log.length).toBe(1);
@@ -49,11 +47,11 @@ describe('振りかぶりと硬直', () => {
     const w = new CombatWorld();
     const p = w.addUnit(player());
     w.addUnit(dummy('d', 50));
-    w.useSkill('p', 'rustGreatsword', { x: 50, y: 0 });
-    w.update(ACTIVE_SKILLS.rustGreatsword.windup - 10);
+    w.useSkill('p', 'slash', { x: 50, y: 0 });
+    w.update(SWORD.windup - 10);
     expect(w.canDodge('p')).toBe(false); // 振りかぶり中
     w.update(20);
-    expect(w.canUseSkill('p', 'thunderGun')).toBe(false); // 硬直中
+    expect(w.canUseSkill('p', 'shoot')).toBe(false); // 硬直中
     expect(w.dodge('p')).toBe(true);
     expect(w.isBusy(p)).toBe(false);
   });
@@ -62,7 +60,7 @@ describe('振りかぶりと硬直', () => {
     const w = new CombatWorld();
     w.addUnit(player());
     w.addUnit(dummy('d', 0, 60));
-    use(w, 'rustGreatsword', { x: -100, y: 0 }, 'd'); // 逆を向いて振っても当たる
+    use(w, 'slash', { x: -100, y: 0 }, 'd'); // 逆を向いて振っても当たる
     expect(w.log.some((r) => r.targetId === 'd')).toBe(true);
   });
 });
@@ -191,8 +189,8 @@ describe('状態の相互作用', () => {
     w.addUnit(dummy('d', 50));
     w.forceStatus('d', 'stun', true);
     slash(w, { x: 50, y: 0 });
-    expect(w.log[0]!.amount).toBeCloseTo(power('rustGreatsword') * 1.5);
-    expect(w.log[0]!.source).toBe('錆びた大剣(昏倒に追撃)');
+    expect(w.log[0]!.amount).toBeCloseTo(power('slash') * 1.5);
+    expect(w.log[0]!.source).toBe('錆びた大剣の斬りつけ(昏倒に追撃)');
   });
 });
 
@@ -231,7 +229,7 @@ describe('条件文', () => {
     const d = w.addUnit(dummy('d', 50));
     w.forceStatus('d', 'burn', true);
     slash(w, d);
-    const swords = w.log.filter((r) => r.source === '錆びた大剣');
+    const swords = w.log.filter((r) => r.source === '錆びた大剣の斬りつけ');
     expect(swords.length).toBe(2);
     expect(swords[1]!.via).toContain('炎への二撃');
     expect(swords[1]!.emphasized).toBe(true);
@@ -245,10 +243,10 @@ describe('条件文', () => {
     shoot(w, d); // 斬 → 雷
     shoot(w, d); // 雷 → 雷
     const [first, second, third] = w.log.filter((r) => r.depth === 0);
-    expect(first!.amount).toBeCloseTo(power('rustGreatsword'));
-    expect(second!.amount).toBeCloseTo(power('thunderGun') * 1.8);
+    expect(first!.amount).toBeCloseTo(power('slash'));
+    expect(second!.amount).toBeCloseTo(power('shoot') * 1.8);
     expect(second!.via).toContain('移ろう属性');
-    expect(third!.amount).toBeCloseTo(power('thunderGun'));
+    expect(third!.amount).toBeCloseTo(power('shoot'));
   });
 
   it('51: 雨の間、全ての攻撃が濡れを付与する', () => {
@@ -271,7 +269,7 @@ describe('パッシブ', () => {
     w.addUnit(player({ passives: ['sootPrayer'] }));
     const d = w.addUnit(dummy('d', 100));
     shoot(w, d);
-    expect(w.log[0]!.amount).toBeCloseTo(power('thunderGun') * 1.3);
+    expect(w.log[0]!.amount).toBeCloseTo(power('shoot') * 1.3);
   });
 
   it('血を呼ぶ雷: 自分が付けた出血が発動すると雷が落ちる', () => {
@@ -282,7 +280,7 @@ describe('パッシブ', () => {
     const bolt = w.log.find((r) => r.source === '血を呼ぶ雷');
     expect(bolt).toBeDefined();
     expect(bolt!.element).toBe('lightning');
-    expect(bolt!.skill).toBe('錆びた大剣');
+    expect(bolt!.skill).toBe('錆びた大剣の斬りつけ');
   });
 });
 
@@ -310,11 +308,11 @@ describe('回避とガード', () => {
     expect(p.buffs.map((b) => b.label)).toContain('見切り');
     slash(w, { x: 60, y: 0 });
     const hit = w.log.find((r) => r.targetId === 'e')!;
-    expect(hit.amount).toBeCloseTo(power('rustGreatsword') * 2);
+    expect(hit.amount).toBeCloseTo(power('slash') * 2);
     expect(hit.via).toContain('見切り');
     // 見切りは1回で消える
     slash(w, { x: 60, y: 0 });
-    expect(w.log.filter((r) => r.targetId === 'e')[1]!.amount).toBeCloseTo(power('rustGreatsword'));
+    expect(w.log.filter((r) => r.targetId === 'e')[1]!.amount).toBeCloseTo(power('slash'));
   });
 
   it('回避で範囲の外へ抜けても、避け始めた位置に当たる攻撃ならジャスト回避', () => {

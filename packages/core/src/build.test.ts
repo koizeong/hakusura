@@ -3,6 +3,7 @@ import { CombatWorld, type Unit } from './world';
 import { ACTIVE_SKILLS } from './data/skills';
 import { AFFIXES, EQUIP_RULES, generateItem, itemTotal, type AffixDef, type Item } from './data/equipment';
 import { applyBuild, buildProblems, canEquip, decodeBuild, encodeBuild, type Build } from './build';
+import { TEST_WEAPONS, SWORD, GUN, pw } from './testkit';
 
 const run = (w: CombatWorld, ms: number) => {
   for (let t = 0; t < ms; t += 10) w.update(10);
@@ -19,7 +20,7 @@ const item = (extra: Partial<Item>): Item => ({ id: 'x', name: '試し', kind: '
 
 function setup() {
   const w = new CombatWorld();
-  const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 300 });
+  const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', weapons: TEST_WEAPONS, x: 0, y: 0, maxHp: 300 });
   const e = w.addUnit({ id: 'e', name: '案山子', team: 'enemy', x: 60, y: 0, maxHp: 1e9 });
   return { w, p, e };
 }
@@ -27,6 +28,8 @@ function setup() {
 const equip = (w: CombatWorld, p: Unit, items: Item[], extra: Partial<Build> = {}) => {
   const slots = ['accessory1', 'accessory2', 'accessory3'] as const;
   applyBuild(w, p, emptyBuild({ equipment: Object.fromEntries(items.map((it, i) => [slots[i], it])), ...extra }));
+  // 武器を着けると持ち方の補正が乗るので、テストでは武器だけ直に持たせる
+  p.weapons = [...TEST_WEAPONS];
 };
 
 describe('装備の生成', () => {
@@ -78,8 +81,8 @@ describe('補正値の効き先', () => {
     ]);
     expect(p.maxHp).toBe(450);
     expect(w.statOf(p, 'moveSpeed')).toBeCloseTo(1.2);
-    w.useSkill('p', 'rustGreatsword', e);
-    expect(p.cooldowns.rustGreatsword).toBeCloseTo(ACTIVE_SKILLS.rustGreatsword.cooldown * 0.5);
+    w.useSkill('p', 'slash', e);
+    expect(p.cooldowns.slash).toBeCloseTo(SWORD.cooldown * 0.5);
     run(w, 400);
     // 蓄積が2倍なので、1回で満タンになり出血が発動する
     expect(w.isActive(e, 'bleed')).toBe(true);
@@ -97,7 +100,7 @@ describe('補正値の効き先', () => {
 
   it('作戦はビルドに入れたアクティブしか使わない', () => {
     const { w, p } = setup();
-    applyBuild(w, p, emptyBuild({ actives: ['thunderGun'], tactics: [{ skill: 'rustGreatsword', condition: 'always', enabled: true }] }));
+    applyBuild(w, p, emptyBuild({ actives: ['shoot'], tactics: [{ skill: 'slash', condition: 'always', enabled: true }] }));
     p.autoBattle = true;
     run(w, 600);
     expect(w.log.length).toBe(0);
@@ -121,10 +124,10 @@ describe('追加した条件文', () => {
   it('9: 敵が3種類以上の状態にかかっているとき、与ダメージ2倍', () => {
     const { w, e } = withCondition('manyAilments');
     for (const s of ['wet', 'oiled', 'stun'] as const) w.forceStatus('e', s, true);
-    w.useSkill('p', 'rustGreatsword', e);
+    w.useSkill('p', 'slash', e);
     run(w, 400);
     // 昏倒に追撃 ×1.5 と掛け合わさる
-    expect(w.log[0]!.amount).toBeCloseTo(ACTIVE_SKILLS.rustGreatsword.action.power * 2 * 1.5);
+    expect(w.log[0]!.amount).toBeCloseTo(pw(SWORD) * 2 * 1.5);
   });
 
   it('10: 自分がどの状態にもかかっていないとき、被ダメージ-40%', () => {
@@ -136,15 +139,15 @@ describe('追加した条件文', () => {
 
   it('41: HPが満タンのとき、与ダメージ+50%', () => {
     const { w, p, e } = withCondition('unscathed');
-    w.useSkill('p', 'rustGreatsword', e);
+    w.useSkill('p', 'slash', e);
     run(w, 400);
-    expect(w.log[0]!.amount).toBeCloseTo(ACTIVE_SKILLS.rustGreatsword.action.power * 1.5);
+    expect(w.log[0]!.amount).toBeCloseTo(pw(SWORD) * 1.5);
     p.hp -= 1;
     p.cooldowns = {};
     p.busyUntil = 0;
-    w.useSkill('p', 'rustGreatsword', e);
+    w.useSkill('p', 'slash', e);
     run(w, 400);
-    expect(w.log.filter((r) => r.depth === 0)[1]!.amount).toBeCloseTo(ACTIVE_SKILLS.rustGreatsword.action.power);
+    expect(w.log.filter((r) => r.depth === 0)[1]!.amount).toBeCloseTo(pw(SWORD));
   });
 
   it('48: 被弾するたびに、攻撃してきた相手に出血を付与', () => {
@@ -195,19 +198,19 @@ describe('アーティファクト', () => {
   it('双子の銃: 遠攻撃が2発、1発ごとの威力は60%', () => {
     const { w, e } = withArtifact('twinGuns');
     w.moveUnit('e', 400, 0);
-    w.useSkill('p', 'thunderGun', e);
-    run(w, ACTIVE_SKILLS.thunderGun.windup + 10);
+    w.useSkill('p', 'shoot', e);
+    run(w, GUN.windup + 10);
     expect(w.projectiles.length).toBe(2);
     run(w, 500);
-    expect(w.log[0]!.amount).toBeCloseTo(ACTIVE_SKILLS.thunderGun.action.power * 0.6);
+    expect(w.log[0]!.amount).toBeCloseTo(pw(GUN) * 0.6);
   });
 
   it('半分の命: 最大HPが半分、与ダメージ+50%', () => {
     const { w, p, e } = withArtifact('halfLife');
     expect(p.maxHp).toBe(150);
-    w.useSkill('p', 'rustGreatsword', e);
+    w.useSkill('p', 'slash', e);
     run(w, 400);
-    expect(w.log[0]!.amount).toBeCloseTo(ACTIVE_SKILLS.rustGreatsword.action.power * 1.5);
+    expect(w.log[0]!.amount).toBeCloseTo(pw(SWORD) * 1.5);
   });
 
   it('煤けた聖火: 濡れている敵にも炎上を付与する', () => {
@@ -217,7 +220,7 @@ describe('アーティファクト', () => {
     for (let i = 0; i < 5 && !w.isActive(e, 'burn'); i++) {
       p.cooldowns = {};
       p.busyUntil = 0;
-      w.useSkill('p', 'rustGreatsword', e);
+      w.useSkill('p', 'slash', e);
       run(w, 400);
     }
     expect(w.isActive(e, 'burn')).toBe(true);
@@ -260,13 +263,13 @@ describe('アーティファクト', () => {
 
   it('錆鉄の長柄: 近攻撃の射程が2倍になるが、密着した敵には当たらない', () => {
     const { w, p, e } = withArtifact('rustyPole');
-    w.useSkill('p', 'rustGreatsword', e);
+    w.useSkill('p', 'slash', e);
     run(w, 400);
     expect(w.log.length).toBe(0); // 60 は近すぎる
     w.moveUnit('e', 200, 0);
     p.cooldowns = {};
     p.busyUntil = 0;
-    w.useSkill('p', 'rustGreatsword', e);
+    w.useSkill('p', 'slash', e);
     run(w, 400);
     expect(w.log.length).toBe(1);
   });
@@ -274,14 +277,14 @@ describe('アーティファクト', () => {
 
 describe('ビルドコード', () => {
   const build: Build = {
-    actives: ['rustGreatsword', 'thunderGun'],
+    actives: ['slash', 'shoot'],
     passives: ['heavyHand'],
     equipment: {
       head: { id: 'a', name: '錆びた兜', kind: 'armor', slot: 'head', affixes: [{ affix: 'maxHp', value: 40 }], condition: 'standFirm' },
       accessory1: { id: 'b', name: '棘の鎧', kind: 'accessory', affixes: [], artifact: 'thornArmor' },
     },
     trump: 'oilFlask',
-    tactics: [{ skill: 'rustGreatsword', condition: 'always', enabled: true }],
+    tactics: [{ skill: 'slash', condition: 'always', enabled: true }],
   };
 
   it('書き出して読み込むと元に戻る', () => {
@@ -299,7 +302,7 @@ describe('ビルドコード', () => {
 
   it('枠の決まりを超えると知らせる', () => {
     expect(buildProblems(build)).toEqual([]);
-    const many = { ...build, actives: Array(7).fill('rustGreatsword') };
+    const many = { ...build, actives: Array(7).fill('slash') };
     expect(buildProblems(many)).toContain('アクティブは6個まで');
   });
 });

@@ -1,4 +1,4 @@
-import { ARTIFACT_IDS, ARTIFACTS, DEFAULT_TACTICS, generateItem, type Build, type ConditionId, type Item } from '@hakusura/core';
+import { ARTIFACT_IDS, ARTIFACTS, LOOT_WEAPON_TYPE_IDS, DEFAULT_TACTICS, generateItem, type Build, type ConditionId, type Item } from '@hakusura/core';
 
 /** 名前つきのビルド。ボス前などで切り替える */
 export interface Preset {
@@ -16,9 +16,8 @@ export interface BuildState {
 /** 保存できるビルドの数 */
 export const PRESET_LIMIT = 8;
 
-const STORAGE_KEY = 'hakusura.build.v2';
-/** プリセットを入れる前の保存先。読めたら引き継ぐ */
-const OLD_STORAGE_KEY = 'hakusura.build.v1';
+// スキルが武器の技になったので、前の保存(v1・v2)は引き継がない
+const STORAGE_KEY = 'hakusura.build.v3';
 
 const NUMERALS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
 
@@ -47,16 +46,31 @@ function initialState(random: () => number): BuildState {
     starter('shift', '移ろう数珠', 'shiftingElement', { affix: 'moveSpeed', value: -20 }),
     starter('rain', '雨垂れの護符', 'rainSoaked', { affix: 'damageTaken', value: 10 }),
   ];
+  // 武器は鉄の剣と雷管銃。近接の技は剣で、遠距離の技は銃で出る
+  const starterWeapons: Item[] = [
+    { id: 'starter-sword', name: '鉄の剣', kind: 'weapon', weaponType: 'ironSword', affixes: [{ affix: 'maxHp', value: 10 }] },
+    { id: 'starter-gun', name: '雷管銃', kind: 'weapon', weaponType: 'capGun', affixes: [{ affix: 'moveSpeed', value: 10 }] },
+  ];
+  // 武器の種類を一通り試せるよう、1つずつ山に置いておく
+  const weaponSamples = LOOT_WEAPON_TYPE_IDS.filter((t) => t !== 'ironSword' && t !== 'capGun').map((t) =>
+    generateItem(random, { kind: 'weapon', slot: 'weapon1', weaponType: t }),
+  );
   const artifacts: Item[] = ARTIFACT_IDS.map((id, i) => ({ id: `artifact-${id}-${i}`, name: ARTIFACTS[id].name, kind: 'accessory', affixes: [], artifact: id }));
   const loot = Array.from({ length: 12 }, () => generateItem(random));
   const build: Build = {
-    actives: ['rustGreatsword', 'thunderGun', 'emberOil'],
+    actives: ['slash', 'shoot', 'emberOil'],
     passives: ['sootPrayer', 'bloodCallsThunder', 'readTheBlow', 'parryStance'],
-    equipment: { accessory1: starterItems[0], accessory2: starterItems[1], accessory3: starterItems[2] },
+    equipment: {
+      weapon1: starterWeapons[0],
+      weapon2: starterWeapons[1],
+      accessory1: starterItems[0],
+      accessory2: starterItems[1],
+      accessory3: starterItems[2],
+    },
     trump: 'rainBell',
     tactics: DEFAULT_TACTICS.map((t) => ({ ...t })),
   };
-  return { presets: [{ name: presetName(0), build }], current: 0, stash: [...artifacts, ...loot] };
+  return { presets: [{ name: presetName(0), build }], current: 0, stash: [...starterWeapons, ...weaponSamples, ...artifacts, ...loot] };
 }
 
 export function loadBuildState(random: () => number): BuildState {
@@ -66,8 +80,6 @@ export function loadBuildState(random: () => number): BuildState {
       saved.current = Math.min(Math.max(0, saved.current | 0), saved.presets.length - 1);
       return saved;
     }
-    const old = JSON.parse(localStorage.getItem(OLD_STORAGE_KEY) ?? 'null') as { build: Build; stash: Item[] } | null;
-    if (old?.build && Array.isArray(old.stash)) return { presets: [{ name: presetName(0), build: old.build }], current: 0, stash: old.stash };
   } catch {
     // 読めなければ最初の支度にする
   }
@@ -86,7 +98,6 @@ export function saveBuildState(state: BuildState): void {
 export function resetBuildState(random: () => number): BuildState {
   try {
     localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(OLD_STORAGE_KEY);
   } catch {
     // 消せなくても、この場では最初からになる
   }

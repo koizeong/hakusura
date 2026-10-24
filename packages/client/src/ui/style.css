@@ -1058,3 +1058,22 @@ button.discard {
 .presets button {
   padding: 6px 10px;
 }
+
+.weapon-stats {
+  font-size: 12px;
+  color: #b8aa98;
+  margin: 2px 0;
+}
+
+.skill-row.unusable span {
+  color: var(--dim);
+}
+
+.skill-row.unusable small {
+  color: #a0605a;
+}
+
+.skills .note {
+  font-size: 12px;
+  color: var(--dim);
+}

@@ -12,3 +12,4 @@ export * from './stats';
 export * from './equipment';
 export * from './artifacts';
 export * from './grips';
+export * from './weapons';

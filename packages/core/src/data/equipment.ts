@@ -1,6 +1,7 @@
 import { statDef, type StatId } from './stats';
 import { CONDITIONS, CONDITION_IDS, type ConditionId } from './conditions';
 import type { ArtifactId } from './artifacts';
+import { LOOT_WEAPON_TYPE_IDS, WEAPON_TYPES, type WeaponTypeId } from './weapons';
 
 /** 装備の部位 */
 export const EQUIP_SLOTS = {
@@ -22,7 +23,8 @@ export const EQUIP_SLOT_IDS = Object.keys(EQUIP_SLOTS) as EquipSlotId[];
 const BASE_NAMES: Record<EquipKind, readonly string[]> = {
   armor: ['錆びた兜', '継ぎ接ぎの外套', '煤けた籠手', '擦り切れた長靴', '骨の肩当て', '古い革鎧', '鎖の頭巾', '腐りかけた脛当て'],
   accessory: ['欠けた指輪', '灰の数珠', '名も知れぬ護符', '錆びた鈴', '割れた鏡片', '褪せた徽章'],
-  weapon: ['刃こぼれの剣', '曲がった槍', '錆びた斧', '黒ずんだ短銃', '骨の杖', '鈍い鉈'],
+  // 武器は武器の種類の名前を使う
+  weapon: [],
 };
 
 /** 補正値の項目。common の項目は、どの装備にも必ず1つ入る */
@@ -89,6 +91,8 @@ export interface Item {
   affixes: ItemAffix[];
   condition?: ConditionId;
   artifact?: ArtifactId;
+  /** 武器の種類。攻撃の速さ・範囲・近接か遠距離か・属性はここで決まる */
+  weaponType?: WeaponTypeId;
 }
 
 /** 得になる向きをプラスにした補正値 */
@@ -115,6 +119,8 @@ export interface GenerateOptions {
   kind?: EquipKind;
   /** この条件文を必ず入れる */
   condition?: ConditionId;
+  /** 武器ならこの種類で作る */
+  weaponType?: WeaponTypeId;
 }
 
 /**
@@ -163,12 +169,14 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
     const lower = statDef(AFFIXES[affix].stat).lowerIsBetter;
     return { affix, value: lower ? -benefits[i]! : benefits[i]! };
   });
+  const weaponType = kind === 'weapon' ? (options.weaponType ?? pick(LOOT_WEAPON_TYPE_IDS)) : undefined;
   return {
     id: `item-${Date.now().toString(36)}-${(itemCounter++).toString(36)}-${Math.floor(random() * 1e6).toString(36)}`,
-    name: pick(BASE_NAMES[kind]),
+    name: weaponType ? WEAPON_TYPES[weaponType].name : pick(BASE_NAMES[kind]),
     kind,
     slot,
     affixes,
     condition,
+    weaponType,
   };
 }

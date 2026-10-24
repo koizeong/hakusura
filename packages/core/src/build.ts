@@ -1,9 +1,10 @@
-import { ACTIVE_SKILLS, TRUMP_SKILL_IDS, type ActiveSkillId } from './data/skills';
+import { ACTIVE_SKILLS, TRUMP_SKILL_IDS, activeSkillDef, isTechnique, techniqueFits, type ActiveSkillId } from './data/skills';
 import { PASSIVES, type PassiveId } from './data/passives';
 import { CONDITIONS } from './data/conditions';
 import { ARTIFACTS } from './data/artifacts';
 import { AFFIXES, EQUIP_SLOTS, EQUIP_SLOT_IDS, itemTotal, type EquipSlotId, type Item } from './data/equipment';
 import { gripOf } from './data/grips';
+import { WEAPON_TYPES, type WeaponTypeId } from './data/weapons';
 import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import type { CombatWorld, Unit } from './world';
 
@@ -43,6 +44,24 @@ export function buildProblems(build: Build): string[] {
   return out;
 }
 
+/** ビルドで着けている武器の種類(枠の順)。なければ素手 */
+export function buildWeapons(build: Build): WeaponTypeId[] {
+  const types = (['weapon1', 'weapon2'] as const).flatMap((slot) => {
+    const item = build.equipment[slot];
+    return item && !item.artifact && item.weaponType ? [item.weaponType] : [];
+  });
+  return types.length > 0 ? types : ['fists'];
+}
+
+/** 今の武器では使えない技。作戦に入れても出ない */
+export function unusableActives(build: Build): ActiveSkillId[] {
+  const weapons = buildWeapons(build);
+  return build.actives.filter((id) => {
+    const def = activeSkillDef(id);
+    return isTechnique(def) && !weapons.some((w) => techniqueFits(def, w));
+  });
+}
+
 /**
  * その部位に着けられるか。防具は決まった部位、武器は武器の枠、装飾品は装飾品の枠。
  * アーティファクトは、着けられる部位が決まるまで装飾品の枠に着ける
@@ -65,6 +84,8 @@ export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   unit.trump = build.trump;
   // 武器の数で持ち方が決まる。二刀流で左右の補正値の合計が同じなら、そのタグも付く
   const weapons = (['weapon1', 'weapon2'] as const).map((s) => build.equipment[s]).filter((i): i is Item => !!i && !i.artifact);
+  unit.weapons = weapons.flatMap((i) => (i.weaponType ? [i.weaponType] : []));
+  unit.hand = 0;
   unit.grip = gripOf(weapons.length);
   unit.tags = [unit.grip];
   if (weapons.length === 2 && itemTotal(weapons[0]!) === itemTotal(weapons[1]!)) unit.tags.push('dualTotalsEqual');
@@ -153,6 +174,7 @@ function validateBuild(raw: unknown): string | null {
     if (!item.affixes.every((a) => a.affix in AFFIXES && typeof a.value === 'number' && Number.isFinite(a.value))) return '知らない補正値がある';
     if (item.condition !== undefined && !(item.condition in CONDITIONS)) return '知らない条件文がある';
     if (item.artifact !== undefined && !(item.artifact in ARTIFACTS)) return '知らないアーティファクトがある';
+    if (item.weaponType !== undefined && !(item.weaponType in WEAPON_TYPES)) return '知らない武器がある';
   }
   return null;
 }

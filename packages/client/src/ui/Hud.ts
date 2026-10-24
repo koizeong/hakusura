@@ -163,7 +163,7 @@ export class Hud {
 
     this.hpFill.style.width = `${Math.max(0, (player.hp / player.maxHp) * 100)}%`;
     this.hpText.textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
-    const cooldownLeft = (skill: ActiveSkillId) => Math.max(0, (player.cooldowns[skill] ?? 0) - world.time) / ACTIVE_SKILLS[skill].cooldown;
+    const cooldownLeft = (skill: ActiveSkillId) => Math.max(0, (player.cooldowns[skill] ?? 0) - world.time) / (player.cooldownSpans[skill] ?? 1);
 
     if (this.mode === 'manual') {
       this.slotSkills.forEach((skill, i) => {

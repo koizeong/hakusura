@@ -3,7 +3,8 @@ import { computeDamage, type RuleBonus } from './damage';
 import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
 import { fieldDef, type FieldId } from './data/fields';
 import { STATUS_IDS, statusDef, statusForElement, type StatusId } from './data/statuses';
-import { activeSkillDef, skillElement, skillReach, type ActiveSkillId } from './data/skills';
+import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction } from './data/skills';
+import type { WeaponTypeId } from './data/weapons';
 import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import { matchCombos, type ComboId } from './data/combos';
 import { artifactDef, type ArtifactId, type ArtifactTraits } from './data/artifacts';
@@ -103,6 +104,12 @@ export interface Unit {
   lastHurtAt: number;
   /** 前の攻撃から歩いた距離。次の攻撃の溜めになる */
   distanceSinceSkill: number;
+  /** 着けている武器(枠の順)。技はこの中から条件に合うものを使う。空なら素手 */
+  weapons: WeaponTypeId[];
+  /** 二刀流で両手とも技に合うとき、次にどちらで出すか */
+  hand: number;
+  /** 最後に使ったときのクールダウンの長さ。残りの割合を出すのに使う */
+  cooldownSpans: Partial<Record<ActiveSkillId, number>>;
 }
 
 export interface Buff {
@@ -128,6 +135,7 @@ export interface UnitSpec {
   tactics?: Tactic[];
   autoBattle?: boolean;
   trump?: ActiveSkillId;
+  weapons?: WeaponTypeId[];
 }
 
 export interface Hit {
@@ -183,7 +191,7 @@ export type CombatEvent =
   | { type: 'chain'; status: StatusId; from: Point; to: Point }
   | { type: 'swing'; unitId: string; x: number; y: number; angle: number; range: number; arc: number; element: ElementId }
   /** 振りかぶりの予兆。at に効果が出る */
-  | { type: 'windup'; unitId: string; skill: ActiveSkillId; angle: number; at: number }
+  | { type: 'windup'; unitId: string; skill: ActiveSkillId; angle: number; at: number; action: SkillAction; element?: ElementId }
   | { type: 'interrupted'; unitId: string }
   /** label があれば、パッシブによる自動の見切り・弾き */
   | { type: 'justDodge'; unitId: string; attackerId?: string; label?: string }
@@ -201,6 +209,8 @@ export interface Projectile {
   id: number;
   ownerId: string;
   skill: ActiveSkillId;
+  /** 撃ったときの中身。当たったときの威力はこれで決まる */
+  resolved: ResolvedSkill;
   element: ElementId;
   x: number;
   y: number;
@@ -237,6 +247,7 @@ type RuleKind = 'interaction' | 'reaction' | 'passive' | 'condition' | 'artifact
 interface PendingAction {
   unitId: string;
   skill: ActiveSkillId;
+  resolved: ResolvedSkill;
   at: number;
   angle: number;
   /** 指定があれば、効果が出る瞬間にこの相手へ向き直す(ターゲット固定) */
@@ -336,6 +347,9 @@ export class CombatWorld {
       tags: [],
       lastHurtAt: -Infinity,
       distanceSinceSkill: 0,
+      weapons: spec.weapons ? [...spec.weapons] : [],
+      hand: 0,
+      cooldownSpans: {},
     };
     this.units.set(unit.id, unit);
     return unit;
@@ -436,6 +450,7 @@ export class CombatWorld {
     const unit = this.units.get(unitId);
     return (
       !!unit &&
+      !!this.skillFor(unit, skillId) &&
       (unit.cooldowns[skillId] ?? 0) <= this.time &&
       !this.isBusy(unit) &&
       unit.guardSince === null &&
@@ -492,23 +507,40 @@ export class CombatWorld {
   useSkill(unitId: string, skillId: ActiveSkillId, aim: Point, targetId?: string): boolean {
     const unit = this.units.get(unitId);
     if (!unit || !this.canUseSkill(unitId, skillId)) return false;
-    const def = activeSkillDef(skillId);
-    unit.cooldowns[skillId] = this.time + def.cooldown * this.statOf(unit, 'cooldown', [...def.tags, def.category, skillId]);
+    const def = this.skillFor(unit, skillId)!;
+    const span = def.cooldown * this.statOf(unit, 'cooldown', [...def.tags, def.category, skillId]);
+    unit.cooldowns[skillId] = this.time + span;
+    unit.cooldownSpans[skillId] = span;
     unit.windupUntil = this.time + def.windup;
     unit.busyUntil = this.time + def.windup + def.recovery;
+    // 二刀流で両手とも合うなら、次は逆の手で出す
+    if (def.weapon) unit.hand += 1;
     const angle = Math.atan2(aim.y - unit.y, aim.x - unit.x);
     unit.facing = angle;
-    const action: PendingAction = { unitId, skill: skillId, at: this.time + def.windup, angle, targetId };
-    this.events.push({ type: 'windup', unitId, skill: skillId, angle, at: action.at });
+    const action: PendingAction = { unitId, skill: skillId, resolved: def, at: this.time + def.windup, angle, targetId };
+    this.events.push({ type: 'windup', unitId, skill: skillId, angle, at: action.at, action: def.action, element: def.element });
     if (def.windup <= 0) this.executeSkill(action);
     else this.pending.push(action);
     return true;
   }
 
+  /**
+   * そのスキルを今出すときの中身。技は、条件に合う武器(なければ素手)で作る。
+   * 二刀流で両手とも合うなら、左右交互に出す。使えなければ undefined
+   */
+  skillFor(unit: Unit, skillId: ActiveSkillId): ResolvedSkill | undefined {
+    const def = activeSkillDef(skillId);
+    if (!isTechnique(def)) return resolveSkill(skillId);
+    const hands: WeaponTypeId[] = unit.weapons.length > 0 ? unit.weapons : ['fists'];
+    const fits = hands.filter((w) => techniqueFits(def, w));
+    if (fits.length === 0) return undefined;
+    return resolveSkill(skillId, fits[unit.hand % fits.length]);
+  }
+
   private executeSkill(pending: PendingAction): void {
     const unit = this.units.get(pending.unitId);
     if (!unit || this.isIncapacitated(unit)) return;
-    const def = activeSkillDef(pending.skill);
+    const def = pending.resolved;
     const target = pending.targetId ? this.units.get(pending.targetId) : undefined;
     const angle = target ? Math.atan2(target.y - unit.y, target.x - unit.x) : pending.angle;
     unit.facing = angle;
@@ -546,7 +578,7 @@ export class CombatWorld {
           // 回避で範囲の外へ抜けていても、避け始めた位置に当たるならジャスト回避の判定に回す
           const justDodging = this.time - other.dodgeStartedAt <= DEFENSE.justDodgeWindow && reaches(other, other.dodgeOrigin);
           if (reaches(other, other)) landed++;
-          if (reaches(other, other) || justDodging) this.queueAttack(unit, other, pending.skill, charge);
+          if (reaches(other, other) || justDodging) this.queueAttack(unit, other, def, charge);
         }
         this.onMultiHit(unit, landed, def.name);
         if (action.clearsProjectiles) {
@@ -579,6 +611,7 @@ export class CombatWorld {
             id: this.nextId++,
             ownerId: unit.id,
             skill: pending.skill,
+            resolved: def,
             element,
             x: unit.x + Math.cos(a) * unit.radius,
             y: unit.y + Math.sin(a) * unit.radius,
@@ -592,14 +625,16 @@ export class CombatWorld {
         break;
       }
       case 'projectile': {
-        // 双子の銃のように弾が増えたら、少しずつ角度をずらして撃つ
-        const count = Math.max(1, 1 + Math.round(this.statOf(unit, 'projectiles', def.tags)));
+        // 三連射や双子の銃のように弾が増えたら、少しずつ角度をずらして撃つ
+        const count = Math.max(1, (action.count ?? 1) + Math.round(this.statOf(unit, 'projectiles', def.tags)));
+        const spread = ((action.spread ?? 7) * Math.PI) / 180;
         for (let i = 0; i < count; i++) {
-          const a = angle + (i - (count - 1) / 2) * ((7 * Math.PI) / 180);
+          const a = angle + (i - (count - 1) / 2) * spread;
           this.projectiles.push({
             id: this.nextId++,
             ownerId: unit.id,
             skill: pending.skill,
+            resolved: def,
             element: skillElement(def),
             x: unit.x + Math.cos(a) * unit.radius,
             y: unit.y + Math.sin(a) * unit.radius,
@@ -628,7 +663,7 @@ export class CombatWorld {
         for (const other of this.opponentsOf(unit)) {
           if (Math.hypot(other.x - unit.x, other.y - unit.y) > action.radius + other.radius) continue;
           landed++;
-          this.queueAttack(unit, other, pending.skill, charge);
+          this.queueAttack(unit, other, def, charge);
         }
         this.onMultiHit(unit, landed, def.name);
         this.processHits();
@@ -672,16 +707,17 @@ export class CombatWorld {
   private tacticReady(unit: Unit, tactic: Tactic, target: Unit | undefined): boolean {
     if (!tactic.enabled || !this.canUseSkill(unit.id, tactic.skill)) return false;
     if (unit.actives.length > 0 && !unit.actives.includes(tactic.skill)) return false;
-    const def = activeSkillDef(tactic.skill);
-    if (skillReach(def) !== undefined && !target) return false;
+    const def = this.skillFor(unit, tactic.skill);
+    if (!def || (actionReach(def.action) !== undefined && !target)) return false;
     const ctx = this.context(target ?? unit, unit, {});
     return TACTIC_CONDITIONS[tactic.condition].when.every((p) => evaluatePredicate(p, ctx));
   }
 
   /** そのスキルが届く距離。近攻撃の射程の補正も含む。届かせる必要がなければ undefined */
   reachOf(unit: Unit, skill: ActiveSkillId): number | undefined {
-    const def = activeSkillDef(skill);
-    const reach = skillReach(def);
+    const def = this.skillFor(unit, skill);
+    if (!def) return undefined;
+    const reach = actionReach(def.action);
     if (reach === undefined) return undefined;
     return def.action.type === 'melee' ? reach * this.statOf(unit, 'meleeRange', def.tags) : reach;
   }
@@ -760,7 +796,7 @@ export class CombatWorld {
       if (!unit.ai?.enabled) continue;
       for (const skill of unit.ai.skills) {
         if (!this.canUseSkill(unit.id, skill)) continue;
-        const reach = skillReach(activeSkillDef(skill)) ?? 0;
+        const reach = this.reachOf(unit, skill) ?? 0;
         const target = this.opponentsOf(unit)
           .map((u) => ({ u, d: Math.hypot(u.x - unit.x, u.y - unit.y) - u.radius }))
           .filter(({ d }) => d <= reach * 0.9)
@@ -845,7 +881,7 @@ export class CombatWorld {
       p.traveled += Math.hypot(p.vx, p.vy) * sec;
       const target = owner && this.opponentsOf(owner).find((u) => Math.hypot(u.x - p.x, u.y - p.y) <= u.radius + p.radius);
       if (owner && target) {
-        this.queueAttack(owner, target, p.skill, p.charge);
+        this.queueAttack(owner, target, p.resolved, p.charge);
         this.events.push({ type: 'projectileEnd', projectileId: p.id, x: p.x, y: p.y, hit: true });
       } else if (!owner || p.traveled >= p.range) {
         this.events.push({ type: 'projectileEnd', projectileId: p.id, x: p.x, y: p.y, hit: false });
@@ -867,8 +903,8 @@ export class CombatWorld {
     }
   }
 
-  private queueAttack(attacker: Unit, target: Unit, skillId: ActiveSkillId, charge?: number): void {
-    const def = activeSkillDef(skillId);
+  private queueAttack(attacker: Unit, target: Unit, def: ResolvedSkill, charge?: number): void {
+    const skillId = def.id;
     const action = def.action;
     if (action.type !== 'melee' && action.type !== 'projectile' && action.type !== 'barrage' && action.type !== 'nova') return;
     const element = skillElement(def);
@@ -886,8 +922,8 @@ export class CombatWorld {
       charge,
     });
     if (attacker.imbue && attacker.imbue.until > this.time) {
-      const imbue = activeSkillDef(attacker.imbue.skill);
-      if (imbue.action.type === 'imbue') {
+      const imbue = resolveSkill(attacker.imbue.skill);
+      if (imbue && imbue.action.type === 'imbue') {
         const imbueElement = skillElement(imbue);
         this.enqueue({
           attackerId: attacker.id,
@@ -1204,8 +1240,8 @@ export class CombatWorld {
         const owner = src.attacker;
         if (!owner) break;
         for (const id of Object.keys(owner.cooldowns) as ActiveSkillId[]) {
-          const def = activeSkillDef(id);
-          const tags = new Set<string>([...def.tags, def.category, id]);
+          const def = this.skillFor(owner, id) ?? resolveSkill(id);
+          const tags = new Set<string>([...(def?.tags ?? []), ...(def ? [def.category] : []), id]);
           if (!(action.tags ?? []).every((t) => tags.has(t))) continue;
           owner.cooldowns[id] = Math.max(this.time, (owner.cooldowns[id] ?? 0) - action.ms);
         }
