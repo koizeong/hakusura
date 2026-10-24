@@ -26,8 +26,53 @@ export interface Build {
   equipment: Partial<Record<EquipSlotId, Item>>;
   trump?: ActiveSkillId;
   tactics: Tactic[];
-  /** 能力値。振り直しは無料。なければ全て基礎値 */
+  /** 能力値。キャラが持ち、振り直しはできない。なければ全て基礎値 */
   attributes?: Attributes;
+}
+
+/**
+ * キャラ。1キャラ1ビルドで、能力値の点数は放置で育つ。
+ * 作り分けはキャラを増やして行う。拾い物の山は全キャラで共有する
+ */
+export interface Character {
+  id: string;
+  name: string;
+  createdAt: number;
+  /** 放置で育った分を最後に数えた時刻 */
+  grownAt: number;
+  /** 放置で育った点数 */
+  earned: number;
+  build: Build;
+}
+
+/** 新しいキャラ。能力値は基礎のまま、最初の点数だけ持つ */
+export function newCharacter(id: string, name: string, now: number, build: Omit<Build, 'attributes'>): Character {
+  return { id, name, createdAt: now, grownAt: now, earned: 0, build: { ...build, attributes: baseAttributes() } };
+}
+
+/** 放置で育った分を数える。前に数えてから経った時間で点数が増える。増えた点数を返す */
+export function growCharacter(c: Character, now: number): number {
+  const R = ATTRIBUTE_RULES;
+  const steps = Math.floor(Math.max(0, now - c.grownAt) / R.growthEveryMs);
+  if (steps <= 0) return 0;
+  c.grownAt += steps * R.growthEveryMs;
+  c.earned += steps * R.growthPoints;
+  return steps * R.growthPoints;
+}
+
+/** キャラが振れる点数の合計 */
+export function characterPoints(c: Character): number {
+  return ATTRIBUTE_RULES.startPoints + c.earned;
+}
+
+/** まだ振っていない点数 */
+export function unspentPoints(c: Character): number {
+  return characterPoints(c) - spentPoints(c.build.attributes ?? baseAttributes());
+}
+
+/** 次に点数が増えるまでの時間(ミリ秒) */
+export function untilNextGrowth(c: Character, now: number): number {
+  return ATTRIBUTE_RULES.growthEveryMs - (Math.max(0, now - c.grownAt) % ATTRIBUTE_RULES.growthEveryMs);
 }
 
 /** 作戦に入れられるアクティブ。切り札と敵のスキルは除く */
@@ -37,7 +82,7 @@ export const BUILD_ACTIVE_IDS = (Object.keys(ACTIVE_SKILLS) as ActiveSkillId[]).
 });
 
 /** 決まりに合わない点を並べる。空なら組める */
-export function buildProblems(build: Build): string[] {
+export function buildProblems(build: Build, points: number = ATTRIBUTE_RULES.startPoints): string[] {
   const out: string[] = [];
   if (build.actives.length > BUILD_LIMITS.actives) out.push(`アクティブは${BUILD_LIMITS.actives}個まで`);
   if (build.actives.length + build.passives.length > BUILD_LIMITS.skills) out.push(`スキルは合わせて${BUILD_LIMITS.skills}個まで`);
@@ -45,7 +90,7 @@ export function buildProblems(build: Build): string[] {
     if (!canEquip(item, slot)) out.push(`${item.name}は${EQUIP_SLOTS[slot].name}に着けられない`);
   }
   const attrs = build.attributes ?? baseAttributes();
-  if (spentPoints(attrs) > ATTRIBUTE_RULES.points) out.push(`能力値は${ATTRIBUTE_RULES.points}点まで振れる`);
+  if (spentPoints(attrs) > points) out.push(`能力値は${points}点まで振れる`);
   if (ATTRIBUTE_IDS.some((id) => attrs[id] < ATTRIBUTE_RULES.base)) out.push(`能力値は${ATTRIBUTE_RULES.base}より下げられない`);
   return out;
 }

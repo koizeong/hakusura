@@ -4,6 +4,8 @@ import {
   CombatWorld,
   DEFENSE,
   applyBuild,
+  growCharacter,
+  unspentPoints,
   ELEMENTS,
   FIELDS,
   STATUSES,
@@ -28,7 +30,7 @@ import { Hud } from '../ui/Hud';
 import { createTrainingPanel, type BattleMode, type EnemyAttack } from '../ui/TrainingPanel';
 import { ComboView } from '../ui/ComboView';
 import { BuildScreen } from '../ui/BuildScreen';
-import { currentBuild, loadBuildState, resetBuildState, saveBuildState, type BuildState } from '../ui/buildStore';
+import { currentBuild, currentCharacter, loadBuildState, resetBuildState, saveBuildState, type BuildState } from '../ui/buildStore';
 
 const ARENA = { width: 1600, height: 1000 };
 const FONT = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif';
@@ -113,6 +115,7 @@ export class TrainingGroundScene extends Phaser.Scene {
   private combo!: ComboView;
   private buildState!: BuildState;
   private buildScreen!: BuildScreen;
+  private nextGrowthCheck = 0;
 
   constructor() {
     super('TrainingGround');
@@ -252,6 +255,20 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.world.queueSkill(this.player.id, trump, def && actionReach(def.action) !== undefined ? 6000 : 1500);
   }
 
+  /** キャラは時間で育つ。数秒ごとに数え、増えたら覚えておく */
+  private tickGrowth(time: number): void {
+    if (time < this.nextGrowthCheck) return;
+    this.nextGrowthCheck = time + 2000;
+    const now = Date.now();
+    let grown = 0;
+    for (const c of this.buildState.characters) grown += growCharacter(c, now);
+    if (grown > 0) {
+      saveBuildState(this.buildState);
+      if (this.buildScreen.visible) this.buildScreen.render();
+    }
+    this.hud.setUnspent(unspentPoints(currentCharacter(this.buildState)));
+  }
+
   private openBuild(): void {
     this.breakdown.el.classList.add('hidden');
     this.buildScreen.open();
@@ -345,6 +362,7 @@ export class TrainingGroundScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number): void {
+    this.tickGrowth(time);
     // 支度の間は戦いを止める
     if (this.buildScreen.visible) return;
     const dt = Math.min(delta, 50) * (time < this.slowUntil ? SLOWMO.scale : 1) * this.speed;

@@ -3,7 +3,7 @@ import { CombatWorld, type Unit } from './world';
 import { ACTIVE_SKILLS } from './data/skills';
 import { AFFIXES, EQUIP_RULES, generateItem, itemTotal, type AffixDef, type Item } from './data/equipment';
 import { applyBuild, buildProblems, canEquip, decodeBuild, encodeBuild, type Build } from './build';
-import { AMPLE, TEST_WEAPONS, SWORD, GUN, pw } from './testkit';
+import { withoutAttributes, TEST_WEAPONS, SWORD, GUN, pw } from './testkit';
 
 const run = (w: CombatWorld, ms: number) => {
   for (let t = 0; t < ms; t += 10) w.update(10);
@@ -14,7 +14,7 @@ function seeded(seed: number) {
   return () => w.random();
 }
 
-const emptyBuild = (extra: Partial<Build> = {}): Build => ({ actives: [], passives: [], equipment: {}, tactics: [], attributes: AMPLE, ...extra });
+const emptyBuild = (extra: Partial<Build> = {}): Build => ({ actives: [], passives: [], equipment: {}, tactics: [], ...extra });
 
 const item = (extra: Partial<Item>): Item => ({ id: 'x', name: '試し', kind: 'accessory', affixes: [], ...extra });
 
@@ -28,8 +28,9 @@ function setup() {
 const equip = (w: CombatWorld, p: Unit, items: Item[], extra: Partial<Build> = {}) => {
   const slots = ['accessory1', 'accessory2', 'accessory3'] as const;
   applyBuild(w, p, emptyBuild({ equipment: Object.fromEntries(items.map((it, i) => [slots[i], it])), ...extra }));
-  // 武器を着けると持ち方の補正が乗るので、テストでは武器だけ直に持たせる
+  // 武器を着けると持ち方の補正が乗るので、テストでは武器だけ直に持たせる。能力値の効き目も外す
   p.weapons = [...TEST_WEAPONS];
+  withoutAttributes(p);
 };
 
 describe('装備の生成', () => {

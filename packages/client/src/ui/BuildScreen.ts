@@ -48,10 +48,17 @@ import {
   spentPoints,
   type AttributeId,
   type Attributes,
+  type Build,
+  type Character,
+  characterPoints,
+  growCharacter,
+  newCharacter,
+  unspentPoints,
+  untilNextGrowth,
 } from '@hakusura/core';
 import { h, signedPercent } from './dom';
 import { createTacticsEditor } from './TacticsEditor';
-import { PRESET_LIMIT, currentBuild, presetName, type BuildState } from './buildStore';
+import { CHARACTER_LIMIT, characterName, currentBuild, currentCharacter, newCharacterId, type BuildState } from './buildStore';
 
 type Tab = 'equipment' | 'attributes' | 'skills' | 'tactics' | 'trump' | 'code';
 const TABS: Record<Tab, string> = { equipment: '装備', attributes: '能力', skills: 'スキル', tactics: '作戦', trump: '切り札', code: 'コード' };
@@ -78,11 +85,17 @@ export class BuildScreen {
   private selectedSlot: EquipSlotId = 'head';
   private lootCondition: ConditionId | '' = '';
   private lootWeapon: WeaponTypeId = LOOT_WEAPON_TYPE_IDS[0]!;
+  /** 能力値の仮振り。「決める」まで反映しない */
+  private draft: Partial<Record<AttributeId, number>> = {};
   private codeMessage = '';
 
   constructor(private host: BuildScreenHost) {}
 
-  /** 今選んでいるビルド */
+  /** 今選んでいるキャラとビルド */
+  private get character(): Character {
+    return currentCharacter(this.host.state);
+  }
+
   private get build() {
     return currentBuild(this.host.state);
   }
@@ -108,7 +121,7 @@ export class BuildScreen {
 
   render(): void {
     const build = this.build;
-    const problems = buildProblems(build);
+    const problems = buildProblems(build, characterPoints(this.character));
     this.el.replaceChildren(
       h(
         'div',
@@ -116,10 +129,10 @@ export class BuildScreen {
         h(
           'header',
           {},
-          h('h2', {}, '支度'),
+          h('h2', {}, `支度 ― ${this.character.name}`),
           h('button', { class: 'close', onclick: () => this.close() }, '戦いに戻る'),
         ),
-        this.renderPresets(),
+        this.renderCharacters(),
         this.renderStats(),
         problems.length > 0 ? h('p', { class: 'problems' }, problems.join(' / ')) : '',
         this.renderUnusable(),
@@ -152,8 +165,8 @@ export class BuildScreen {
     }
   }
 
-  /** ビルドの切り替え。拾い物の山は全てのビルドで共有する */
-  private renderPresets(): HTMLElement {
+  /** キャラの切り替え。1キャラ1ビルドで、拾い物の山は全キャラで共有する */
+  private renderCharacters(): HTMLElement {
     const { state } = this.host;
     return h(
       'div',
@@ -163,33 +176,43 @@ export class BuildScreen {
         {
           onchange: (e: Event) => {
             state.current = Number((e.target as HTMLSelectElement).value);
+            this.draft = {};
             this.changed();
           },
         },
-        ...state.presets.map((p, i) => h('option', { value: i, selected: i === state.current }, p.name)),
+        ...state.characters.map((c, i) => {
+          const left = unspentPoints(c);
+          return h('option', { value: i, selected: i === state.current }, `${c.name}${left > 0 ? `(未振り ${left})` : ''}`);
+        }),
       ),
       h(
         'button',
         {
-          disabled: state.presets.length >= PRESET_LIMIT,
-          title: `今のビルドを写して、新しいビルドを作る(${PRESET_LIMIT}つまで)`,
+          disabled: state.characters.length >= CHARACTER_LIMIT,
+          title: `新しいキャラを作る(${CHARACTER_LIMIT}人まで)。能力値は低い所から育つ`,
           onclick: () => {
-            const copy = JSON.parse(JSON.stringify(this.build)) as typeof this.build;
-            state.presets.push({ name: presetName(state.presets.length), build: copy });
-            state.current = state.presets.length - 1;
-            this.changed();
-          },
-        },
-        '写して増やす',
-      ),
-      h(
-        'button',
-        {
-          onclick: () => {
-            const preset = state.presets[state.current]!;
-            const name = prompt('ビルドの名前', preset.name)?.trim();
+            const name = prompt('新しいキャラの名前', characterName(state.characters.length))?.trim();
             if (!name) return;
-            preset.name = name.slice(0, 20);
+            // 装備・スキル・作戦は今のキャラを写して始める。能力値は基礎から
+            const { attributes: _, ...rest } = JSON.parse(JSON.stringify(this.build)) as Build;
+            void _;
+            state.characters.push(newCharacter(newCharacterId(), name.slice(0, 20), Date.now(), rest));
+            state.current = state.characters.length - 1;
+            this.draft = {};
+            this.tab = 'attributes';
+            this.changed();
+          },
+        },
+        '新しく作る',
+      ),
+      h(
+        'button',
+        {
+          onclick: () => {
+            const c = this.character;
+            const name = prompt('キャラの名前', c.name)?.trim();
+            if (!name) return;
+            c.name = name.slice(0, 20);
             this.changed();
           },
         },
@@ -199,15 +222,16 @@ export class BuildScreen {
         'button',
         {
           class: 'discard',
-          disabled: state.presets.length <= 1,
+          disabled: state.characters.length <= 1,
           onclick: () => {
-            if (!confirm(`「${state.presets[state.current]!.name}」を消す。よいか`)) return;
-            state.presets.splice(state.current, 1);
+            if (!confirm(`「${this.character.name}」を葬る。育った分も消える。よいか`)) return;
+            state.characters.splice(state.current, 1);
             state.current = Math.max(0, state.current - 1);
+            this.draft = {};
             this.changed();
           },
         },
-        '消す',
+        '葬る',
       ),
     );
   }
@@ -360,53 +384,95 @@ export class BuildScreen {
 
   private renderAttributes(): HTMLElement {
     const build = this.build;
+    const c = this.character;
     const attrs = (build.attributes ??= baseAttributes());
-    const left = ATTRIBUTE_RULES.points - spentPoints(attrs);
+    const drafted = ATTRIBUTE_IDS.reduce((sum, id) => sum + (this.draft[id] ?? 0), 0);
+    const left = unspentPoints(c) - drafted;
+    const value = (id: AttributeId) => attrs[id] + (this.draft[id] ?? 0);
     const step = (id: AttributeId, by: number) => {
-      const next = attrs[id] + by;
-      if (next < ATTRIBUTE_RULES.base || (by > 0 && left <= 0)) return;
-      attrs[id] = next;
-      this.changed();
+      const next = (this.draft[id] ?? 0) + by;
+      if (next < 0 || (by > 0 && left <= 0)) return;
+      this.draft[id] = next;
+      this.render();
     };
-    // 今の武器と技のうち、能力値が足りないもの
+    // 仮に振った値で、能力値の効き目と足りないものを見せる
+    const preview: Attributes = Object.fromEntries(ATTRIBUTE_IDS.map((id) => [id, value(id)])) as Attributes;
+    const R = ATTRIBUTE_RULES;
+    const effect = (id: AttributeId): string => {
+      const up = preview[id] - R.base;
+      switch (id) {
+        case 'str':
+          return `近攻撃 ${signedPercent(R.meleePerStr * up)}`;
+        case 'dex':
+          return `間隔 ${signedPercent(Math.pow(R.intervalPerDex, up) - 1)}`;
+        case 'int':
+          return `雷 ${signedPercent(R.lightningPerInt * up)}`;
+        case 'fai':
+          return `火 ${signedPercent(R.firePerFai * up)}`;
+        case 'vit':
+          return `最大HP ${signedPercent(R.hpPerVit * up)}`;
+      }
+    };
     const shortages: string[] = [];
     for (const w of new Set(buildWeapons(build))) {
-      const m = missingPoints(weaponDef(w).needs, attrs);
-      if (m) shortages.push(`${WEAPON_TYPES[w].name}:要 ${needsText(weaponDef(w).needs)}`);
+      if (missingPoints(weaponDef(w).needs, preview)) shortages.push(`${WEAPON_TYPES[w].name}:要 ${needsText(weaponDef(w).needs)}`);
     }
-    for (const id of build.actives) {
+    for (const id of [...build.actives, ...(build.trump ? [build.trump] : [])]) {
       const def = activeSkillDef(id);
-      if (missingPoints(def.needs, attrs)) shortages.push(`${def.name}:要 ${needsText(def.needs)}`);
+      if (missingPoints(def.needs, preview)) shortages.push(`${def.name}:要 ${needsText(def.needs)}`);
     }
-    if (build.trump && missingPoints(activeSkillDef(build.trump).needs, attrs)) {
-      const def = activeSkillDef(build.trump);
-      shortages.push(`${def.name}:要 ${needsText(def.needs)}`);
-    }
+    const now = Date.now();
+    const next = untilNextGrowth(c, now);
     return h(
       'div',
       { class: 'attributes' },
-      h('p', { class: 'counter' }, `残り ${left} 点(振り直しは無料)`),
+      h('p', { class: 'counter' }, `振れる点数 残り ${left}(最初の${R.startPoints} + 放置で育った${c.earned})`),
+      h(
+        'p',
+        { class: 'note' },
+        `放置で ${R.growthEveryMs / 60000}分ごとに${R.growthPoints}点育つ。次の1点まで ${Math.floor(next / 60000)}分${Math.floor((next % 60000) / 1000)}秒`,
+      ),
       ...ATTRIBUTE_IDS.map((id) =>
         h(
           'div',
-          { class: 'attr-row' },
+          { class: `attr-row${this.draft[id] ? ' drafted' : ''}` },
           h('span', { class: 'attr-name' }, ATTRIBUTES[id].name),
-          h('button', { disabled: attrs[id] <= ATTRIBUTE_RULES.base, onclick: () => step(id, -1) }, '−'),
-          h('b', { class: 'attr-value' }, String(attrs[id])),
+          h('button', { disabled: !this.draft[id], onclick: () => step(id, -1) }, '−'),
+          h('b', { class: 'attr-value' }, String(value(id))),
           h('button', { disabled: left <= 0, onclick: () => step(id, 1) }, '+'),
-          h('small', {}, ATTRIBUTES[id].description),
+          h('small', {}, h('span', { class: 'attr-effect' }, effect(id)), ` ${ATTRIBUTES[id].description}`),
         ),
       ),
       h(
-        'button',
-        {
-          class: 'discard',
-          onclick: () => {
-            build.attributes = baseAttributes();
-            this.changed();
+        'div',
+        { class: 'attr-actions' },
+        h(
+          'button',
+          {
+            class: 'commit',
+            disabled: drafted === 0,
+            onclick: () => {
+              if (!confirm(`${drafted}点を振る。振った点は戻せない。よいか`)) return;
+              for (const id of ATTRIBUTE_IDS) attrs[id] += this.draft[id] ?? 0;
+              this.draft = {};
+              this.changed();
+            },
           },
-        },
-        '全て振り直す',
+          '決める',
+        ),
+        h('button', { disabled: drafted === 0, onclick: () => ((this.draft = {}), this.render()) }, 'やめる'),
+        h(
+          'button',
+          {
+            title: '試作用。放置で1時間経ったことにする',
+            onclick: () => {
+              c.grownAt -= 60 * 60 * 1000;
+              growCharacter(c, Date.now());
+              this.changed();
+            },
+          },
+          '時を進める(1時間・試作用)',
+        ),
       ),
       h('h3', {}, '足りないもの'),
       shortages.length === 0
@@ -415,7 +481,7 @@ export class BuildScreen {
       h(
         'p',
         { class: 'note' },
-        `足りなくても使えるが、足りない1点ごとに威力-${ATTRIBUTE_RULES.powerPerMissing * 100}%・間隔+${ATTRIBUTE_RULES.intervalPerMissing * 100}%(武器と技の分を合わせる)`,
+        `振り直しはできない。違う振り方を試すなら、新しいキャラを作る。足りなくても使えるが、足りない1点ごとに威力-${R.powerPerMissing * 100}%・間隔+${R.intervalPerMissing * 100}%`,
       ),
     );
   }
@@ -564,7 +630,8 @@ export class BuildScreen {
             const { state } = this.host;
             const known = new Set(state.stash.map((i) => i.id));
             for (const item of Object.values(result.build.equipment)) if (item && !known.has(item.id)) state.stash.unshift(item);
-            state.presets[state.current]!.build = result.build;
+            // 能力値はキャラのもの。読み込むのは装備・スキル・作戦・切り札だけ
+            this.character.build = { ...result.build, attributes: this.build.attributes };
             this.codeMessage = '読み込んだ';
             this.changed();
           },

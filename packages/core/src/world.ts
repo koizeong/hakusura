@@ -5,7 +5,7 @@ import { fieldDef, type FieldId } from './data/fields';
 import { STATUS_IDS, statusDef, statusForElement, type StatusId } from './data/statuses';
 import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction } from './data/skills';
 import type { WeaponTypeId } from './data/weapons';
-import { ATTRIBUTE_RULES, type Attributes } from './data/attributes';
+import { attributeModifiers, type Attributes } from './data/attributes';
 import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import { matchCombos, type ComboId } from './data/combos';
 import { artifactDef, type ArtifactId, type ArtifactTraits } from './data/artifacts';
@@ -989,10 +989,8 @@ export class CombatWorld {
       ...unit.equipment.flatMap((item) => item.affixes.map(affixModifier)),
       ...unit.artifacts.flatMap((id) => artifactDef(id).modifiers ?? []),
       ...(unit.grip ? GRIPS[unit.grip].modifiers : []),
-      // 体力は1上げるごとに最大HPを増やす
-      ...(unit.attributes
-        ? [{ stat: 'maxHp' as const, tags: [], value: ATTRIBUTE_RULES.hpPerVit * (unit.attributes.vit - ATTRIBUTE_RULES.base), group: 'attribute:vit' }]
-        : []),
+      // 能力値はキャラの基礎の強さとして効く
+      ...(unit.attributes ? attributeModifiers(unit.attributes) : []),
     ];
     return all.filter((m) => (m.stat ?? 'damage') === stat);
   }

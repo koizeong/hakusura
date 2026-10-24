@@ -3,7 +3,7 @@ import { CombatWorld } from './world';
 import { resolveSkill } from './data/skills';
 import { WEAPON_TYPES } from './data/weapons';
 import { ATTRIBUTE_RULES, baseAttributes, missingPoints, shortfallPenalty, type Attributes } from './data/attributes';
-import { applyBuild, buildProblems, decodeBuild, encodeBuild, type Build } from './build';
+import { applyBuild, buildProblems, characterPoints, decodeBuild, encodeBuild, growCharacter, newCharacter, unspentPoints, untilNextGrowth, type Build } from './build';
 
 const attrs = (extra: Partial<Attributes>): Attributes => ({ ...baseAttributes(), ...extra });
 const power = (r: ReturnType<typeof resolveSkill>) => (r && 'power' in r.action ? r.action.power : 0);
@@ -48,7 +48,8 @@ describe('能力値の足りなさ', () => {
       for (let t = 0; t < 400; t += 10) w.update(10);
       return w.log[0]!.amount;
     };
-    expect(run(13)).toBeCloseTo(run(18) * 0.6);
+    // 筋力は近攻撃も伸ばすので、その分も掛け合わせる
+    expect(run(13)).toBeCloseTo(((run(18) * 0.6) / 1.25) * 1.125);
   });
 });
 
@@ -63,8 +64,9 @@ describe('能力値の振り分け', () => {
   });
 
   it('振れる点数を超えたり、基礎より下げたりすると知らせる', () => {
-    expect(buildProblems(build(attrs({ str: 48 })))).toEqual([]);
-    expect(buildProblems(build(attrs({ str: 49 })))).toContain('能力値は40点まで振れる');
+    expect(buildProblems(build(attrs({ str: 18 })))).toEqual([]);
+    expect(buildProblems(build(attrs({ str: 19 })))).toContain('能力値は10点まで振れる');
+    expect(buildProblems(build(attrs({ str: 19 })), 11)).toEqual([]);
     expect(buildProblems(build(attrs({ str: 7 })))).toContain('能力値は8より下げられない');
   });
 
@@ -73,5 +75,52 @@ describe('能力値の振り分け', () => {
     expect(decodeBuild(encodeBuild(b))).toEqual({ build: b });
     const bad = encodeBuild({ ...b, attributes: { ...b.attributes!, str: 'たくさん' as unknown as number } });
     expect(decodeBuild(bad)).toEqual({ error: '能力値が壊れている' });
+  });
+});
+
+describe('能力値は基礎値として効く', () => {
+  it('筋力は近攻撃、技量は間隔、理力は雷、信仰は火、体力は最大HP', () => {
+    const w = new CombatWorld();
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, attributes: attrs({ str: 18, dex: 18, int: 18, fai: 18, vit: 18 }) });
+    expect(w.statOf(p, 'damage', ['melee'])).toBeCloseTo(1.25);
+    expect(w.statOf(p, 'damage', ['ranged'])).toBeCloseTo(1);
+    expect(w.statOf(p, 'cooldown')).toBeCloseTo(Math.pow(0.985, 10));
+    expect(w.statOf(p, 'damage', ['lightning'])).toBeCloseTo(1.3);
+    expect(w.statOf(p, 'damage', ['fire'])).toBeCloseTo(1.3);
+    expect(w.statOf(p, 'maxHp')).toBeCloseTo(1.3);
+  });
+
+  it('技量をいくら上げても、間隔は0にならない', () => {
+    const w = new CombatWorld();
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, attributes: attrs({ dex: 500 }) });
+    expect(w.statOf(p, 'cooldown')).toBeGreaterThan(0);
+  });
+});
+
+describe('キャラと放置の育成', () => {
+  const MIN = 60 * 1000;
+  const blank = { actives: [], passives: [], equipment: {}, tactics: [] };
+
+  it('新しいキャラは基礎の能力値で、最初の点数だけ持つ', () => {
+    const c = newCharacter('c1', '灰の巡礼者', 0, blank);
+    expect(c.build.attributes).toEqual(baseAttributes());
+    expect(characterPoints(c)).toBe(ATTRIBUTE_RULES.startPoints);
+    expect(unspentPoints(c)).toBe(ATTRIBUTE_RULES.startPoints);
+  });
+
+  it('時間が経つと点数が増え、端数は次へ持ち越す', () => {
+    const c = newCharacter('c1', '灰の巡礼者', 0, blank);
+    expect(growCharacter(c, 25 * MIN)).toBe(2);
+    expect(c.earned).toBe(2);
+    expect(untilNextGrowth(c, 25 * MIN)).toBe(5 * MIN);
+    expect(growCharacter(c, 29 * MIN)).toBe(0);
+    expect(growCharacter(c, 30 * MIN)).toBe(1);
+    expect(characterPoints(c)).toBe(ATTRIBUTE_RULES.startPoints + 3);
+  });
+
+  it('振った分だけ、振れる残りが減る', () => {
+    const c = newCharacter('c1', '灰の巡礼者', 0, blank);
+    c.build.attributes = attrs({ str: 12 });
+    expect(unspentPoints(c)).toBe(ATTRIBUTE_RULES.startPoints - 4);
   });
 });

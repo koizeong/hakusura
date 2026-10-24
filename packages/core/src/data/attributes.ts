@@ -1,13 +1,15 @@
+import type { Modifier } from '../rules';
+
 /**
- * 能力値。武器と技は必要な能力値を持ち、足りなくても使えるが威力などが落ちる。
- * 振り直しは無料で、ビルドごとに持つ
+ * 能力値。キャラの基礎の強さで、放置で育つ点数を振って上げる。振り直しはできない。
+ * 武器と技は必要な能力値を持ち、足りなくても使えるが威力などが落ちる
  */
 export const ATTRIBUTES = {
-  str: { name: '筋力', description: '重い武器や叩き割りに要る' },
-  dex: { name: '技量', description: '細い武器や突き・連射に要る' },
-  int: { name: '理力', description: '雷の技や祈りに要る' },
-  fai: { name: '信仰', description: '火の技や塗油に要る' },
-  vit: { name: '体力', description: '1上げるごとに最大HP+3%' },
+  str: { name: '筋力', description: '近攻撃が強くなる。重い武器や叩き割りに要る' },
+  dex: { name: '技量', description: '攻撃の間隔が縮む。細い武器や突き・連射に要る' },
+  int: { name: '理力', description: '雷が強くなる。雷の技や祈りに要る' },
+  fai: { name: '信仰', description: '火が強くなる。火の技や塗油に要る' },
+  vit: { name: '体力', description: '最大HPが増える' },
 } as const;
 
 export type AttributeId = keyof typeof ATTRIBUTES;
@@ -18,9 +20,17 @@ export type AttributeNeeds = Partial<Attributes>;
 export const ATTRIBUTE_RULES = {
   /** どの能力値もここから始まる */
   base: 8,
-  /** 自由に振れる点数 */
-  points: 40,
-  /** 体力1につき最大HP */
+  /** 新しいキャラが最初から振れる点数 */
+  startPoints: 10,
+  /** 放置で育つ:この時間(ミリ秒)ごとに growthPoints 点増える */
+  growthEveryMs: 10 * 60 * 1000,
+  growthPoints: 1,
+  /** 基礎から1点上げるごとの効き目 */
+  meleePerStr: 0.025,
+  /** 技量1点ごとに攻撃の間隔をこの倍率にする(重ねるほど縮み方が鈍る) */
+  intervalPerDex: 0.985,
+  lightningPerInt: 0.03,
+  firePerFai: 0.03,
   hpPerVit: 0.03,
   /** 足りない1点ごとに、威力が下がる割合と、攻撃の間隔が延びる割合 */
   powerPerMissing: 0.08,
@@ -29,6 +39,19 @@ export const ATTRIBUTE_RULES = {
 
 export function baseAttributes(): Attributes {
   return Object.fromEntries(ATTRIBUTE_IDS.map((id) => [id, ATTRIBUTE_RULES.base])) as Attributes;
+}
+
+/** 能力値が基礎値として効く補正。能力値ごとに別の種類として掛け合わさる */
+export function attributeModifiers(attrs: Attributes): Modifier[] {
+  const R = ATTRIBUTE_RULES;
+  const up = (id: AttributeId) => attrs[id] - R.base;
+  return [
+    { stat: 'damage', tags: ['melee'], value: R.meleePerStr * up('str'), group: 'attribute:str' },
+    { stat: 'cooldown', tags: [], value: Math.pow(R.intervalPerDex, up('dex')) - 1, group: 'attribute:dex' },
+    { stat: 'damage', tags: ['lightning'], value: R.lightningPerInt * up('int'), group: 'attribute:int' },
+    { stat: 'damage', tags: ['fire'], value: R.firePerFai * up('fai'), group: 'attribute:fai' },
+    { stat: 'maxHp', tags: [], value: R.hpPerVit * up('vit'), group: 'attribute:vit' },
+  ];
 }
 
 /** 振った点数の合計 */

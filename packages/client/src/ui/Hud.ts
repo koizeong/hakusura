@@ -39,6 +39,7 @@ export class Hud {
   private speedButton: HTMLButtonElement;
   private hint: HTMLElement;
   private activeSlots: HTMLElement;
+  private buildButton!: HTMLButtonElement;
   private binds?: Keybinds;
 
   constructor(
@@ -74,7 +75,7 @@ export class Hud {
       { class: 'breakdown-button', onclick: (e: Event) => (actions.onBreakdown(), (e.currentTarget as HTMLElement).blur()) },
       '勘定',
     );
-    const buildButton = h('button', { class: 'build-button', onclick: (e: Event) => (actions.onBuild(), (e.currentTarget as HTMLElement).blur()) }, '支度');
+    const buildButton = (this.buildButton = h('button', { class: 'build-button', onclick: (e: Event) => (actions.onBuild(), (e.currentTarget as HTMLElement).blur()) }, '支度'));
     this.hint = h('p', { class: 'hint' });
     this.el = h(
       'div',
@@ -112,6 +113,13 @@ export class Hud {
   setTrump(skill: ActiveSkillId | undefined): void {
     this.trump = skill;
     this.trumpName.textContent = skill ? ACTIVE_SKILLS[skill].name : 'なし';
+  }
+
+  /** まだ振っていない点数があれば、支度のボタンに出す */
+  setUnspent(points: number): void {
+    const text = points > 0 ? `支度 ・${points}` : '支度';
+    if (this.buildButton.textContent !== text) this.buildButton.textContent = text;
+    this.buildButton.classList.toggle('notice', points > 0);
   }
 
   setSpeed(speed: number): void {

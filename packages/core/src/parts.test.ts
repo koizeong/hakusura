@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld, type Unit } from './world';
 import { resolveSkill, type ActiveSkillId } from './data/skills';
-import { SWORD, GUN, pw, TEST_WEAPONS, AMPLE } from './testkit';
+import { SWORD, GUN, pw, TEST_WEAPONS, withoutAttributes } from './testkit';
 import { applyBuild, type Build } from './build';
 import type { Item } from './data/equipment';
 import type { ConditionId } from './data/conditions';
@@ -21,7 +21,8 @@ function setup(opts: { weapons?: Item[]; conditions?: ConditionId[]; passives?: 
   const equipment: Build['equipment'] = {};
   (opts.weapons ?? []).forEach((it, i) => (equipment[i === 0 ? 'weapon1' : 'weapon2'] = it));
   (opts.conditions ?? []).forEach((c, i) => (equipment[(['accessory1', 'accessory2', 'accessory3'] as const)[i]!] = accessory(c)));
-  applyBuild(w, p, { actives: [], passives: opts.passives ?? [], equipment, tactics: [], attributes: AMPLE });
+  applyBuild(w, p, { actives: [], passives: opts.passives ?? [], equipment, tactics: [] });
+  withoutAttributes(p);
   // 持ち方を試すのでなければ、持ち方の補正なしで大剣と銃を持たせる
   if (!opts.weapons) p.weapons = [...TEST_WEAPONS];
   return { w, p };

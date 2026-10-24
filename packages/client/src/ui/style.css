@@ -1128,3 +1128,31 @@ button.discard {
 .needs.short {
   color: #c25a4a;
 }
+
+.hud .corner .build-button.notice {
+  border-color: #e8b070;
+  color: #e8dcc8;
+}
+
+.attributes .attr-row.drafted .attr-value {
+  color: #e8b070;
+}
+
+.attributes .attr-effect {
+  color: #c9b79c;
+}
+
+.attributes .attr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.attributes .attr-actions button {
+  padding: 8px 14px;
+}
+
+.attributes .attr-actions .commit {
+  border-color: var(--rust);
+}

@@ -17,5 +17,7 @@ export function bu(skill: ResolvedSkill): number {
   return 'buildup' in skill.action ? skill.action.buildup : 0;
 }
 
-/** 武器と技の条件を全て満たす能力値。体力は基礎のままにして、最大HPを変えない */
-export const AMPLE: Attributes = { str: 99, dex: 99, int: 99, fai: 99, vit: 8 };
+/** 能力値の効き目を外す。能力値を試すテストでなければ、反映した後にこれを呼ぶ */
+export function withoutAttributes(unit: { attributes?: Attributes }): void {
+  unit.attributes = undefined;
+}

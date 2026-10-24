@@ -1,39 +1,59 @@
-import { ARTIFACT_IDS, ARTIFACTS, LOOT_WEAPON_TYPE_IDS, type Attributes, DEFAULT_TACTICS, generateItem, type Build, type ConditionId, type Item } from '@hakusura/core';
+import {
+  ARTIFACT_IDS,
+  ARTIFACTS,
+  ATTRIBUTE_RULES,
+  DEFAULT_TACTICS,
+  LOOT_WEAPON_TYPE_IDS,
+  generateItem,
+  growCharacter,
+  newCharacter,
+  spentPoints,
+  type Attributes,
+  type Build,
+  type Character,
+  type ConditionId,
+  type Item,
+} from '@hakusura/core';
 
-/** 名前つきのビルド。ボス前などで切り替える */
-export interface Preset {
-  name: string;
-  build: Build;
-}
-
-/** 支度の中身。いくつかのビルドと、全てで共有する拾い物の山 */
+/** 支度の中身。キャラたちと、全キャラで共有する拾い物の山 */
 export interface BuildState {
-  presets: Preset[];
+  characters: Character[];
   current: number;
   stash: Item[];
 }
 
-/** 保存できるビルドの数 */
-export const PRESET_LIMIT = 8;
+/** 作れるキャラの数 */
+export const CHARACTER_LIMIT = 12;
 
-// スキルが武器の技になったので、前の保存(v1・v2)は引き継がない
-const STORAGE_KEY = 'hakusura.build.v3';
+// キャラごとに育つ形にしたので保存先を変える。前のビルド(v3)はキャラとして引き継ぐ
+const STORAGE_KEY = 'hakusura.characters.v1';
+const OLD_STORAGE_KEY = 'hakusura.build.v3';
 
-const NUMERALS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+/** 新しいキャラの名前の候補 */
+const NAMES = ['灰の巡礼者', '錆びた傭兵', '名もなき墓守', '煤けた修道女', '片目の猟師', '骨拾い', '落ちた騎士', '雨乞いの子', '油売り', '鐘撞き'];
 
-/** 新しいビルドの名前 */
-export function presetName(index: number): string {
-  return `支度${NUMERALS[index] ?? index + 1}`;
+export function characterName(index: number): string {
+  return NAMES[index % NAMES.length] + (index >= NAMES.length ? `${Math.floor(index / NAMES.length) + 1}` : '');
 }
 
-/** 最初の振り分け。剣・銃・塗油に足り、16点を残す */
+let idCounter = 0;
+export function newCharacterId(): string {
+  return `char-${Date.now().toString(36)}-${(idCounter++).toString(36)}`;
+}
+
+/** 今選んでいるキャラ */
+export function currentCharacter(state: BuildState): Character {
+  return state.characters[state.current]!;
+}
+
+/** 最初のキャラの振り分け。剣・銃・塗油に足りる */
 function starterAttributes(): Attributes {
   return { str: 14, dex: 14, int: 10, fai: 14, vit: 12 };
 }
 
-/** 今選んでいるビルド */
+/** 今選んでいるキャラのビルド */
 export function currentBuild(state: BuildState): Build {
-  return state.presets[state.current]!.build;
+  return currentCharacter(state).build;
 }
 
 /** 最初の支度。これまでの試し斬り場と同じ組み合わせから始める */
@@ -76,17 +96,34 @@ function initialState(random: () => number): BuildState {
     tactics: DEFAULT_TACTICS.map((t) => ({ ...t })),
     attributes: starterAttributes(),
   };
-  return { presets: [{ name: presetName(0), build }], current: 0, stash: [...starterWeapons, ...weaponSamples, ...artifacts, ...loot] };
+  // 最初のキャラは、少し育った所から始める(振った分と同じだけ育ったことにする)
+  const now = Date.now();
+  const first = newCharacter(newCharacterId(), characterName(0), now, build);
+  first.build.attributes = starterAttributes();
+  first.earned = Math.max(0, spentPoints(first.build.attributes) - ATTRIBUTE_RULES.startPoints);
+  return { characters: [first], current: 0, stash: [...starterWeapons, ...weaponSamples, ...artifacts, ...loot] };
 }
 
 export function loadBuildState(random: () => number): BuildState {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as BuildState | null;
-    if (saved && Array.isArray(saved.presets) && saved.presets.length > 0 && Array.isArray(saved.stash)) {
-      saved.current = Math.min(Math.max(0, saved.current | 0), saved.presets.length - 1);
-      // 能力値を入れる前の保存なら、最初の振り分けを持たせる
-      for (const p of saved.presets) p.build.attributes ??= starterAttributes();
+    if (saved && Array.isArray(saved.characters) && saved.characters.length > 0 && Array.isArray(saved.stash)) {
+      saved.current = Math.min(Math.max(0, saved.current | 0), saved.characters.length - 1);
+      // 閉じていた間も育っている
+      for (const c of saved.characters) growCharacter(c, Date.now());
       return saved;
+    }
+    // 前のビルドは、それぞれ振った分だけ育ったキャラとして引き継ぐ
+    const old = JSON.parse(localStorage.getItem(OLD_STORAGE_KEY) ?? 'null') as { presets: { name: string; build: Build }[]; stash: Item[] } | null;
+    if (old && Array.isArray(old.presets) && old.presets.length > 0 && Array.isArray(old.stash)) {
+      const now = Date.now();
+      const characters = old.presets.map((p, i) => {
+        const c = newCharacter(newCharacterId(), p.name || characterName(i), now, p.build);
+        c.build.attributes = p.build.attributes ?? starterAttributes();
+        c.earned = Math.max(0, spentPoints(c.build.attributes) - ATTRIBUTE_RULES.startPoints);
+        return c;
+      });
+      return { characters, current: 0, stash: old.stash };
     }
   } catch {
     // 読めなければ最初の支度にする
@@ -106,6 +143,7 @@ export function saveBuildState(state: BuildState): void {
 export function resetBuildState(random: () => number): BuildState {
   try {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(OLD_STORAGE_KEY);
   } catch {
     // 消せなくても、この場では最初からになる
   }
