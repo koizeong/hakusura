@@ -59,8 +59,6 @@ const SLOWMO = { scale: 0.3, duration: 260 };
 const INPUT_BUFFER = 350;
 /** 早送りの段階 */
 const SPEEDS = [1, 2, 3];
-/** タップで歩かせた後、作戦の寄り道に戻るまでの間 */
-const TAP_HOLD = 700;
 
 
 /** 案山子の配置。感電が飛び移れるよう寄せて立てる */
@@ -114,7 +112,6 @@ export class TrainingGroundScene extends Phaser.Scene {
   private speed = 1;
   /** タップで指した行き先 */
   private moveTo: { x: number; y: number } | null = null;
-  private tapHoldUntil = 0;
   private stick: { id: number; startX: number; startY: number; x: number; y: number; downAt: number; dragged: boolean } | null = null;
   private stickGfx!: Phaser.GameObjects.Graphics;
   private combo!: ComboView;
@@ -403,10 +400,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     const stick = this.stick;
     if (!stick || pointer.id !== stick.id) return;
     this.stick = null;
-    if (stick.dragged) {
-      this.tapHoldUntil = this.world.time + TAP_HOLD;
-      return;
-    }
+    if (stick.dragged) return;
     if (this.time.now - stick.downAt <= STICK.tapMs * 2) this.onTap(pointer);
   }
 
@@ -421,7 +415,6 @@ export class TrainingGroundScene extends Phaser.Scene {
       return;
     }
     this.moveTo = { x: at.x, y: at.y };
-    this.tapHoldUntil = Infinity;
     const fx = this.add.graphics().setDepth(28);
     fx.lineStyle(2, 0xc9b79c, 0.8).strokeCircle(at.x, at.y, 12);
     this.tweens.add({ targets: fx, alpha: 0, scale: 0.4, duration: 350, onComplete: () => fx.destroy() });
@@ -517,32 +510,19 @@ export class TrainingGroundScene extends Phaser.Scene {
       throttle = len <= STICK.deadzone ? 0 : Math.min(1, (len - STICK.deadzone) / (STICK.full - STICK.deadzone));
       mx = dx;
       my = dy;
-      this.tapHoldUntil = world.time + TAP_HOLD;
     } else if (mx !== 0 || my !== 0) {
       this.moveTo = null;
-      this.tapHoldUntil = world.time + TAP_HOLD;
     } else if (this.moveTo) {
       const dx = this.moveTo.x - player.x;
       const dy = this.moveTo.y - player.y;
       if (Math.hypot(dx, dy) < 6) {
         this.moveTo = null;
-        this.tapHoldUntil = world.time + TAP_HOLD;
       } else {
         mx = dx;
         my = dy;
       }
-    } else if (world.queuedGoal(player.id)) {
-      const goal = world.queuedGoal(player.id)!;
-      mx = goal.x - player.x;
-      my = goal.y - player.y;
-    } else if (world.time >= this.tapHoldUntil) {
-      // 作戦のスキルが届かなければ寄っていく
-      const goal = world.autoMoveGoal(player.id);
-      if (goal && Math.hypot(goal.x - player.x, goal.y - player.y) > goal.stopAt) {
-        mx = goal.x - player.x;
-        my = goal.y - player.y;
-      }
     }
+    // 足はプレイヤーのもの。作戦や切り札のために勝手に歩くことはしない(届かない技は届くまで待つ)
     const len = Math.hypot(mx, my);
     // 自動では攻撃中も足を止めない
     const speed = world.isIncapacitated(player) ? 0 : AUTO_MOVE_SPEED * throttle * world.statOf(player, 'moveSpeed');

@@ -59,6 +59,8 @@ export interface Expedition {
   endsAt: number;
   /** 持ち帰る物を決める乱数の種 */
   seed: number;
+  /** 送り出したときのビルド。強さはこれで測る */
+  build?: Build;
 }
 
 /** 新しいキャラ。Lv1、能力値は基礎のまま */

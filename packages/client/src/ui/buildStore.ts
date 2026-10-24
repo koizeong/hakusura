@@ -130,7 +130,7 @@ export function loadBuildState(random: () => number): BuildState {
       saved.current = Math.min(Math.max(0, saved.current | 0), saved.characters.length - 1);
       saved.learned ??= startingLearned();
       saved.techniques ??= [];
-      // 戦える者を選んでおく(遠征や負傷の間は戦えない)
+      // 戦える者を選んでおく(負傷の間は戦えない)
       if (!canFight(saved.characters[saved.current]!, Date.now())) {
         const other = saved.characters.findIndex((c) => canFight(c, Date.now()));
         if (other >= 0) saved.current = other;

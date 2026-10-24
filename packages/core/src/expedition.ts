@@ -85,8 +85,13 @@ export function isInjured(c: Character, now: number): boolean {
   return (c.injuredUntil ?? 0) > now;
 }
 
-/** 戦える(遠征に出ておらず、負傷もしていない) */
+/** 戦える。遠征は隊が行くので、遠征中でも戦える。負傷の間は戦えない */
 export function canFight(c: Character, now: number): boolean {
+  return !isInjured(c, now);
+}
+
+/** 遠征に送り出せる(遠征に出ておらず、負傷もしていない) */
+export function canSend(c: Character, now: number): boolean {
   return !c.expedition && !isInjured(c, now);
 }
 
@@ -98,7 +103,8 @@ export function expeditionYield(power: number, destination: ExpeditionId): numbe
 
 /** 遠征に送り出す */
 export function startExpedition(c: Character, destination: ExpeditionId, now: number, seed: number): void {
-  c.expedition = { destination, startedAt: now, endsAt: now + expeditionDef(destination).duration, seed };
+  // 送り出したときのビルドで遠征する。その後で支度を変えても、遠征には効かない
+  c.expedition = { destination, startedAt: now, endsAt: now + expeditionDef(destination).duration, seed, build: JSON.parse(JSON.stringify(c.build)) as Build };
 }
 
 export function expeditionDone(c: Character, now: number): boolean {
@@ -132,7 +138,7 @@ export function finishExpedition(c: Character, learned: Learned, now: number = e
   const rand = () => random.random();
 
   // 強さは、その地の環境(雨・油溜まり・敵の耐性)で測る
-  const power = measureBuildPower(c.build, 20, ex.seed, def.environment);
+  const power = measureBuildPower(ex.build ?? c.build, 20, ex.seed, def.environment);
   const y = expeditionYield(power, ex.destination);
   const exp = Math.round(def.exp * y);
   const levelsGained = addExp(c, exp);

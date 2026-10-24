@@ -63,6 +63,7 @@ import {
   isLearned,
   measureAt,
   canFight,
+  canSend,
   injuryChance,
   isInjured,
   EXPEDITION_INJURY,
@@ -721,7 +722,7 @@ export class BuildScreen {
   private renderExpedition(): HTMLElement {
     const { state } = this.host;
     const now = Date.now();
-    const idle = state.characters.filter((c) => canFight(c, now));
+    const idle = state.characters.filter((c) => canSend(c, now));
     if (!this.sender || !idle.includes(this.sender)) this.sender = idle.includes(this.character) ? this.character : idle[0];
     const sender = this.sender;
     const minutes = (ms: number) => {
@@ -742,7 +743,7 @@ export class BuildScreen {
         else status = h('small', {}, `${EXPEDITIONS[ex.destination].name}へ・残り${minutes(ex.endsAt - now)}`);
         return h(
           'div',
-          { class: `roster-row${c === sender ? ' selected' : ''}`, onclick: () => canFight(c, now) && ((this.sender = c), this.render()) },
+          { class: `roster-row${c === sender ? ' selected' : ''}`, onclick: () => canSend(c, now) && ((this.sender = c), this.render()) },
           h('b', {}, c.name),
           h('small', {}, `Lv${c.level}`),
           status,
@@ -833,17 +834,7 @@ export class BuildScreen {
   }
 
   private send(c: Character, destination: ExpeditionId): void {
-    const { state } = this.host;
-    // 戦っている者を送り出したら、残っている者に替える。誰も残らないなら送れない
-    if (c === this.character) {
-      const other = state.characters.findIndex((o) => o !== c && canFight(o, Date.now()));
-      if (other < 0) {
-        alert('戦える者が残らない。新しいキャラを作ってから送り出す');
-        return;
-      }
-      state.current = other;
-      this.draft = {};
-    }
+    // 遠征は隊が行く。送り出した者も、そのまま戦える
     startExpedition(c, destination, Date.now(), Math.floor(this.host.random() * 1e9));
     this.sender = undefined;
     this.changed();

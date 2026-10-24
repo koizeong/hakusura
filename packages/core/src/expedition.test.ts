@@ -6,6 +6,7 @@ import { ATTRIBUTE_RULES, expToNext } from './data/attributes';
 import {
   STARTING_SKILLS,
   canFight,
+  canSend,
   expeditionDone,
   injuryChance,
   isInjured,
@@ -150,6 +151,7 @@ describe('負傷', () => {
         const back = EXPEDITIONS.drownedChapel.duration;
         expect(isInjured(c, back + 1)).toBe(true);
         expect(canFight(c, back + 1)).toBe(false);
+        expect(canSend(c, back + 1)).toBe(false);
         expect(canFight(c, back + report.injuredFor + 1)).toBe(true);
       }
     }
