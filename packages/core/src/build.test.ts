@@ -307,3 +307,14 @@ describe('ビルドコード', () => {
     expect(buildProblems(many)).toContain('アクティブは6個まで');
   });
 });
+
+describe('装備の名前', () => {
+  it('防具の名前は部位に合う', () => {
+    let n = 1;
+    const random = () => ((n = (n * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 50; i++) {
+      const it = generateItem(random, { slot: 'feet', kind: 'armor' });
+      expect(['擦り切れた長靴', '腐りかけた脛当て', '泥まみれの革靴']).toContain(it.name);
+    }
+  });
+});

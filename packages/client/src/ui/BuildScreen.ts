@@ -51,17 +51,37 @@ import {
   type Build,
   type Character,
   characterPoints,
-  growCharacter,
   newCharacter,
   unspentPoints,
-  untilNextGrowth,
+  expToNext,
+  EXPEDITIONS,
+  EXPEDITION_IDS,
+  EXPEDITION_YIELD,
+  expeditionDone,
+  expeditionYield,
+  finishExpedition,
+  isLearned,
+  measureBuildPower,
+  startExpedition,
+  type ActiveSkillId,
+  type ExpeditionId,
+  type ExpeditionReport,
+  type PassiveId,
 } from '@hakusura/core';
 import { h, signedPercent } from './dom';
 import { createTacticsEditor } from './TacticsEditor';
 import { CHARACTER_LIMIT, characterName, currentBuild, currentCharacter, newCharacterId, type BuildState } from './buildStore';
 
-type Tab = 'equipment' | 'attributes' | 'skills' | 'tactics' | 'trump' | 'code';
-const TABS: Record<Tab, string> = { equipment: '装備', attributes: '能力', skills: 'スキル', tactics: '作戦', trump: '切り札', code: 'コード' };
+type Tab = 'expedition' | 'equipment' | 'attributes' | 'skills' | 'tactics' | 'trump' | 'code';
+const TABS: Record<Tab, string> = {
+  expedition: '遠征',
+  equipment: '装備',
+  attributes: '能力',
+  skills: 'スキル',
+  tactics: '作戦',
+  trump: '切り札',
+  code: 'コード',
+};
 
 /** 拾い物を一度に拾う数 */
 const LOOT_COUNT = 6;
@@ -85,6 +105,10 @@ export class BuildScreen {
   private selectedSlot: EquipSlotId = 'head';
   private lootCondition: ConditionId | '' = '';
   private lootWeapon: WeaponTypeId = LOOT_WEAPON_TYPE_IDS[0]!;
+  /** 遠征に送り出す者と、最後に迎えたときの知らせ */
+  private sender?: Character;
+  private lastReport?: { name: string; level: number; report: ExpeditionReport };
+  private powerCache = new Map<string, number>();
   /** 能力値の仮振り。「決める」まで反映しない */
   private draft: Partial<Record<AttributeId, number>> = {};
   private codeMessage = '';
@@ -162,6 +186,8 @@ export class BuildScreen {
         return this.renderTrump();
       case 'code':
         return this.renderCode();
+      case 'expedition':
+        return this.renderExpedition();
     }
   }
 
@@ -182,7 +208,8 @@ export class BuildScreen {
         },
         ...state.characters.map((c, i) => {
           const left = unspentPoints(c);
-          return h('option', { value: i, selected: i === state.current }, `${c.name}${left > 0 ? `(未振り ${left})` : ''}`);
+          const away = c.expedition ? (expeditionDone(c, Date.now()) ? '・帰還' : '・遠征中') : '';
+          return h('option', { value: i, selected: i === state.current, disabled: !!c.expedition }, `${c.name} Lv${c.level}${away}${left > 0 ? `(未振り ${left})` : ''}`);
         }),
       ),
       h(
@@ -421,17 +448,19 @@ export class BuildScreen {
       const def = activeSkillDef(id);
       if (missingPoints(def.needs, preview)) shortages.push(`${def.name}:要 ${needsText(def.needs)}`);
     }
-    const now = Date.now();
-    const next = untilNextGrowth(c, now);
+    const atMax = c.level >= R.maxLevel;
     return h(
       'div',
       { class: 'attributes' },
-      h('p', { class: 'counter' }, `振れる点数 残り ${left}(最初の${R.startPoints} + 放置で育った${c.earned})`),
       h(
-        'p',
-        { class: 'note' },
-        `放置で ${R.growthEveryMs / 60000}分ごとに${R.growthPoints}点育つ。次の1点まで ${Math.floor(next / 60000)}分${Math.floor((next % 60000) / 1000)}秒`,
+        'div',
+        { class: 'level' },
+        h('b', {}, `Lv ${c.level}`),
+        h('div', { class: 'exp-bar' }, h('div', { class: 'exp-fill', style: `width:${atMax ? 100 : (c.exp / expToNext(c.level)) * 100}%` })),
+        h('small', {}, atMax ? '上限' : `経験値 ${c.exp} / ${expToNext(c.level)}`),
       ),
+      h('p', { class: 'counter' }, `振れる点数 残り ${left}(Lv${c.level}で${characterPoints(c)}点。レベルが上がるごとに${R.pointsPerLevel}点)`),
+      h('p', { class: 'note' }, '経験値は遠征で得る。能力値は基礎値なので、強さの多くはビルドで決まる'),
       ...ATTRIBUTE_IDS.map((id) =>
         h(
           'div',
@@ -461,18 +490,6 @@ export class BuildScreen {
           '決める',
         ),
         h('button', { disabled: drafted === 0, onclick: () => ((this.draft = {}), this.render()) }, 'やめる'),
-        h(
-          'button',
-          {
-            title: '試作用。放置で1時間経ったことにする',
-            onclick: () => {
-              c.grownAt -= 60 * 60 * 1000;
-              growCharacter(c, Date.now());
-              this.changed();
-            },
-          },
-          '時を進める(1時間・試作用)',
-        ),
       ),
       h('h3', {}, '足りないもの'),
       shortages.length === 0
@@ -530,24 +547,37 @@ export class BuildScreen {
           if (r.missing) detail += `・${shortfallText(r.missing)}`;
         }
         if (def.needs) detail = `要 ${needsText(def.needs)}・${detail}`;
+        const known = isLearned(this.host.state.learned, id);
+        if (!known) detail = '未修得。遠征で見つかる';
         return h(
           'label',
-          { class: `skill-row${usable ? '' : ' unusable'}` },
-          h('input', { type: 'checkbox', checked: build.actives.includes(id), onchange: (e: Event) => toggle(build.actives, id, (e.target as HTMLInputElement).checked) }),
+          { class: `skill-row${usable && known ? '' : ' unusable'}` },
+          h('input', {
+            type: 'checkbox',
+            disabled: !known && !build.actives.includes(id),
+            checked: build.actives.includes(id),
+            onchange: (e: Event) => toggle(build.actives, id, (e.target as HTMLInputElement).checked),
+          }),
           h('span', {}, def.name),
           h('small', {}, detail),
         );
       }),
       h('h3', {}, 'パッシブ'),
-      ...PASSIVE_IDS.map((id) =>
-        h(
+      ...PASSIVE_IDS.map((id) => {
+        const known = isLearned(this.host.state.learned, id);
+        return h(
           'label',
-          { class: 'skill-row' },
-          h('input', { type: 'checkbox', checked: build.passives.includes(id), onchange: (e: Event) => toggle(build.passives, id, (e.target as HTMLInputElement).checked) }),
+          { class: `skill-row${known ? '' : ' unusable'}` },
+          h('input', {
+            type: 'checkbox',
+            disabled: !known && !build.passives.includes(id),
+            checked: build.passives.includes(id),
+            onchange: (e: Event) => toggle(build.passives, id, (e.target as HTMLInputElement).checked),
+          }),
           h('span', {}, PASSIVES[id].name),
-          h('small', {}, PASSIVES[id].description),
-        ),
-      ),
+          h('small', {}, known ? PASSIVES[id].description : '未修得。遠征で見つかる'),
+        );
+      }),
     );
   }
 
@@ -569,10 +599,11 @@ export class BuildScreen {
       ...TRUMP_SKILL_IDS.map((id) =>
         h(
           'label',
-          { class: 'skill-row' },
+          { class: `skill-row${isLearned(this.host.state.learned, id) ? '' : ' unusable'}` },
           h('input', {
             type: 'radio',
             name: 'trump',
+            disabled: !isLearned(this.host.state.learned, id),
             checked: build.trump === id,
             onchange: () => {
               build.trump = id;
@@ -580,9 +611,165 @@ export class BuildScreen {
             },
           }),
           h('span', {}, ACTIVE_SKILLS[id].name),
-          h('small', {}, `${activeSkillDef(id).description ?? ''}(${(resolveSkill(id)?.cooldown ?? 0) / 1000}秒)`),
+          h(
+            'small',
+            {},
+            isLearned(this.host.state.learned, id)
+              ? `${activeSkillDef(id).description ?? ''}(${(resolveSkill(id)?.cooldown ?? 0) / 1000}秒)`
+              : '未修得。遠征で見つかる',
+          ),
         ),
       ),
+    );
+  }
+
+  // ---- 遠征 ----
+
+  private renderExpedition(): HTMLElement {
+    const { state } = this.host;
+    const now = Date.now();
+    const idle = state.characters.filter((c) => !c.expedition);
+    if (!this.sender || !idle.includes(this.sender)) this.sender = idle.includes(this.character) ? this.character : idle[0];
+    const sender = this.sender;
+    const minutes = (ms: number) => {
+      const m = Math.ceil(ms / 60000);
+      return m >= 60 ? `${Math.floor(m / 60)}時間${m % 60 ? `${m % 60}分` : ''}` : `${m}分`;
+    };
+
+    const roster = h(
+      'div',
+      { class: 'roster' },
+      ...state.characters.map((c) => {
+        const ex = c.expedition;
+        let status: HTMLElement;
+        if (!ex) status = h('small', {}, '待機');
+        else if (expeditionDone(c, now))
+          status = h('button', { class: 'commit', onclick: () => this.welcome(c) }, `${EXPEDITIONS[ex.destination].name}から迎える`);
+        else status = h('small', {}, `${EXPEDITIONS[ex.destination].name}へ・残り${minutes(ex.endsAt - now)}`);
+        return h(
+          'div',
+          { class: `roster-row${c === sender ? ' selected' : ''}`, onclick: () => !c.expedition && ((this.sender = c), this.render()) },
+          h('b', {}, c.name),
+          h('small', {}, `Lv${c.level}`),
+          status,
+        );
+      }),
+    );
+
+    // 送り出す者のビルドの強さ。早回しで測るので、ビルドが変わったときだけ測り直す
+    const power = sender ? this.powerOf(sender) : 0;
+    const destinations = h(
+      'div',
+      { class: 'destinations' },
+      ...EXPEDITION_IDS.map((id) => {
+        const d = EXPEDITIONS[id];
+        const y = sender ? expeditionYield(power, id) : 0;
+        return h(
+          'div',
+          { class: 'destination' },
+          h('div', { class: 'item-head' }, h('b', {}, d.name), h('small', {}, minutes(d.duration)), h('small', { class: 'total' }, `手強さ ${d.threat}`)),
+          h('p', { class: 'artifact-text' }, d.description),
+          h(
+            'small',
+            {},
+            `経験値 ${d.exp}・装備 ${d.items}つ・新しいスキル ${Math.round(d.skillChance * 100)}%${sender ? `(見込み ×${y.toFixed(2)})` : ''}`,
+          ),
+          h(
+            'div',
+            { class: 'item-actions' },
+            h(
+              'button',
+              {
+                disabled: !sender,
+                onclick: () => sender && this.send(sender, id),
+              },
+              sender ? `${sender.name}を送り出す` : '送り出せる者がいない',
+            ),
+          ),
+        );
+      }),
+    );
+
+    const report = this.lastReport;
+    return h(
+      'div',
+      { class: 'expedition' },
+      report ? this.renderReport(report) : '',
+      h('h3', {}, '隊の者'),
+      roster,
+      h(
+        'p',
+        { class: 'note' },
+        sender
+          ? `${sender.name}のビルドの強さ ${Math.round(power)}。行き先の手強さより強いほど多く持ち帰る(${EXPEDITION_YIELD.min}〜${EXPEDITION_YIELD.max}倍)。遠征の間は戦えない`
+          : '皆、遠征に出ている。新しいキャラを作るか、帰りを待つ',
+      ),
+      h('h3', {}, '行き先'),
+      destinations,
+      h(
+        'button',
+        {
+          title: '試作用。遠征の時間を1時間進める',
+          onclick: () => {
+            for (const c of state.characters) if (c.expedition) c.expedition.endsAt -= 60 * 60 * 1000;
+            this.changed();
+          },
+        },
+        '時を進める(1時間・試作用)',
+      ),
+    );
+  }
+
+  private powerOf(c: Character): number {
+    const key = `${c.id}:${JSON.stringify(c.build)}`;
+    let power = this.powerCache.get(key);
+    if (power === undefined) {
+      power = measureBuildPower(c.build, 20, 1);
+      this.powerCache.set(key, power);
+    }
+    return power;
+  }
+
+  private send(c: Character, destination: ExpeditionId): void {
+    const { state } = this.host;
+    // 戦っている者を送り出したら、残っている者に替える。誰も残らないなら送れない
+    if (c === this.character) {
+      const other = state.characters.findIndex((o) => o !== c && !o.expedition);
+      if (other < 0) {
+        alert('戦える者が残らない。新しいキャラを作ってから送り出す');
+        return;
+      }
+      state.current = other;
+      this.draft = {};
+    }
+    startExpedition(c, destination, Date.now(), Math.floor(this.host.random() * 1e9));
+    this.sender = undefined;
+    this.changed();
+  }
+
+  private welcome(c: Character): void {
+    const report = finishExpedition(c, this.host.state.learned);
+    if (!report) return;
+    this.host.state.stash.unshift(...report.items);
+    this.lastReport = { name: c.name, level: c.level, report };
+    this.changed();
+  }
+
+  private renderReport(r: { name: string; level: number; report: ExpeditionReport }): HTMLElement {
+    const skillName = (id: string) => (id in PASSIVES ? PASSIVES[id as PassiveId].name : activeSkillDef(id as ActiveSkillId).name);
+    return h(
+      'section',
+      { class: 'report' },
+      h('h3', {}, `${r.name}が${EXPEDITIONS[r.report.destination].name}から戻った`),
+      h(
+        'p',
+        {},
+        `経験値 ${r.report.exp}(×${r.report.yield.toFixed(2)})${r.report.levelsGained > 0 ? `・Lv${r.level}に上がった(振れる点数 +${r.report.levelsGained})` : ''}`,
+      ),
+      r.report.skills.length > 0 ? h('p', { class: 'found' }, `覚えた:${r.report.skills.map(skillName).join('・')}`) : '',
+      h('p', {}, `持ち帰った装備 ${r.report.items.length}つ(拾い物の山に入れた)`),
+      h('div', { class: 'item-list' }, ...r.report.items.map((item) => itemCard(this.attrs, item))),
+      h('button', { onclick: () => ((this.lastReport = undefined), this.render()) }, '閉じる'),
     );
   }
 

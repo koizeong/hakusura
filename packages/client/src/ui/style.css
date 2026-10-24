@@ -1156,3 +1156,123 @@ button.discard {
 .attributes .attr-actions .commit {
   border-color: var(--rust);
 }
+
+.attributes .level {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  margin: 4px 0;
+}
+
+.attributes .level b {
+  font-size: 18px;
+  color: #e8dcc8;
+}
+
+.exp-bar {
+  height: 8px;
+  background: #0c0b0a;
+  border: 1px solid var(--line);
+}
+
+.exp-fill {
+  height: 100%;
+  background: #8a7a50;
+}
+
+.roster {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.roster-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: 'name lv' 'status status';
+  gap: 2px 8px;
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.roster-row b {
+  grid-area: name;
+}
+
+.roster-row > small:nth-child(2) {
+  grid-area: lv;
+  color: var(--dim);
+}
+
+.roster-row > :nth-child(3) {
+  grid-area: status;
+  color: var(--dim);
+}
+
+.roster-row button {
+  justify-self: start;
+  padding: 6px 12px;
+}
+
+.roster-row.selected {
+  border-color: #c9b79c;
+  background: rgba(201, 183, 156, 0.06);
+}
+
+.destinations {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.destination {
+  border: 1px solid var(--line);
+  padding: 8px;
+  font-size: 13px;
+}
+
+.destination small {
+  color: var(--dim);
+}
+
+.expedition .note {
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.report {
+  border: 1px solid var(--rust);
+  padding: 10px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.report h3 {
+  margin-top: 0;
+  color: #e8dcc8;
+}
+
+.report .found {
+  color: #d8c25a;
+}
+
+.report .item-list {
+  margin: 6px 0;
+}
+
+@media (max-width: 760px) {
+  .tabs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    border-bottom: none;
+  }
+
+  .tabs button {
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+}

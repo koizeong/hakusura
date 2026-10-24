@@ -21,10 +21,19 @@ export const EQUIP_SLOT_IDS = Object.keys(EQUIP_SLOTS) as EquipSlotId[];
 
 /** 部位の種類ごとの名前の候補 */
 const BASE_NAMES: Record<EquipKind, readonly string[]> = {
-  armor: ['錆びた兜', '継ぎ接ぎの外套', '煤けた籠手', '擦り切れた長靴', '骨の肩当て', '古い革鎧', '鎖の頭巾', '腐りかけた脛当て'],
+  // 防具は部位ごとの名前を使う(ARMOR_NAMES)
+  armor: [],
   accessory: ['欠けた指輪', '灰の数珠', '名も知れぬ護符', '錆びた鈴', '割れた鏡片', '褪せた徽章'],
   // 武器は武器の種類の名前を使う
   weapon: [],
+};
+
+/** 防具の部位ごとの名前の候補 */
+const ARMOR_NAMES: Partial<Record<EquipSlotId, readonly string[]>> = {
+  head: ['錆びた兜', '鎖の頭巾', '割れた面頬', '煤けた頭巾'],
+  body: ['継ぎ接ぎの外套', '古い革鎧', '骨の肩当て', '黴びた鎖帷子'],
+  hands: ['煤けた籠手', '擦り切れた手甲', '縫い直した手袋'],
+  feet: ['擦り切れた長靴', '腐りかけた脛当て', '泥まみれの革靴'],
 };
 
 /** 補正値の項目。common の項目は、どの装備にも必ず1つ入る */
@@ -172,7 +181,7 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
   const weaponType = kind === 'weapon' ? (options.weaponType ?? pick(LOOT_WEAPON_TYPE_IDS)) : undefined;
   return {
     id: `item-${Date.now().toString(36)}-${(itemCounter++).toString(36)}-${Math.floor(random() * 1e6).toString(36)}`,
-    name: weaponType ? WEAPON_TYPES[weaponType].name : pick(BASE_NAMES[kind]),
+    name: weaponType ? WEAPON_TYPES[weaponType].name : kind === 'armor' && slot ? pick(ARMOR_NAMES[slot] ?? ['古い防具']) : pick(BASE_NAMES[kind]),
     kind,
     slot,
     affixes,

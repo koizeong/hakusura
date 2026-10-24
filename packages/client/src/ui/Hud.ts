@@ -115,11 +115,12 @@ export class Hud {
     this.trumpName.textContent = skill ? ACTIVE_SKILLS[skill].name : 'なし';
   }
 
-  /** まだ振っていない点数があれば、支度のボタンに出す */
-  setUnspent(points: number): void {
-    const text = points > 0 ? `支度 ・${points}` : '支度';
+  /** まだ振っていない点数や、遠征から戻った者がいれば、支度のボタンに出す */
+  setNotice(points: number, returned: number): void {
+    const marks = [returned > 0 ? `帰還${returned}` : '', points > 0 ? `点${points}` : ''].filter(Boolean);
+    const text = marks.length > 0 ? `支度・${marks.join('・')}` : '支度';
     if (this.buildButton.textContent !== text) this.buildButton.textContent = text;
-    this.buildButton.classList.toggle('notice', points > 0);
+    this.buildButton.classList.toggle('notice', marks.length > 0);
   }
 
   setSpeed(speed: number): void {

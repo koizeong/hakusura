@@ -4,7 +4,8 @@ import { CONDITIONS } from './data/conditions';
 import { ARTIFACTS } from './data/artifacts';
 import { AFFIXES, EQUIP_SLOTS, EQUIP_SLOT_IDS, itemTotal, type EquipSlotId, type Item } from './data/equipment';
 import { gripOf } from './data/grips';
-import { ATTRIBUTE_IDS, ATTRIBUTE_RULES, baseAttributes, spentPoints, type Attributes } from './data/attributes';
+import { ATTRIBUTE_IDS, ATTRIBUTE_RULES, baseAttributes, expToNext, pointsAtLevel, spentPoints, type Attributes } from './data/attributes';
+import type { ExpeditionId } from './data/expeditions';
 import { WEAPON_TYPES, type WeaponTypeId } from './data/weapons';
 import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import type { CombatWorld, Unit } from './world';
@@ -31,38 +32,50 @@ export interface Build {
 }
 
 /**
- * キャラ。1キャラ1ビルドで、能力値の点数は放置で育つ。
- * 作り分けはキャラを増やして行う。拾い物の山は全キャラで共有する
+ * キャラ。1キャラ1ビルドで、遠征で経験値を得てレベルが上がり、能力値の点数が増える。
+ * 作り分けはキャラを増やして行う。拾い物の山と覚えたスキルは全キャラで共有する
  */
 export interface Character {
   id: string;
   name: string;
   createdAt: number;
-  /** 放置で育った分を最後に数えた時刻 */
-  grownAt: number;
-  /** 放置で育った点数 */
-  earned: number;
+  level: number;
+  /** 今のレベルで貯めた経験値 */
+  exp: number;
   build: Build;
+  /** 遠征に出ている間だけある。この間は戦えない */
+  expedition?: Expedition;
 }
 
-/** 新しいキャラ。能力値は基礎のまま、最初の点数だけ持つ */
+/** 遠征の行き先と、出た・戻る時刻 */
+export interface Expedition {
+  destination: ExpeditionId;
+  startedAt: number;
+  endsAt: number;
+  /** 持ち帰る物を決める乱数の種 */
+  seed: number;
+}
+
+/** 新しいキャラ。Lv1、能力値は基礎のまま */
 export function newCharacter(id: string, name: string, now: number, build: Omit<Build, 'attributes'>): Character {
-  return { id, name, createdAt: now, grownAt: now, earned: 0, build: { ...build, attributes: baseAttributes() } };
+  return { id, name, createdAt: now, level: 1, exp: 0, build: { ...build, attributes: baseAttributes() } };
 }
 
-/** 放置で育った分を数える。前に数えてから経った時間で点数が増える。増えた点数を返す */
-export function growCharacter(c: Character, now: number): number {
-  const R = ATTRIBUTE_RULES;
-  const steps = Math.floor(Math.max(0, now - c.grownAt) / R.growthEveryMs);
-  if (steps <= 0) return 0;
-  c.grownAt += steps * R.growthEveryMs;
-  c.earned += steps * R.growthPoints;
-  return steps * R.growthPoints;
+/** 経験値を足す。上がったレベルの数を返す。上限のレベルでは経験値は貯まらない */
+export function addExp(c: Character, exp: number): number {
+  const before = c.level;
+  c.exp += Math.max(0, Math.round(exp));
+  while (c.level < ATTRIBUTE_RULES.maxLevel && c.exp >= expToNext(c.level)) {
+    c.exp -= expToNext(c.level);
+    c.level++;
+  }
+  if (c.level >= ATTRIBUTE_RULES.maxLevel) c.exp = 0;
+  return c.level - before;
 }
 
 /** キャラが振れる点数の合計 */
 export function characterPoints(c: Character): number {
-  return ATTRIBUTE_RULES.startPoints + c.earned;
+  return pointsAtLevel(c.level);
 }
 
 /** まだ振っていない点数 */
@@ -70,9 +83,11 @@ export function unspentPoints(c: Character): number {
   return characterPoints(c) - spentPoints(c.build.attributes ?? baseAttributes());
 }
 
-/** 次に点数が増えるまでの時間(ミリ秒) */
-export function untilNextGrowth(c: Character, now: number): number {
-  return ATTRIBUTE_RULES.growthEveryMs - (Math.max(0, now - c.grownAt) % ATTRIBUTE_RULES.growthEveryMs);
+/** 振った点数に足りるレベル(前の保存を引き継ぐとき用) */
+export function levelForPoints(points: number): number {
+  let level = 1;
+  while (level < ATTRIBUTE_RULES.maxLevel && pointsAtLevel(level) < points) level++;
+  return level;
 }
 
 /** 作戦に入れられるアクティブ。切り札と敵のスキルは除く */

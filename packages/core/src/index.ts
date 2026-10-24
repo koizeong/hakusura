@@ -6,3 +6,4 @@ export * from './damage';
 export * from './world';
 export * from './breakdown';
 export * from './build';
+export * from './expedition';

@@ -1,7 +1,8 @@
 import type { Modifier } from '../rules';
 
 /**
- * 能力値。キャラの基礎の強さで、放置で育つ点数を振って上げる。振り直しはできない。
+ * 能力値。キャラの基礎の強さで、レベルが上がるたびに得る点数を振って上げる。振り直しはできない。
+ * あくまで基礎値なので、効き目はビルドより小さく抑える。
  * 武器と技は必要な能力値を持ち、足りなくても使えるが威力などが落ちる
  */
 export const ATTRIBUTES = {
@@ -20,18 +21,21 @@ export type AttributeNeeds = Partial<Attributes>;
 export const ATTRIBUTE_RULES = {
   /** どの能力値もここから始まる */
   base: 8,
-  /** 新しいキャラが最初から振れる点数 */
-  startPoints: 10,
-  /** 放置で育つ:この時間(ミリ秒)ごとに growthPoints 点増える */
-  growthEveryMs: 10 * 60 * 1000,
-  growthPoints: 1,
-  /** 基礎から1点上げるごとの効き目 */
-  meleePerStr: 0.025,
+  /** レベルの上限 */
+  maxLevel: 50,
+  /** Lv1で振れる点数と、1レベル上がるごとに増える点数。Lv50で 3 + 49 = 52点 */
+  startPoints: 3,
+  pointsPerLevel: 1,
+  /** 次のレベルまでの経験値は expBase × レベル^expPower */
+  expBase: 60,
+  expPower: 1.4,
+  /** 基礎から1点上げるごとの効き目。全てを1つに振ってもビルドより小さく効く程度 */
+  meleePerStr: 0.012,
   /** 技量1点ごとに攻撃の間隔をこの倍率にする(重ねるほど縮み方が鈍る) */
-  intervalPerDex: 0.985,
-  lightningPerInt: 0.03,
-  firePerFai: 0.03,
-  hpPerVit: 0.03,
+  intervalPerDex: 0.994,
+  lightningPerInt: 0.015,
+  firePerFai: 0.015,
+  hpPerVit: 0.02,
   /** 足りない1点ごとに、威力が下がる割合と、攻撃の間隔が延びる割合 */
   powerPerMissing: 0.08,
   intervalPerMissing: 0.04,
@@ -52,6 +56,16 @@ export function attributeModifiers(attrs: Attributes): Modifier[] {
     { stat: 'damage', tags: ['fire'], value: R.firePerFai * up('fai'), group: 'attribute:fai' },
     { stat: 'maxHp', tags: [], value: R.hpPerVit * up('vit'), group: 'attribute:vit' },
   ];
+}
+
+/** そのレベルから次のレベルまでに要る経験値 */
+export function expToNext(level: number): number {
+  return Math.round(ATTRIBUTE_RULES.expBase * Math.pow(level, ATTRIBUTE_RULES.expPower));
+}
+
+/** そのレベルで振れる点数の合計 */
+export function pointsAtLevel(level: number): number {
+  return ATTRIBUTE_RULES.startPoints + (level - 1) * ATTRIBUTE_RULES.pointsPerLevel;
 }
 
 /** 振った点数の合計 */

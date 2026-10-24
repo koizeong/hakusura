@@ -4,7 +4,7 @@ import {
   CombatWorld,
   DEFENSE,
   applyBuild,
-  growCharacter,
+  expeditionDone,
   unspentPoints,
   ELEMENTS,
   FIELDS,
@@ -116,6 +116,7 @@ export class TrainingGroundScene extends Phaser.Scene {
   private buildState!: BuildState;
   private buildScreen!: BuildScreen;
   private nextGrowthCheck = 0;
+  private lastReturned = 0;
 
   constructor() {
     super('TrainingGround');
@@ -255,18 +256,17 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.world.queueSkill(this.player.id, trump, def && actionReach(def.action) !== undefined ? 6000 : 1500);
   }
 
-  /** キャラは時間で育つ。数秒ごとに数え、増えたら覚えておく */
+  /** 数秒ごとに、遠征から戻った者と振れる点数を見て、支度のボタンに知らせる */
   private tickGrowth(time: number): void {
     if (time < this.nextGrowthCheck) return;
     this.nextGrowthCheck = time + 2000;
     const now = Date.now();
-    let grown = 0;
-    for (const c of this.buildState.characters) grown += growCharacter(c, now);
-    if (grown > 0) {
-      saveBuildState(this.buildState);
+    const returned = this.buildState.characters.filter((c) => expeditionDone(c, now)).length;
+    if (returned !== this.lastReturned) {
+      this.lastReturned = returned;
       if (this.buildScreen.visible) this.buildScreen.render();
     }
-    this.hud.setUnspent(unspentPoints(currentCharacter(this.buildState)));
+    this.hud.setNotice(unspentPoints(currentCharacter(this.buildState)), returned);
   }
 
   private openBuild(): void {

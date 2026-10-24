@@ -14,3 +14,4 @@ export * from './artifacts';
 export * from './grips';
 export * from './weapons';
 export * from './attributes';
+export * from './expeditions';
