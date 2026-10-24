@@ -22,6 +22,7 @@ import {
   type CombatEvent,
   type FieldId,
   type Unit,
+  type StatusDef,
   ENEMIES,
   Encounter,
   type EncounterId,
@@ -838,7 +839,9 @@ export class TrainingGroundScene extends Phaser.Scene {
     let y = top;
     for (const id of STATUS_IDS) {
       const st = unit.statuses[id];
-      const def = STATUSES[id];
+      const def: StatusDef = STATUSES[id];
+      // 瀕死・無傷のような様子で決まるものは、棒にしない
+      if (def.derived) continue;
       const active = this.world.isActive(unit, id);
       if (!active && st.buildup <= 0.5) continue;
       g.fillStyle(0x000000, 0.6).fillRect(unit.x - width / 2, y, width, active ? 5 : 3);
@@ -861,6 +864,12 @@ export class TrainingGroundScene extends Phaser.Scene {
       const y = ((i * 37.7 + t * 0.9) % (height + 40)) - 20;
       g.lineBetween(x, y, x - 4, y + 14);
     }
+  }
+
+  /** 小さな文字を浮かべて消す */
+  private floatText(x: number, y: number, label: string, color: string): void {
+    const text = this.add.text(x, y, label, { fontFamily: FONT, fontSize: '16px', color, stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5).setDepth(44);
+    this.tweens.add({ targets: text, y: y - 20, alpha: 0, duration: 700, onComplete: () => text.destroy() });
   }
 
   /** 自分の頭上に大きく出す一言 */
@@ -1085,6 +1094,21 @@ export class TrainingGroundScene extends Phaser.Scene {
       }
       case 'weatherCalled': {
         this.callout(this.player, `${FIELDS[event.field].name}を呼んだ`, '#8fb4d8');
+        break;
+      }
+      case 'missed': {
+        const unit = this.world.units.get(event.unitId);
+        if (unit) this.floatText(unit.x, unit.y - 30, '外れ', '#8a7aaa');
+        break;
+      }
+      case 'warded': {
+        const unit = this.world.units.get(event.unitId);
+        if (unit) this.callout(unit, `${event.label}が護った`, '#f0e0a0');
+        break;
+      }
+      case 'healed': {
+        const unit = this.world.units.get(event.unitId);
+        if (unit && event.amount >= 1) this.floatText(unit.x, unit.y - 30, `+${Math.round(event.amount)}`, '#8ad07a');
         break;
       }
       case 'dodged':

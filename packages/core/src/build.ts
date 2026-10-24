@@ -129,6 +129,28 @@ export function buildWeapons(build: Build): WeaponSpec[] {
   return weapons.length > 0 ? weapons : [{ type: 'fists' }];
 }
 
+/** 重さの決まり。担える重さは base に筋力1点ごとに perStr を足したもの */
+export const WEIGHT_RULES = { base: 15, perStr: 1 } as const;
+
+/** 着けている物の重さの合計 */
+export function buildWeight(build: Build): number {
+  return Object.values(build.equipment).reduce((sum, item) => sum + (item ? itemWeight(item) : 0), 0);
+}
+
+/** 1つの装備の重さ。装飾品とアーティファクトは重さがない */
+export function itemWeight(item: Item): number {
+  if (item.artifact) return 0;
+  if (item.weaponType) return WEAPON_TYPES[item.weaponType].weight;
+  if (item.shieldType) return SHIELD_TYPES[item.shieldType].weight;
+  if (item.material) return ARMOR_MATERIALS[item.material].weight;
+  return item.kind === 'armor' ? 3 : 0;
+}
+
+/** 担える重さ。超えると鈍重になる */
+export function weightCapacity(attrs: Attributes): number {
+  return WEIGHT_RULES.base + attrs.str * WEIGHT_RULES.perStr;
+}
+
 /** ビルドで着けている盾(枠の順) */
 export function buildShields(build: Build): ShieldSpec[] {
   return (['weapon1', 'weapon2'] as const).flatMap((slot) => {
@@ -181,6 +203,8 @@ export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   });
   unit.grip = gripOf(weapons.length, unit.shields.length);
   unit.tags = [unit.grip];
+  // 重さが担える重さを超えると鈍重になる
+  if (buildWeight(build) > weightCapacity(unit.attributes)) unit.tags.push('overweight');
   if (weapons.length === 2 && itemTotal(weapons[0]!) === itemTotal(weapons[1]!)) unit.tags.push('dualTotalsEqual');
   unit.tactics = build.tactics.map((t) => ({ ...t }));
   const ratio = unit.maxHp > 0 ? unit.hp / unit.maxHp : 1;

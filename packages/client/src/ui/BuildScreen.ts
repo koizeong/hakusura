@@ -38,6 +38,10 @@ import {
   type Unit,
   type WeaponTypeId,
   type WeaponRef,
+  ELEMENT_IDS,
+  buildWeight,
+  weightCapacity,
+  type ElementId,
   type ShieldSpec,
   type ShieldTypeId,
   SHIELD_TYPES,
@@ -46,6 +50,7 @@ import {
   itemShield,
   itemWeapon,
   shieldBurstElement,
+  shieldName,
   ATTRIBUTES,
   ATTRIBUTE_IDS,
   ATTRIBUTE_RULES,
@@ -128,6 +133,8 @@ export class BuildScreen {
   private lootCondition: ConditionId | '' = '';
   /** 選んで拾う武器の形。盾は shield: を頭に付ける */
   private lootWeapon: string = LOOT_WEAPON_TYPE_IDS[0]!;
+  /** 選んで拾うときの属性。空なら運 */
+  private lootElement: ElementId | '' = '';
   /** 遠征に送り出す者と、最後に迎えたときの知らせ */
   private sender?: Character;
   private lastReport?: { name: string; level: number; report: ExpeditionReport };
@@ -299,9 +306,11 @@ export class BuildScreen {
       ['クールダウン', pct(world.statOf(player, 'cooldown'))],
       ['近攻撃', pct(world.statOf(player, 'damage', ['melee']))],
       ['遠攻撃', pct(world.statOf(player, 'damage', ['ranged', 'projectile']))],
-      ['斬', pct(world.statOf(player, 'damage', ['slash']))],
-      ['火', pct(world.statOf(player, 'damage', ['fire']))],
-      ['雷', pct(world.statOf(player, 'damage', ['lightning']))],
+      ['重さ', `${buildWeight(this.build)} / ${weightCapacity(this.attrs)}${player.tags.includes('overweight') ? '(鈍重)' : ''}`],
+      // 属性は11種あるので、今の武器の属性と、補正が付いているものだけ出す
+      ...ELEMENT_IDS.filter((e) => buildWeapons(this.build).some((w) => weaponDef(w).element === e) || world.statOf(player, 'damage', [e]) !== 1).map(
+        (e): [string, string] => [ELEMENTS[e].name, pct(world.statOf(player, 'damage', [e]))],
+      ),
     ];
     return h('div', { class: 'build-stats' }, ...rows.map(([k, v]) => h('span', {}, h('small', {}, k), v)));
   }
@@ -355,6 +364,12 @@ export class BuildScreen {
               ...SHIELD_TYPE_IDS.map((id) =>
                 h('option', { value: `shield:${id}`, selected: `shield:${id}` === this.lootWeapon }, `${SHIELD_TYPES[id].name}(${SHIELD_TYPES[id].description})`),
               ),
+            ),
+            h(
+              'select',
+              { onchange: (e: Event) => (this.lootElement = (e.target as HTMLSelectElement).value as ElementId | '') },
+              h('option', { value: '' }, '属性は運'),
+              ...ELEMENT_IDS.map((id) => h('option', { value: id, selected: id === this.lootElement }, `${ELEMENTS[id].name}の`)),
             ),
             h('button', { onclick: () => this.lootWeaponType() }, '拾う'),
           )
@@ -426,9 +441,15 @@ export class BuildScreen {
   private lootWeaponType(): void {
     const random = () => this.host.random();
     const shield = this.lootWeapon.startsWith('shield:') ? (this.lootWeapon.slice(7) as ShieldTypeId) : undefined;
-    this.host.state.stash.unshift(
-      generateItem(random, { slot: this.selectedSlot, kind: 'weapon', ...(shield ? { shieldType: shield } : { weaponType: this.lootWeapon as WeaponTypeId }) }),
-    );
+    const item = generateItem(random, { slot: this.selectedSlot, kind: 'weapon', ...(shield ? { shieldType: shield } : { weaponType: this.lootWeapon as WeaponTypeId }) });
+    // 属性を選んでいれば、その属性に打ち直す
+    if (this.lootElement) {
+      item.element = this.lootElement;
+      const weapon = itemWeapon(item);
+      const sh = itemShield(item);
+      item.name = weapon ? weaponDef(weapon).name : sh ? shieldName(sh) : item.name;
+    }
+    this.host.state.stash.unshift(item);
     this.changed();
   }
 

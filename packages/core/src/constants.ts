@@ -16,3 +16,15 @@ export const DEFENSE = {
   /** 正面とみなす角度(度、片側) */
   guardArc: 75,
 } as const;
+
+/** 状態の決まり */
+export const STATUS_RULES = {
+  /** HPがこの割合以下で瀕死 */
+  dyingBelow: 0.25,
+  /** 最後に攻撃したか受けてからこの間は、戦っているとみなす(飢えが溜まる) */
+  combatWindow: 5000,
+  /** 相手の向きからこの角度(度、片側)より外から攻めると、背後からの攻撃 */
+  behindArc: 100,
+  /** 死の宣告のまま倒れたとき、呪縛を撒く範囲 */
+  doomSpreadRadius: 160,
+} as const;

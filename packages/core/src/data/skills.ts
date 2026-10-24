@@ -3,6 +3,7 @@ import type { FieldId } from './fields';
 import { toWeaponSpec, weaponDef, type WeaponKind, type WeaponRef, type WeaponSpec, type WeaponTypeId } from './weapons';
 import { missingPoints, shortfallPenalty, type AttributeNeeds, type Attributes } from './attributes';
 import type { Predicate, Rule } from '../rules';
+import type { StatusId } from './statuses';
 import { VARIATIONS, applyVariations, variantName, type SkillVariant, type VariationDef } from './variations';
 
 /** スキルの6分類。分類もタグとしてヒットに乗る */
@@ -26,6 +27,8 @@ export type SkillAction =
   | { type: 'nova'; radius: number; power: number; buildup: number; hits?: number }
   /** 狙った相手の足元に、一定時間だけ床の状態を敷く */
   | { type: 'floor'; field: FieldId; radius: number; duration: number }
+  /** 自分に効く。最大HPの heal だけ回復し、status を満タンにする */
+  | { type: 'selfCare'; heal?: number; status?: StatusId }
   /** count 発を spread 度ずつずらして撃つ。pierce があれば、その数だけ相手を貫いて飛び続ける */
   | {
       type: 'projectile';
@@ -367,6 +370,27 @@ export const ACTIVE_SKILLS = {
     recovery: 300,
     cooldown: 30000,
     action: { type: 'floor', field: 'oilPool', radius: 140, duration: 10000 },
+  },
+  blessedPrayer: {
+    name: '加護の祈り',
+    category: 'heal',
+    description: '最大HPの25%を癒し、次の直撃を1回無効にする加護を得る。腐敗していると癒しは傷になる',
+    needs: { fai: 14 },
+    tags: ['buff', 'trump', 'heal'],
+    windup: 500,
+    recovery: 300,
+    cooldown: 35000,
+    action: { type: 'selfCare', heal: 0.25, status: 'blessing' },
+  },
+  frenzyDraught: {
+    name: '狂い水',
+    category: 'imbue',
+    description: '狂気に呑まれる。10秒、与ダメージ+80%だが、敵味方の区別なく当たる',
+    tags: ['buff', 'trump'],
+    windup: 300,
+    recovery: 300,
+    cooldown: 40000,
+    action: { type: 'selfCare', status: 'madness' },
   },
   thunderPrayer: {
     name: '雷鳴の祈祷',

@@ -1,8 +1,8 @@
-import { DEFENSE, MAX_TRIGGER_DEPTH } from './constants';
+import { DEFENSE, MAX_TRIGGER_DEPTH, STATUS_RULES } from './constants';
 import { computeDamage, type RuleBonus } from './damage';
 import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
 import { fieldDef, type FieldId } from './data/fields';
-import { STATUS_IDS, statusDef, statusForElement, type StatusId } from './data/statuses';
+import { STATUS_IDS, statusDef, statusForElement, type StatusDef, type StatusId } from './data/statuses';
 import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction } from './data/skills';
 import { toWeaponSpec, type WeaponRef, type WeaponSpec } from './data/weapons';
 import { shieldBurstElement, shieldDef, shieldName, type ShieldSpec } from './data/shields';
@@ -26,6 +26,8 @@ export type Team = 'player' | 'enemy';
 
 export interface StatusState {
   buildup: number;
+  /** 呪縛のように、発動中に溜めたダメージ */
+  stored: number;
   /** この時刻まで発動している */
   activeUntil: number;
   /** 試し斬り場で固定された状態。時間で切れず、相互作用でも消えない */
@@ -128,6 +130,8 @@ export interface Unit {
   mortal: boolean;
   /** 倒れて起き上がった回数 */
   falls: number;
+  /** 最後にスキルを使った時刻。戦っている間かどうかを見る */
+  lastAttackAt: number;
 }
 
 export interface Buff {
@@ -232,6 +236,11 @@ export type CombatEvent =
   /** 盾が砕けた。readyAt に張り直す */
   | { type: 'shieldBroke'; unitId: string; name: string; readyAt: number }
   | { type: 'shieldReady'; unitId: string; name: string }
+  /** 盲目で攻撃が外れた */
+  | { type: 'missed'; unitId: string; targetId: string }
+  /** 加護が攻撃を無効にした */
+  | { type: 'warded'; unitId: string; label: string }
+  | { type: 'healed'; unitId: string; amount: number }
   /** 弾が弾けた */
   | { type: 'explosion'; x: number; y: number; radius: number; element: ElementId }
   /** 倒れて消えた(mortal な者) */
@@ -366,7 +375,7 @@ export class CombatWorld {
     const statuses = Object.fromEntries(
       STATUS_IDS.map((s): [StatusId, StatusState] => [
         s,
-        { buildup: 0, activeUntil: 0, forced: false, radiusScale: 1, skill: '', source: '', via: [], depth: 0, nextTick: 0, moveAcc: 0 },
+        { buildup: 0, stored: 0, activeUntil: 0, forced: false, radiusScale: 1, skill: '', source: '', via: [], depth: 0, nextTick: 0, moveAcc: 0 },
       ]),
     ) as Record<StatusId, StatusState>;
     const unit: Unit = {
@@ -417,6 +426,7 @@ export class CombatWorld {
       kind: spec.kind,
       mortal: spec.mortal ?? false,
       falls: 0,
+      lastAttackAt: -Infinity,
       attributes: spec.attributes ? { ...spec.attributes } : undefined,
     };
     this.units.set(unit.id, unit);
@@ -431,7 +441,17 @@ export class CombatWorld {
 
   isActive(unit: Unit, status: StatusId): boolean {
     const st = unit.statuses[status];
-    return st.forced || st.activeUntil > this.time;
+    if (st.forced) return true;
+    const derived = statusDef(status).derived;
+    if (derived === 'dying') return unit.hp > 0 && unit.hp <= unit.maxHp * STATUS_RULES.dyingBelow;
+    if (derived === 'unhurt') return unit.lastHurtAt === -Infinity;
+    if (derived === 'overweight') return unit.tags.includes('overweight');
+    return st.activeUntil > this.time;
+  }
+
+  /** 発動中の状態で、flag を持つものがあるか */
+  private hasStatusFlag(unit: Unit, flag: keyof StatusDef): boolean {
+    return STATUS_IDS.some((s) => !!statusDef(s)[flag] && this.isActive(unit, s));
   }
 
   drainEvents(): CombatEvent[] {
@@ -522,7 +542,9 @@ export class CombatWorld {
       (unit.cooldowns[skillId] ?? 0) <= this.time &&
       !this.isBusy(unit) &&
       unit.guardSince === null &&
-      !this.isIncapacitated(unit)
+      !this.isIncapacitated(unit) &&
+      // 静寂と恐怖の間は、アクティブスキルを使えない
+      !this.hasStatusFlag(unit, 'silences')
     );
   }
 
@@ -575,6 +597,7 @@ export class CombatWorld {
   useSkill(unitId: string, skillId: ActiveSkillId, aim: Point, targetId?: string): boolean {
     const unit = this.units.get(unitId);
     if (!unit || !this.canUseSkill(unitId, skillId)) return false;
+    unit.lastAttackAt = this.time;
     const uses = (unit.skillUses[skillId] ?? 0) + 1;
     unit.skillUses[skillId] = uses;
     const def: ResolvedSkill = { ...this.skillFor(unit, skillId)!, useIndex: uses };
@@ -744,6 +767,11 @@ export class CombatWorld {
         this.processHits();
         break;
       }
+      case 'selfCare': {
+        if (action.heal) this.heal(unit, unit.maxHp * action.heal, { attacker: unit, skill: def.name, via: [], depth: 0 });
+        if (action.status) this.addBuildup(unit, action.status, statusDef(action.status).max, { attacker: unit, skill: def.name, via: [], depth: 0 });
+        break;
+      }
       case 'floor': {
         const at = target ?? { x: unit.x + Math.cos(angle) * 200, y: unit.y + Math.sin(angle) * 200 };
         this.addFloor(action.field, at.x, at.y, action.radius, this.time + action.duration);
@@ -910,14 +938,20 @@ export class CombatWorld {
         this.addBuildup(unit, applies.status, applies.perSec * sec, { skill: '', via: [], depth: 0 });
       }
 
+      const fighting = this.time - unit.lastHurtAt < STATUS_RULES.combatWindow || this.time - unit.lastAttackAt < STATUS_RULES.combatWindow;
       for (const status of STATUS_IDS) {
         const def = statusDef(status);
         const st = unit.statuses[status];
+        if (def.derived) continue;
         st.buildup = Math.max(0, st.buildup - def.decayPerSec * sec);
+        // 飢えのように、戦っている間に溜まるもの
+        if (def.gainInCombatPerSec && fighting) this.addBuildup(unit, status, def.gainInCombatPerSec * sec, { skill: '', via: [], depth: 0 });
         if (!this.isActive(unit, status)) {
           if (st.activeUntil > 0) {
             st.activeUntil = 0;
             this.events.push({ type: 'statusEnded', unitId: unit.id, status });
+            this.onStatusExpired(unit, status);
+            if (!this.units.has(unit.id)) break;
           }
           continue;
         }
@@ -974,7 +1008,11 @@ export class CombatWorld {
       const uy = dy / dist;
       let mx = 0;
       let my = 0;
-      if (def.behavior === 'chase' || def.behavior === 'swarm') {
+      if (this.hasStatusFlag(unit, 'flees')) {
+        // 恐怖の間は背を向けて逃げる。背後から斬られやすい
+        mx = -ux;
+        my = -uy;
+      } else if (def.behavior === 'chase' || def.behavior === 'swarm') {
         // 最初の技が届く所まで寄る
         const reach = this.reachOf(unit, def.skills[0]!) ?? 60;
         if (dist - target.radius > reach * 0.7) {
@@ -1035,6 +1073,7 @@ export class CombatWorld {
       const len = Math.hypot(mx, my);
       if (len < 0.01) continue;
       const step = (def.speed * this.statOf(unit, 'moveSpeed') * sec) / Math.max(1, len);
+      unit.facing = Math.atan2(my, mx);
       let nx = unit.x + mx * step;
       let ny = unit.y + my * step;
       if (this.bounds) {
@@ -1043,6 +1082,79 @@ export class CombatWorld {
       }
       this.moveUnit(unit.id, nx, ny);
     }
+  }
+
+  /** 状態を消す(凍結を砕いたときなど)。固定された状態は消えない */
+  private clearStatus(unit: Unit, status: StatusId): void {
+    const st = unit.statuses[status];
+    if (st.forced || st.activeUntil <= this.time) return;
+    st.activeUntil = 0;
+    this.events.push({ type: 'statusEnded', unitId: unit.id, status });
+    this.onStatusExpired(unit, status);
+  }
+
+  /** 状態が切れたとき。呪縛は溜めた分をまとめて受け、死の宣告は倒れる */
+  private onStatusExpired(unit: Unit, status: StatusId): void {
+    const def = statusDef(status);
+    const st = unit.statuses[status];
+    if (def.storesDamage && st.stored > 0) {
+      const element = def.element ?? 'curse';
+      this.enqueue({
+        attackerId: st.activatorId,
+        targetId: unit.id,
+        element,
+        power: st.stored,
+        buildup: 0,
+        tags: hitTags(element, ['status', 'bindRelease', ...def.tags]),
+        skill: st.skill,
+        source: `${def.name}の清算`,
+        depth: st.depth,
+        via: [...st.via, `${def.name}の清算`],
+      });
+      st.stored = 0;
+      this.processHits();
+    }
+    if (def.lethalOnExpire) {
+      this.events.push({ type: 'statusActivated', unitId: unit.id, status, source: `${def.name}が満ちた` });
+      const killer = st.activatorId ? this.units.get(st.activatorId) : undefined;
+      if (unit.mortal) this.kill(unit, killer);
+      else this.fall(unit);
+    }
+  }
+
+  /** 倒れて起き上がる(自分と案山子) */
+  private fall(unit: Unit): void {
+    unit.hp = unit.maxHp;
+    unit.lastHurtAt = -Infinity;
+    unit.falls += 1;
+    this.events.push({ type: 'fell', unitId: unit.id });
+  }
+
+  /** 回復する。腐敗の間は回復がダメージになる */
+  heal(unit: Unit, amount: number, src: Source = { skill: '', via: [], depth: 0 }): void {
+    const value = amount * this.statOf(unit, 'healing');
+    if (value <= 0) return;
+    const rot = STATUS_IDS.find((s) => statusDef(s).reversesHealing && this.isActive(unit, s));
+    if (rot) {
+      const def = statusDef(rot);
+      const st = unit.statuses[rot];
+      const element = def.element ?? 'rot';
+      this.enqueue({
+        attackerId: st.activatorId,
+        targetId: unit.id,
+        element,
+        power: value,
+        buildup: 0,
+        tags: hitTags(element, ['status', 'rotHeal', ...def.tags]),
+        skill: src.skill || def.name,
+        source: '腐れ癒し',
+        depth: src.depth + 1,
+        via: [...src.via, '腐れ癒し'],
+      });
+      return;
+    }
+    unit.hp = Math.min(unit.maxHp, unit.hp + value);
+    this.events.push({ type: 'healed', unitId: unit.id, amount: value });
   }
 
   /** 盾が砕ける。属性つきの盾は、その属性で周りの相手へ弾ける */
@@ -1081,6 +1193,15 @@ export class CombatWorld {
     this.pending = this.pending.filter((p) => p.unitId !== unit.id);
     this.deaths.push({ unitId: unit.id, kind: unit.kind, team: unit.team, time: this.time });
     this.events.push({ type: 'died', unitId: unit.id, name: unit.name, kind: unit.kind, team: unit.team, x: unit.x, y: unit.y });
+    // 死の宣告のまま倒れると、周りの仲間に呪縛を撒く
+    const doomed = STATUS_IDS.find((s) => statusDef(s).lethalOnExpire && this.isActive(unit, s));
+    if (doomed) {
+      const bind = STATUS_IDS.find((s) => statusDef(s).storesDamage);
+      for (const other of this.units.values()) {
+        if (!bind || other.team !== unit.team || Math.hypot(other.x - unit.x, other.y - unit.y) > STATUS_RULES.doomSpreadRadius) continue;
+        this.addBuildup(other, bind, statusDef(bind).max, { attacker: killer, skill: statusDef(doomed).name, via: [statusDef(doomed).name], depth: 1 });
+      }
+    }
     const onDeath = unit.kind ? enemyDef(unit.kind).onDeath : undefined;
     if (!onDeath) return;
     if (onDeath.floor) this.addFloor(onDeath.floor.field, unit.x, unit.y, onDeath.floor.radius, this.time + onDeath.floor.duration);
@@ -1108,6 +1229,8 @@ export class CombatWorld {
   // ---- ヒットの解決 ----
 
   private opponentsOf(unit: Unit): Unit[] {
+    // 狂気の間は、敵味方の区別なく当たる
+    if (this.hasStatusFlag(unit, 'friendlyFire')) return [...this.units.values()].filter((u) => u !== unit);
     return [...this.units.values()].filter((u) => u.team !== unit.team);
   }
 
@@ -1256,6 +1379,13 @@ export class CombatWorld {
       ...unit.artifacts.flatMap((id) => artifactDef(id).modifiers ?? []),
       ...(unit.grip ? GRIPS[unit.grip].modifiers : []),
       ...unit.shields.flatMap((s) => shieldDef(s.type).modifiers ?? []),
+      // 発動中の状態の補正(露出・憤怒・鈍重など)と、蓄積だけで鈍る灰化
+      ...STATUS_IDS.flatMap((s) => (this.isActive(unit, s) ? (statusDef(s).modifiers ?? []) : [])),
+      ...STATUS_IDS.flatMap((s): Modifier[] => {
+        const slow = statusDef(s).slowByBuildup;
+        const ratio = unit.statuses[s].buildup / statusDef(s).max;
+        return slow && ratio > 0 ? [{ stat: 'moveSpeed', tags: [], value: -slow * ratio, group: `slow:${s}` }] : [];
+      }),
       // 能力値はキャラの基礎の強さとして効く
       ...(unit.attributes ? attributeModifiers(unit.attributes) : []),
     ];
@@ -1301,13 +1431,19 @@ export class CombatWorld {
       weather: this.weather,
       attackerImbued: !!attacker?.imbue && attacker.imbue.until > this.time,
       attackerHasBuff: (label) => !!attacker?.buffs.some((b) => b.label === label && b.until > this.time && b.charges > 0),
-      targetStatusCount: () => STATUS_IDS.filter((s) => this.isActive(target, s)).length,
-      attackerStatusCount: () => (attacker ? STATUS_IDS.filter((s) => this.isActive(attacker, s)).length : 0),
+      // 瀕死・無傷のように様子で決まるものは、かかっている状態の数に入れない
+      targetStatusCount: () => COUNTED_STATUSES.filter((s) => this.isActive(target, s)).length,
+      attackerStatusCount: () => (attacker ? COUNTED_STATUSES.filter((s) => this.isActive(attacker, s)).length : 0),
       attackerHpRatio: attacker ? attacker.hp / attacker.maxHp : 0,
       attackerStillFor: attacker ? this.time - attacker.lastMovedAt : 0,
       attackerTags: attacker?.tags ?? [],
       attackerUnhurt: attacker ? attacker.lastHurtAt === -Infinity : false,
       attackerShieldReady: !!attacker?.shields.some((s) => s.ready),
+      // 相手の向きの後ろ半分から攻めている
+      fromBehind:
+        !!attacker &&
+        attacker !== target &&
+        Math.abs(normalizeAngle(Math.atan2(attacker.y - target.y, attacker.x - target.x) - target.facing)) > (STATUS_RULES.behindArc * Math.PI) / 180,
       targetOnFloor: (field) => this.floors.some((f) => f.field === field && Math.hypot(target.x - f.x, target.y - f.y) <= f.radius),
       ...extra,
     };
@@ -1356,6 +1492,13 @@ export class CombatWorld {
     const amount = defended === 'guarded' ? taken * (1 - DEFENSE.guardReduction) : taken;
     if (defended === 'guarded') this.events.push({ type: 'guarded', unitId: target.id, blocked: taken - amount });
     target.hp -= amount;
+    // 呪縛のように、受けたダメージを溜める状態
+    if (!hit.tags.has('bindRelease')) {
+      for (const s of STATUS_IDS) {
+        const ratio = statusDef(s).storesDamage;
+        if (ratio && this.isActive(target, s)) target.statuses[s].stored += amount * ratio;
+      }
+    }
     const record: DamageRecord = {
       time: this.time,
       attackerId: attacker?.id,
@@ -1379,25 +1522,37 @@ export class CombatWorld {
       this.kill(target, attacker);
       return;
     }
-    if (target.hp <= 0) {
-      // 自分と案山子は、倒れても起き上がる
-      target.hp = target.maxHp;
-      target.lastHurtAt = -Infinity;
-      target.falls += 1;
-      this.events.push({ type: 'fell', unitId: target.id });
-    }
+    // 自分と案山子は、倒れても起き上がる
+    if (target.hp <= 0) this.fall(target);
     if (attacker && hit.tags.has('weapon')) attacker.lastElement = hit.element;
 
     const source: Source = { attacker, skill: hit.skill, via: hit.via, depth: hit.depth, hit };
     const status = statusForElement(hit.element);
     if (status && hit.buildup > 0) {
       const buildup = hit.buildup * (attacker ? this.statOf(attacker, 'buildup', hit.tags) : 1);
-      this.addBuildup(target, status, buildup, source);
+      // 血の渇きは、当てた側に溜まる
+      const holder = statusDef(status).buildsOnAttacker ? attacker : target;
+      if (holder) this.addBuildup(holder, status, buildup, source);
+    }
+
+    // 渇いている者の直撃は、自分のHPを払い、出血した相手からは吸う
+    if (attacker && hit.depth === 0 && hit.tags.has('attack')) {
+      for (const s of STATUS_IDS) {
+        const t = statusDef(s).thirst;
+        if (!t || !this.isActive(attacker, s)) continue;
+        attacker.hp = Math.max(1, attacker.hp - attacker.maxHp * t.selfCost);
+        if (this.isActive(target, 'bleed')) this.heal(attacker, amount * t.leech, source);
+      }
     }
 
     // 被弾したときのルール(棘の鎧、血の返礼など)。対象は攻撃してきた者
     if (attacker && attacker.team !== target.team && !hit.tags.has('dot') && amount > 0) {
       target.lastHurtAt = this.time;
+      // 憤怒のように、被弾するたびに溜まる状態
+      for (const s of STATUS_IDS) {
+        const gain = statusDef(s).gainOnHurt;
+        if (gain) this.addBuildup(target, s, gain, { attacker: target, skill: '', via: [], depth: hit.depth });
+      }
       const hurtCtx = this.context(attacker, target, { hitTags: hit.tags, hitElement: hit.element });
       for (const { rule } of this.rulesFor(target)) {
         if (rule.on !== 'hurt' || !ruleMatches(rule, hurtCtx)) continue;
@@ -1420,6 +1575,24 @@ export class CombatWorld {
   private defend(target: Unit, attacker: Unit | undefined, hit: Hit): 'avoided' | 'guarded' | 'none' {
     if (hit.tags.has('dot')) return 'none';
     const direct = hit.tags.has('attack') && hit.depth === 0;
+
+    // 盲目の者の攻撃は、ときどき外れる
+    if (direct && attacker) {
+      const miss = Math.max(0, ...STATUS_IDS.map((s) => (this.isActive(attacker, s) ? (statusDef(s).missChance ?? 0) : 0)));
+      if (miss > 0 && this.random() < miss) {
+        this.events.push({ type: 'missed', unitId: attacker.id, targetId: target.id });
+        return 'avoided';
+      }
+    }
+    // 加護は、次の直撃を1回だけ無効にして消える
+    if (direct && attacker && attacker.team !== target.team) {
+      const ward = STATUS_IDS.find((s) => statusDef(s).wardsOnce && this.isActive(target, s));
+      if (ward) {
+        this.clearStatus(target, ward);
+        this.events.push({ type: 'warded', unitId: target.id, label: statusDef(ward).name });
+        return 'avoided';
+      }
+    }
 
     // 見切りの心得のように、確率で自動に見切る・弾く
     if (direct && target.invulnerableUntil <= this.time) {
@@ -1487,6 +1660,14 @@ export class CombatWorld {
   private runAction(action: Action, label: string, target: Unit, src: Source): void {
     const via = [...src.via, label];
     switch (action.type) {
+      case 'clearStatus':
+        this.clearStatus(target, action.status);
+        break;
+      case 'heal': {
+        const unit = src.attacker ?? target;
+        this.heal(unit, unit.maxHp * action.ratio, { ...src, via });
+        break;
+      }
       case 'repeatHit':
         if (src.hit) {
           this.enqueue({
@@ -1675,6 +1856,9 @@ function normalizeAngle(a: number): number {
   while (a < -Math.PI) a += Math.PI * 2;
   return a;
 }
+
+/** 数に入れる状態。蓄積でかかるもの */
+const COUNTED_STATUSES = STATUS_IDS.filter((s) => !statusDef(s).derived);
 
 /** 名前から決まる小さな数。群れの散り方などを個体ごとにずらす */
 function hashOf(id: string): number {

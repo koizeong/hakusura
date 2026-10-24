@@ -28,6 +28,8 @@ interface WeaponBase {
   tags: readonly string[];
   /** 必要な能力値。足りなくても使えるが、威力が落ち間隔が延びる */
   needs?: AttributeNeeds;
+  /** 重さ。装備の重さの合計が担える重さを超えると鈍重になる */
+  weight: number;
   /** この形で当てたときに効くルール(戦槌の昏倒など) */
   rules?: readonly Rule[];
 }
@@ -54,6 +56,7 @@ export const WEAPON_TYPES = {
     name: '素手',
     kind: 'melee',
     element: 'slash',
+    weight: 0,
     power: 14,
     buildup: 18,
     interval: 700,
@@ -67,6 +70,7 @@ export const WEAPON_TYPES = {
     name: '鉄の剣',
     kind: 'melee',
     element: 'slash',
+    weight: 5,
     power: 38,
     buildup: 45,
     interval: 850,
@@ -81,6 +85,7 @@ export const WEAPON_TYPES = {
     name: '大剣',
     kind: 'melee',
     element: 'slash',
+    weight: 10,
     power: 52,
     buildup: 55,
     interval: 1100,
@@ -94,7 +99,8 @@ export const WEAPON_TYPES = {
   boneFlail: {
     name: '骨の連枷',
     kind: 'melee',
-    element: 'slash',
+    element: 'blunt',
+    weight: 4,
     power: 24,
     buildup: 28,
     interval: 550,
@@ -109,6 +115,7 @@ export const WEAPON_TYPES = {
     name: '戦斧',
     kind: 'melee',
     element: 'fire',
+    weight: 9,
     power: 88,
     buildup: 75,
     interval: 1800,
@@ -123,6 +130,7 @@ export const WEAPON_TYPES = {
     name: '槍',
     kind: 'melee',
     element: 'lightning',
+    weight: 6,
     power: 46,
     buildup: 55,
     interval: 1200,
@@ -137,6 +145,7 @@ export const WEAPON_TYPES = {
     name: '短銃',
     kind: 'ranged',
     element: 'lightning',
+    weight: 4,
     power: 26,
     buildup: 60,
     interval: 2400,
@@ -152,6 +161,7 @@ export const WEAPON_TYPES = {
     name: '投石紐',
     kind: 'ranged',
     element: 'fire',
+    weight: 1,
     power: 14,
     buildup: 55,
     interval: 2600,
@@ -166,7 +176,8 @@ export const WEAPON_TYPES = {
   boneBow: {
     name: '骨の短弓',
     kind: 'ranged',
-    element: 'slash',
+    element: 'pierce',
+    weight: 3,
     power: 18,
     buildup: 30,
     interval: 1500,
@@ -181,7 +192,8 @@ export const WEAPON_TYPES = {
   dagger: {
     name: '短剣',
     kind: 'melee',
-    element: 'slash',
+    element: 'pierce',
+    weight: 2,
     power: 19,
     buildup: 30,
     interval: 480,
@@ -195,7 +207,8 @@ export const WEAPON_TYPES = {
   warHammer: {
     name: '戦槌',
     kind: 'melee',
-    element: 'slash',
+    element: 'blunt',
+    weight: 12,
     power: 66,
     buildup: 35,
     interval: 1500,
@@ -212,6 +225,7 @@ export const WEAPON_TYPES = {
     name: '杖',
     kind: 'ranged',
     element: 'lightning',
+    weight: 3,
     power: 22,
     buildup: 45,
     interval: 2300,
@@ -337,8 +351,10 @@ export function weaponName(ref: WeaponRef): string {
   const spec = toWeaponSpec(ref);
   const base = WEAPON_TYPES[spec.type];
   const element = spec.element ?? base.element;
-  // 斬は名前に出さない。素手は属性を名乗らない
-  const elementPrefix = spec.type === 'fists' ? '' : (ELEMENTS[element] as ElementDef).weaponPrefix;
+  // 素手は属性を名乗らない。打の槌や刺の弓のように、形のもとの物理の属性も名前に出さない
+  const def = ELEMENTS[element] as ElementDef;
+  const plain = spec.type === 'fists' || (element === base.element && def.tags.includes('physical'));
+  const elementPrefix = plain ? '' : def.weaponPrefix;
   return `${(spec.tempers ?? []).map((t) => WEAPON_TEMPERS[t].prefix).join('')}${elementPrefix}${base.name}`;
 }
 

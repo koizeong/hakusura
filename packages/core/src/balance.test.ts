@@ -51,6 +51,7 @@ describe('火力の釣り合い', () => {
           ELEMENT_IDS.map((element) => measureDps({ type: id, element }, basic(id), targets)),
         );
       expect(Math.min(...dps('melee')) / Math.max(...dps('ranged'))).toBeGreaterThanOrEqual(MELEE_OVER_RANGED);
-    });
+      // 形と属性の組み合わせが多いので、時間がかかる
+    }, 120000);
   }
 });

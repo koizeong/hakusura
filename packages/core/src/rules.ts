@@ -39,9 +39,15 @@ export type Predicate =
   /** そのスキルを使った回数が n の倍数のとき(3回目ごと、など) */
   | { type: 'useEvery'; n: number }
   /** 自分の盾が張られている(砕けていない盾が1枚でもある) */
-  | { type: 'selfShieldReady' };
+  | { type: 'selfShieldReady' }
+  /** 相手の背後から攻めている */
+  | { type: 'fromBehind' };
 
 export type Action =
+  /** 対象の状態を消す(凍結を砕くなど) */
+  | { type: 'clearStatus'; status: StatusId }
+  /** 持ち主が最大HPの ratio だけ回復する。腐敗していればダメージになる */
+  | { type: 'heal'; ratio: number }
   /** 同じ攻撃をもう一度当てる。power があれば、その割合の威力で */
   | { type: 'repeatHit'; power?: number }
   | { type: 'applyBuildup'; status: StatusId; amount: number; to?: 'target' | 'attacker' }
@@ -130,6 +136,7 @@ export interface PredicateContext {
   attackerTags?: readonly string[];
   attackerUnhurt?: boolean;
   attackerShieldReady?: boolean;
+  fromBehind?: boolean;
   useIndex?: number;
 }
 
@@ -173,6 +180,8 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return ctx.useIndex !== undefined && ctx.useIndex % p.n === 0;
     case 'selfShieldReady':
       return ctx.attackerShieldReady ?? false;
+    case 'fromBehind':
+      return ctx.fromBehind ?? false;
   }
 }
 

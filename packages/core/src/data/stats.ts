@@ -17,6 +17,7 @@ export const STATS = {
   cooldown: { name: 'クールダウン', kind: 'mult', lowerIsBetter: true },
   meleeRange: { name: '近攻撃の射程', kind: 'mult' },
   projectiles: { name: '弾の数', kind: 'add' },
+  healing: { name: '回復', kind: 'mult' },
 } as const satisfies Record<string, StatDef>;
 
 export type StatId = keyof typeof STATS;

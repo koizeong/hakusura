@@ -39,19 +39,25 @@ const ARMOR_NAMES: Partial<Record<EquipSlotId, readonly string[]>> = {
 };
 
 /**
- * 防具の素材。名前の頭に付き、出やすい補正値が決まる。
+ * 防具の素材。名前の頭に付き、出やすい補正値と重さが決まる。
  * 「血染めの外套」なら出血の物が、「鎖の帷子」なら守りの物が出やすい
  */
 export const ARMOR_MATERIALS = {
-  leather: { prefix: '擦り切れた革の', affixes: ['moveSpeed', 'cooldown'] },
-  chain: { prefix: '錆びた鎖の', affixes: ['damageTaken', 'maxHp'] },
-  bone: { prefix: '骨の', affixes: ['statusDamage', 'bleedBuildup', 'burnBuildup', 'shockBuildup'] },
-  soot: { prefix: '煤けた', affixes: ['fireDamage', 'burnBuildup'] },
-  storm: { prefix: '雷に焼けた', affixes: ['lightningDamage', 'shockBuildup'] },
-  blood: { prefix: '血染めの', affixes: ['slashDamage', 'bleedBuildup', 'meleeDamage'] },
-  pilgrim: { prefix: '巡礼者の', affixes: ['maxHp', 'damage'] },
-  hunter: { prefix: '狩人の', affixes: ['rangedDamage', 'moveSpeed'] },
-} as const satisfies Record<string, { prefix: string; affixes: readonly AffixId[] }>;
+  leather: { prefix: '擦り切れた革の', weight: 2, affixes: ['moveSpeed', 'cooldown'] },
+  chain: { prefix: '錆びた鎖の', weight: 6, affixes: ['damageTaken', 'maxHp'] },
+  bone: { prefix: '骨の', weight: 3, affixes: ['statusDamage', 'bleedBuildup', 'burnBuildup', 'shockBuildup'] },
+  soot: { prefix: '煤けた', weight: 2, affixes: ['fireDamage', 'burnBuildup'] },
+  storm: { prefix: '雷に焼けた', weight: 3, affixes: ['lightningDamage', 'shockBuildup'] },
+  blood: { prefix: '血染めの', weight: 3, affixes: ['slashDamage', 'bleedBuildup', 'meleeDamage'] },
+  pilgrim: { prefix: '巡礼者の', weight: 2, affixes: ['maxHp', 'damage'] },
+  hunter: { prefix: '狩人の', weight: 2, affixes: ['rangedDamage', 'moveSpeed'] },
+  frost: { prefix: '霜の降りた', weight: 4, affixes: ['iceDamage', 'freezeBuildup'] },
+  mire: { prefix: '腐れた', weight: 3, affixes: ['rotDamage', 'rotBuildup'] },
+  hex: { prefix: '呪われた', weight: 2, affixes: ['curseDamage', 'bindBuildup', 'darkDamage'] },
+  pyre: { prefix: '灰を被った', weight: 3, affixes: ['ashDamage', 'ashBuildup'] },
+  bloodpact: { prefix: '血の誓いの', weight: 3, affixes: ['bloodDamage', 'thirstBuildup', 'healing'] },
+  iron: { prefix: '鋲打ちの', weight: 7, affixes: ['bluntDamage', 'stunBuildup', 'pierceDamage'] },
+} as const satisfies Record<string, { prefix: string; weight: number; affixes: readonly AffixId[] }>;
 export type ArmorMaterialId = keyof typeof ARMOR_MATERIALS;
 export const ARMOR_MATERIAL_IDS = Object.keys(ARMOR_MATERIALS) as ArmorMaterialId[];
 
@@ -78,6 +84,23 @@ export const AFFIXES = {
   burnBuildup: { name: '炎上の蓄積', stat: 'buildup', tags: ['fire'] },
   shockBuildup: { name: '感電の蓄積', stat: 'buildup', tags: ['lightning'] },
   cooldown: { name: 'クールダウン', stat: 'cooldown', tags: [] },
+  bluntDamage: { name: '打ダメージ', stat: 'damage', tags: ['blunt'] },
+  pierceDamage: { name: '刺ダメージ', stat: 'damage', tags: ['pierce'] },
+  rotDamage: { name: '腐ダメージ', stat: 'damage', tags: ['rot'] },
+  curseDamage: { name: '呪ダメージ', stat: 'damage', tags: ['curse'] },
+  iceDamage: { name: '氷ダメージ', stat: 'damage', tags: ['ice'] },
+  darkDamage: { name: '闇ダメージ', stat: 'damage', tags: ['dark'] },
+  ashDamage: { name: '灰ダメージ', stat: 'damage', tags: ['ash'] },
+  bloodDamage: { name: '血ダメージ', stat: 'damage', tags: ['blood'] },
+  stunBuildup: { name: '昏倒の蓄積', stat: 'buildup', tags: ['blunt'] },
+  exposeBuildup: { name: '露出の蓄積', stat: 'buildup', tags: ['pierce'] },
+  rotBuildup: { name: '腐敗の蓄積', stat: 'buildup', tags: ['rot'] },
+  bindBuildup: { name: '呪縛の蓄積', stat: 'buildup', tags: ['curse'] },
+  freezeBuildup: { name: '凍結の蓄積', stat: 'buildup', tags: ['ice'] },
+  blindBuildup: { name: '盲目の蓄積', stat: 'buildup', tags: ['dark'] },
+  ashBuildup: { name: '灰化の蓄積', stat: 'buildup', tags: ['ash'] },
+  thirstBuildup: { name: '渇きの蓄積', stat: 'buildup', tags: ['blood'] },
+  healing: { name: '回復', stat: 'healing', tags: [] },
 } as const satisfies Record<string, AffixDef>;
 export type AffixId = keyof typeof AFFIXES;
 export const AFFIX_IDS = Object.keys(AFFIXES) as AffixId[];

@@ -10,6 +10,7 @@ import {
   ENEMIES,
   ENEMY_IDS,
   type CombatWorld,
+  type StatusDef,
   type ElementId,
   type EncounterId,
   type EnemyId,
@@ -88,7 +89,8 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
   const statuses = h(
     'div',
     { class: 'choices' },
-    ...STATUS_IDS.map((id) =>
+    // 瀕死・無傷・鈍重のように様子で決まるものは刻めない
+    ...STATUS_IDS.filter((id) => !(STATUSES[id] as StatusDef).derived).map((id) =>
       checkbox(STATUSES[id].name, false, (on) => host.scarecrows.forEach((s) => world.forceStatus(s.id, id, on)), STATUSES[id].color),
     ),
   );

@@ -23,6 +23,12 @@ export const COMBOS = {
   runningCut: { name: '駆け斬り', labels: ['駆ける刃'], color: 0xe6dccb },
   mirror: { name: '鏡合わせ', labels: ['鏡合わせ'], color: 0xc9c2b4 },
   oddGrip: { name: '持ち替え', labels: ['持ち替えの妙'], color: 0xd8c25a },
+  shatter: { name: '砕氷', labels: ['砕氷'], color: 0xa8e0f0 },
+  backstab: { name: '背撃', labels: ['背後の一撃'], color: 0x8a7aaa },
+  fearCut: { name: '怯え斬り', labels: ['怯えた背'], color: 0x7a8a9a },
+  bindRelease: { name: '呪いの清算', tags: ['bindRelease'], color: 0x9a5ab8 },
+  rotHeal: { name: '腐れ癒し', tags: ['rotHeal'], color: 0x8a9a3a },
+  doomSpread: { name: '宣告の伝染', labels: ['死の宣告'], color: 0x6a3a7a },
 } as const satisfies Record<string, ComboDef>;
 
 export type ComboId = keyof typeof COMBOS;

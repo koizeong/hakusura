@@ -10,6 +10,8 @@ export interface ShieldTypeDef {
   description: string;
   /** 砕けてから張り直すまで(ミリ秒)。クールダウンの補正が効く */
   recharge: number;
+  /** 重さ */
+  weight: number;
   /** 防ぐもの。projectile なら弾だけ */
   blocks: 'any' | 'projectile';
   /** 着けている間ずっと効く補正 */
@@ -22,6 +24,7 @@ export const SHIELD_TYPES = {
   woodShield: {
     name: '木の盾',
     description: '直撃を1回防ぐ。10秒で張り直す',
+    weight: 4,
     recharge: 10000,
     blocks: 'any',
     burst: { power: 18, buildup: 60, radius: 110 },
@@ -29,6 +32,7 @@ export const SHIELD_TYPES = {
   towerShield: {
     name: '大盾',
     description: '直撃を1回防ぐ。16秒で張り直す。重く、被ダメージ-10%・移動速度-10%',
+    weight: 14,
     recharge: 16000,
     blocks: 'any',
     modifiers: [
@@ -40,6 +44,7 @@ export const SHIELD_TYPES = {
   prayerBuckler: {
     name: '祈りの小盾',
     description: '弾だけを1回防ぐ。6秒で張り直す',
+    weight: 2,
     recharge: 6000,
     blocks: 'projectile',
     burst: { power: 10, buildup: 40, radius: 90 },
@@ -47,6 +52,7 @@ export const SHIELD_TYPES = {
   thornShield: {
     name: '棘の盾',
     description: '直撃を1回防ぐ。12秒で張り直す。属性がなくても、砕けると斬で弾ける',
+    weight: 7,
     recharge: 12000,
     blocks: 'any',
     burst: { power: 26, buildup: 70, radius: 110 },
