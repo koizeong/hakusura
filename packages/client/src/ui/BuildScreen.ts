@@ -8,6 +8,7 @@ import {
   CONDITION_IDS,
   EQUIP_SLOTS,
   EQUIP_SLOT_IDS,
+  GRIPS,
   PASSIVES,
   PASSIVE_IDS,
   SKILL_CATEGORIES,
@@ -124,6 +125,7 @@ export class BuildScreen {
     const { world, player } = this.host;
     const pct = (v: number) => signedPercent(v - 1);
     const rows: [string, string][] = [
+      ['持ち方', player.grip ? GRIPS[player.grip].name : '—'],
       ['最大HP', String(player.maxHp)],
       ['移動速度', pct(world.statOf(player, 'moveSpeed'))],
       ['被ダメージ', pct(world.statOf(player, 'damageTaken'))],
@@ -260,7 +262,7 @@ export class BuildScreen {
           { class: 'skill-row' },
           h('input', { type: 'checkbox', checked: build.actives.includes(id), onchange: (e: Event) => toggle(build.actives, id, (e.target as HTMLInputElement).checked) }),
           h('span', {}, def.name),
-          h('small', {}, `${SKILL_CATEGORIES[def.category]}・クールダウン ${(def.cooldown / 1000).toFixed(1)}秒`),
+          h('small', {}, `${SKILL_CATEGORIES[def.category]}・${(def.cooldown / 1000).toFixed(1)}秒・${def.description ?? ''}`),
         );
       }),
       h('h3', {}, 'パッシブ'),

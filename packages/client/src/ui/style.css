@@ -1036,3 +1036,7 @@ button.discard {
     font-size: 13px;
   }
 }
+
+.active-slots {
+  display: contents;
+}

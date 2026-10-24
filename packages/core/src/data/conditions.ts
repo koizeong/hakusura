@@ -7,6 +7,8 @@ export interface ConditionDef {
   /** 補正値換算のコスト(%) */
   cost: number;
   rule: Rule;
+  /** 1つの条件文で、いくつかの効き目を持つとき */
+  extraRules?: readonly Rule[];
 }
 
 /** 条件文。装備の補正値の1枠を使って入る */
@@ -110,6 +112,69 @@ export const CONDITIONS = {
       on: 'hurt',
       when: [],
       do: [{ type: 'grantBuff', label: '手負いの猛り', add: 0.8, tags: [], duration: 3000 }],
+    },
+  },
+  twoHandedReach: {
+    no: 32,
+    text: '両手持ちのとき、攻撃範囲が2倍',
+    cost: 30,
+    rule: { label: '長い間合い', on: 'stat', stat: 'meleeRange', when: [{ type: 'selfHasTag', tag: 'twoHanded' }], add: 1 },
+  },
+  untouched: {
+    no: 47,
+    text: '無傷の間、移動速度と攻撃速度+30%',
+    cost: 30,
+    rule: { label: '無傷の足取り', on: 'stat', stat: 'moveSpeed', when: [{ type: 'selfUnhurt' }], add: 0.3 },
+    // 攻撃速度は、クールダウンを 1/1.3 にすることで表す
+    extraRules: [{ label: '無傷の足取り', on: 'stat', stat: 'cooldown', when: [{ type: 'selfUnhurt' }], add: -0.23 }],
+  },
+  runningBlade: {
+    no: 106,
+    text: '移動した距離に応じて、次のアクティブの威力が上がる',
+    cost: 40,
+    rule: {
+      label: '駆ける刃',
+      on: 'damage',
+      when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitLacksTag', tag: 'repeat' }],
+      // 100 歩くごとに +20%、最大 +100%
+      add: 0.2,
+      perCharge: { every: 100, max: 5 },
+    },
+  },
+  crowdCleaver: {
+    no: 123,
+    text: '1回の攻撃で5体以上に当てると、全てのクールダウンが1秒短くなる',
+    cost: 40,
+    rule: { label: '群れ断ち', on: 'multiHit', min: 5, when: [], do: [{ type: 'cooldown', ms: 1000 }] },
+  },
+  twoHandedDual: {
+    no: 176,
+    text: '両手持ちのとき、二刀流向けのスキルの威力が2倍',
+    cost: 40,
+    rule: {
+      label: '持ち替えの妙',
+      on: 'damage',
+      when: [
+        { type: 'selfHasTag', tag: 'twoHanded' },
+        { type: 'hitHasTag', tag: 'dual' },
+      ],
+      add: 1,
+    },
+  },
+  mirroredBlades: {
+    no: 177,
+    text: '二刀流で左右の武器の補正値の合計が同じなら、攻撃が左右同時に出る',
+    cost: 60,
+    rule: {
+      label: '鏡合わせ',
+      on: 'hit',
+      when: [
+        { type: 'selfHasTag', tag: 'dualTotalsEqual' },
+        { type: 'hitHasTag', tag: 'melee' },
+        { type: 'hitHasTag', tag: 'attack' },
+        { type: 'hitLacksTag', tag: 'repeat' },
+      ],
+      do: [{ type: 'repeatHit' }],
     },
   },
 } as const satisfies Record<string, ConditionDef>;

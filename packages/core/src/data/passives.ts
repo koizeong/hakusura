@@ -70,6 +70,61 @@ export const PASSIVES = {
     description: '自分が出血中なら、与ダメージ+60%',
     rules: [{ label: '瀉血', on: 'damage', when: [{ type: 'attackerHas', status: 'bleed' }], add: 0.6 }],
   },
+  whetstone: {
+    name: '砥石の癖',
+    description: '斬ダメージ+35%',
+    modifiers: [{ tags: ['slash'], value: 0.35 }],
+  },
+  pyromaniac: {
+    name: '火に魅入られた者',
+    description: '燃えている敵への与ダメージ+40%',
+    rules: [{ label: '火に魅入られた者', on: 'damage', when: [{ type: 'targetHas', status: 'burn' }], add: 0.4 }],
+  },
+  stormFinger: {
+    name: '雷を呼ぶ指',
+    description: '感電の蓄積+60%',
+    modifiers: [{ stat: 'buildup', tags: ['lightning'], value: 0.6 }],
+  },
+  closeQuarters: {
+    name: '間合い詰め',
+    description: '近攻撃のクールダウン-20%',
+    modifiers: [{ stat: 'cooldown', tags: ['melee'], value: -0.2 }],
+  },
+  thickSkin: {
+    name: '厚い皮',
+    description: '最大HP+30%、移動速度-10%',
+    modifiers: [
+      { stat: 'maxHp', tags: [], value: 0.3 },
+      { stat: 'moveSpeed', tags: [], value: -0.1 },
+    ],
+  },
+  oilSoaked: {
+    name: '油染み',
+    description: '自分が油まみれの間、火ダメージ+60%',
+    rules: [
+      {
+        label: '油染み',
+        on: 'damage',
+        when: [
+          { type: 'attackerHas', status: 'oiled' },
+          { type: 'hitHasTag', tag: 'fire' },
+        ],
+        add: 0.6,
+      },
+    ],
+  },
+  bloodRush: {
+    name: '血の昂り',
+    description: '自分が付けた出血が発動すると、近攻撃のクールダウンが0.5秒縮む',
+    rules: [
+      {
+        label: '血の昂り',
+        on: 'statusActivate',
+        when: [{ type: 'statusIs', status: 'bleed' }],
+        do: [{ type: 'cooldown', ms: 500, tags: ['melee'] }],
+      },
+    ],
+  },
   readTheBlow: {
     name: '見切りの心得',
     description: '敵の直撃を30%の確率で見切る(次の攻撃が倍)',

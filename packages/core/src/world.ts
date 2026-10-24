@@ -9,6 +9,7 @@ import { matchCombos, type ComboId } from './data/combos';
 import { artifactDef, type ArtifactId, type ArtifactTraits } from './data/artifacts';
 import { affixModifier, type Item } from './data/equipment';
 import { statDef, type StatId } from './data/stats';
+import { GRIPS, type GripId } from './data/grips';
 import { multiplierOf } from './damage';
 import { passiveDef, type PassiveId } from './data/passives';
 import { conditionDef, type ConditionId } from './data/conditions';
@@ -94,6 +95,14 @@ export interface Unit {
   lastMovedAt: number;
   /** 歩いた跡を残すまでの距離 */
   trailAcc: number;
+  /** 武器の持ち方。戦う者だけが持つ */
+  grip?: GripId;
+  /** 本人のタグ(持ち方など)。条件から参照する */
+  tags: string[];
+  /** 最後に被弾した時刻。一度もなければ -Infinity */
+  lastHurtAt: number;
+  /** 前の攻撃から歩いた距離。次の攻撃の溜めになる */
+  distanceSinceSkill: number;
 }
 
 export interface Buff {
@@ -136,6 +145,8 @@ export interface Hit {
   depth: number;
   /** このヒットに関わった条件文・パッシブ */
   via: readonly string[];
+  /** 攻撃の前に歩いた距離(駆ける刃などで使う) */
+  charge?: number;
 }
 
 export interface DamageRecord {
@@ -198,6 +209,7 @@ export interface Projectile {
   radius: number;
   traveled: number;
   range: number;
+  charge?: number;
 }
 
 export interface FloorPatch {
@@ -321,6 +333,9 @@ export class CombatWorld {
       baseMaxHp: maxHp,
       lastMovedAt: 0,
       trailAcc: 0,
+      tags: [],
+      lastHurtAt: -Infinity,
+      distanceSinceSkill: 0,
     };
     this.units.set(unit.id, unit);
     return unit;
@@ -343,8 +358,10 @@ export class CombatWorld {
     return out;
   }
 
+  /** 勘定をやり直す。新しく戦い始めたことにして、無傷も戻す */
   resetLog(): void {
     this.log = [];
+    for (const unit of this.units.values()) unit.lastHurtAt = -Infinity;
   }
 
   setInvulnerable(unitId: string, ms: number): void {
@@ -383,6 +400,7 @@ export class CombatWorld {
     unit.x = x;
     unit.y = y;
     if (dist > 0.5) unit.lastMovedAt = this.time;
+    unit.distanceSinceSkill += dist;
     const trail = this.traitsOf(unit).trail;
     if (trail) {
       unit.trailAcc += dist;
@@ -495,6 +513,9 @@ export class CombatWorld {
     const angle = target ? Math.atan2(target.y - unit.y, target.x - unit.x) : pending.angle;
     unit.facing = angle;
     const action = def.action;
+    // 歩いた距離は、この攻撃の溜めとして使い切る
+    const charge = unit.distanceSinceSkill;
+    unit.distanceSinceSkill = 0;
     switch (action.type) {
       case 'melee': {
         const range = action.range * this.statOf(unit, 'meleeRange', def.tags);
@@ -520,11 +541,14 @@ export class CombatWorld {
           const diff = Math.abs(normalizeAngle(Math.atan2(dy, dx) - angle));
           return (minRange === 0 && dist <= unit.radius + other.radius) || diff <= half;
         };
+        let landed = 0;
         for (const other of this.opponentsOf(unit)) {
           // 回避で範囲の外へ抜けていても、避け始めた位置に当たるならジャスト回避の判定に回す
           const justDodging = this.time - other.dodgeStartedAt <= DEFENSE.justDodgeWindow && reaches(other, other.dodgeOrigin);
-          if (reaches(other, other) || justDodging) this.queueAttack(unit, other, pending.skill);
+          if (reaches(other, other)) landed++;
+          if (reaches(other, other) || justDodging) this.queueAttack(unit, other, pending.skill, charge);
         }
+        this.onMultiHit(unit, landed, def.name);
         if (action.clearsProjectiles) {
           this.projectiles = this.projectiles.filter((p) => {
             const owner = this.units.get(p.ownerId);
@@ -584,6 +608,7 @@ export class CombatWorld {
             radius: action.radius,
             traveled: 0,
             range: action.range,
+            charge,
           });
         }
         break;
@@ -599,9 +624,13 @@ export class CombatWorld {
       }
       case 'nova': {
         this.events.push({ type: 'nova', unitId: unit.id, x: unit.x, y: unit.y, radius: action.radius, element: skillElement(def) });
+        let landed = 0;
         for (const other of this.opponentsOf(unit)) {
-          if (Math.hypot(other.x - unit.x, other.y - unit.y) <= action.radius + other.radius) this.queueAttack(unit, other, pending.skill);
+          if (Math.hypot(other.x - unit.x, other.y - unit.y) > action.radius + other.radius) continue;
+          landed++;
+          this.queueAttack(unit, other, pending.skill, charge);
         }
+        this.onMultiHit(unit, landed, def.name);
         this.processHits();
         break;
       }
@@ -816,7 +845,7 @@ export class CombatWorld {
       p.traveled += Math.hypot(p.vx, p.vy) * sec;
       const target = owner && this.opponentsOf(owner).find((u) => Math.hypot(u.x - p.x, u.y - p.y) <= u.radius + p.radius);
       if (owner && target) {
-        this.queueAttack(owner, target, p.skill);
+        this.queueAttack(owner, target, p.skill, p.charge);
         this.events.push({ type: 'projectileEnd', projectileId: p.id, x: p.x, y: p.y, hit: true });
       } else if (!owner || p.traveled >= p.range) {
         this.events.push({ type: 'projectileEnd', projectileId: p.id, x: p.x, y: p.y, hit: false });
@@ -828,7 +857,17 @@ export class CombatWorld {
   }
 
   /** スキルの直撃と、付与による追撃を積む */
-  private queueAttack(attacker: Unit, target: Unit, skillId: ActiveSkillId): void {
+  /** 1回の攻撃で何体に当たったか。多く当てたときのルールを動かす */
+  private onMultiHit(unit: Unit, landed: number, skill: string): void {
+    if (landed === 0) return;
+    const ctx = this.context(unit, unit, {});
+    for (const { rule } of this.rulesFor(unit)) {
+      if (rule.on !== 'multiHit' || landed < rule.min || !ruleMatches(rule, ctx)) continue;
+      for (const action of rule.do) this.runAction(action, rule.label, unit, { attacker: unit, skill, via: [], depth: 0 });
+    }
+  }
+
+  private queueAttack(attacker: Unit, target: Unit, skillId: ActiveSkillId, charge?: number): void {
     const def = activeSkillDef(skillId);
     const action = def.action;
     if (action.type !== 'melee' && action.type !== 'projectile' && action.type !== 'barrage' && action.type !== 'nova') return;
@@ -844,6 +883,7 @@ export class CombatWorld {
       source: def.name,
       depth: 0,
       via: [],
+      charge,
     });
     if (attacker.imbue && attacker.imbue.until > this.time) {
       const imbue = activeSkillDef(attacker.imbue.skill);
@@ -888,7 +928,10 @@ export class CombatWorld {
     for (const id of attacker.passives) {
       for (const rule of passiveDef(id).rules ?? []) out.push({ rule, kind: 'passive' });
     }
-    for (const id of attacker.conditions) out.push({ rule: conditionDef(id).rule, kind: 'condition' });
+    for (const id of attacker.conditions) {
+      const def = conditionDef(id);
+      for (const rule of [def.rule, ...(def.extraRules ?? [])]) out.push({ rule, kind: 'condition' });
+    }
     for (const id of attacker.artifacts) {
       for (const rule of artifactDef(id).rules ?? []) out.push({ rule, kind: 'artifact' });
     }
@@ -904,6 +947,7 @@ export class CombatWorld {
       ...unit.passives.flatMap((id) => passiveDef(id).modifiers ?? []),
       ...unit.equipment.flatMap((item) => item.affixes.map(affixModifier)),
       ...unit.artifacts.flatMap((id) => artifactDef(id).modifiers ?? []),
+      ...(unit.grip ? GRIPS[unit.grip].modifiers : []),
     ];
     return all.filter((m) => (m.stat ?? 'damage') === stat);
   }
@@ -951,6 +995,8 @@ export class CombatWorld {
       attackerStatusCount: () => (attacker ? STATUS_IDS.filter((s) => this.isActive(attacker, s)).length : 0),
       attackerHpRatio: attacker ? attacker.hp / attacker.maxHp : 0,
       attackerStillFor: attacker ? this.time - attacker.lastMovedAt : 0,
+      attackerTags: attacker?.tags ?? [],
+      attackerUnhurt: attacker ? attacker.lastHurtAt === -Infinity : false,
       targetOnFloor: (field) => this.floors.some((f) => f.field === field && Math.hypot(target.x - f.x, target.y - f.y) <= f.radius),
       ...extra,
     };
@@ -974,7 +1020,9 @@ export class CombatWorld {
     const via = [...hit.via];
     for (const { rule, kind } of rules) {
       if (rule.on !== 'damage' || !ruleMatches(rule, damageCtx)) continue;
-      bonuses.push({ label: rule.label, add: rule.add });
+      const add = rule.perCharge ? rule.add * Math.min(rule.perCharge.max, Math.floor((hit.charge ?? 0) / rule.perCharge.every)) : rule.add;
+      if (add === 0) continue;
+      bonuses.push({ label: rule.label, add });
       if (kind === 'interaction') qualifiers.push(rule.label);
       else via.push(rule.label);
     }
@@ -1018,6 +1066,7 @@ export class CombatWorld {
     if (target.hp <= 0) {
       // 試作では倒れても起き上がる
       target.hp = target.maxHp;
+      target.lastHurtAt = -Infinity;
       this.events.push({ type: 'fell', unitId: target.id });
     }
     if (attacker && hit.tags.has('weapon')) attacker.lastElement = hit.element;
@@ -1031,6 +1080,7 @@ export class CombatWorld {
 
     // 被弾したときのルール(棘の鎧、血の返礼など)。対象は攻撃してきた者
     if (attacker && attacker.team !== target.team && !hit.tags.has('dot') && amount > 0) {
+      target.lastHurtAt = this.time;
       const hurtCtx = this.context(attacker, target, { hitTags: hit.tags, hitElement: hit.element });
       for (const { rule } of this.rulesFor(target)) {
         if (rule.on !== 'hurt' || !ruleMatches(rule, hurtCtx)) continue;
@@ -1150,6 +1200,17 @@ export class CombatWorld {
           });
         }
         break;
+      case 'cooldown': {
+        const owner = src.attacker;
+        if (!owner) break;
+        for (const id of Object.keys(owner.cooldowns) as ActiveSkillId[]) {
+          const def = activeSkillDef(id);
+          const tags = new Set<string>([...def.tags, def.category, id]);
+          if (!(action.tags ?? []).every((t) => tags.has(t))) continue;
+          owner.cooldowns[id] = Math.max(this.time, (owner.cooldowns[id] ?? 0) - action.ms);
+        }
+        break;
+      }
       case 'grantBuff':
         if (src.attacker) {
           src.attacker.buffs.push({

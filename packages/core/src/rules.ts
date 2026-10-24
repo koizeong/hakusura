@@ -31,7 +31,11 @@ export type Predicate =
   /** 自分が ms ミリ秒以上動いていない */
   | { type: 'selfStill'; ms: number }
   /** 相手がその床の上にいる */
-  | { type: 'targetOnFloor'; field: FieldId };
+  | { type: 'targetOnFloor'; field: FieldId }
+  /** 自分がそのタグを持つ(両手持ち・二刀流など) */
+  | { type: 'selfHasTag'; tag: string }
+  /** 自分が一度も被弾していない(倒れるか、勘定をやり直すと戻る) */
+  | { type: 'selfUnhurt' };
 
 export type Action =
   /** 同じ攻撃をもう一度当てる */
@@ -42,7 +46,9 @@ export type Action =
   /** 持ち主に一時的な強化を与える。charges 回使うか duration で消える */
   | { type: 'grantBuff'; label: string; add: number; tags: readonly string[]; duration: number; charges?: number }
   /** 受けたダメージの ratio を、攻撃してきた相手に返す(on: 'hurt' でだけ意味を持つ) */
-  | { type: 'reflect'; ratio: number };
+  | { type: 'reflect'; ratio: number }
+  /** 持ち主のクールダウンを ms 縮める。tags があれば、そのタグを全て持つスキルだけ */
+  | { type: 'cooldown'; ms: number; tags?: readonly string[] };
 
 interface RuleBase {
   /** 内訳や戦闘中の表示に出る名前 */
@@ -52,7 +58,14 @@ interface RuleBase {
 
 export type Rule = RuleBase &
   (
-    | /** 与ダメージに加算する補正。ルールごとに別の種類として乗算される */ { on: 'damage'; add: number }
+    | /**
+       * 与ダメージに加算する補正。ルールごとに別の種類として乗算される。
+       * perCharge があれば、攻撃の前に歩いた距離 every ごとに add を足し、max 回まで重ねる
+       */ {
+        on: 'damage';
+        add: number;
+        perCharge?: { every: number; max: number };
+      }
     | /** ヒットが当たった後 */ { on: 'hit'; do: readonly Action[] }
     | /** 状態が発動した瞬間。scale で持続と範囲を変える */ {
         on: 'statusActivate';
@@ -68,6 +81,7 @@ export type Rule = RuleBase &
         tags?: readonly string[];
       }
     | /** 攻撃を受けた後。対象は攻撃してきた者 */ { on: 'hurt'; do: readonly Action[] }
+    | /** 1回の攻撃で min 体以上に当てたとき。対象は自分 */ { on: 'multiHit'; min: number; do: readonly Action[] }
     | /** スキルの直撃を受ける直前。chance の確率でジャスト回避・ジャストガードしたことにする */ {
         on: 'incoming';
         chance: number;
@@ -105,6 +119,8 @@ export interface PredicateContext {
   attackerHpRatio?: number;
   attackerStillFor?: number;
   targetOnFloor?(field: FieldId): boolean;
+  attackerTags?: readonly string[];
+  attackerUnhurt?: boolean;
 }
 
 export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean {
@@ -139,6 +155,10 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return (ctx.attackerStillFor ?? 0) >= p.ms;
     case 'targetOnFloor':
       return ctx.targetOnFloor?.(p.field) ?? false;
+    case 'selfHasTag':
+      return ctx.attackerTags?.includes(p.tag) ?? false;
+    case 'selfUnhurt':
+      return ctx.attackerUnhurt ?? false;
   }
 }
 

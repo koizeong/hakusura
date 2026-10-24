@@ -38,6 +38,8 @@ export class Hud {
   private trumpLabel: HTMLElement;
   private speedButton: HTMLButtonElement;
   private hint: HTMLElement;
+  private activeSlots: HTMLElement;
+  private binds?: Keybinds;
 
   constructor(
     private slotSkills: readonly (ActiveSkillId | null)[],
@@ -48,19 +50,8 @@ export class Hud {
     this.hpFill = h('div', { class: 'hp-fill' });
     this.hpText = h('span', { class: 'hp-text' });
     this.statuses = h('div', { class: 'own-statuses' });
-    const slotEls = slotSkills.map((skill) => {
-      const view = { key: h('span', { class: 'key' }), shade: h('div', { class: 'shade' }) };
-      this.slots.push(view);
-      const def = skill ? ACTIVE_SKILLS[skill] : null;
-      return h(
-        'div',
-        { class: `slot${def ? '' : ' empty'}` },
-        view.shade,
-        view.key,
-        h('span', { class: 'name' }, def?.name ?? '—'),
-        h('span', { class: 'cat' }, def ? SKILL_CATEGORIES[def.category] : ''),
-      );
-    });
+    this.activeSlots = h('div', { class: 'active-slots' });
+    this.setSlots(slotSkills);
     this.dodge = { key: h('span', { class: 'key' }), shade: h('div', { class: 'shade' }) };
     this.guard = { key: h('span', { class: 'key' }), shade: h('div', { class: 'shade' }) };
     this.lock = h('div', { class: 'lock' });
@@ -98,7 +89,7 @@ export class Hud {
         h(
           'div',
           { class: 'slots manual-only' },
-          ...slotEls,
+          this.activeSlots,
           h('div', { class: 'slot dodge' }, this.dodge.shade, this.dodge.key, h('span', { class: 'name' }, '回避'), h('span', { class: 'cat' }, '見切り')),
           h('div', { class: 'slot' }, this.guard.shade, this.guard.key, h('span', { class: 'name' }, 'ガード'), h('span', { class: 'cat' }, '弾き')),
         ),
@@ -127,7 +118,30 @@ export class Hud {
     this.speedButton.textContent = `×${speed}`;
   }
 
+  /** 手動のときの6枠。ビルドのアクティブを順に入れる */
+  setSlots(skills: readonly (ActiveSkillId | null)[]): void {
+    this.slotSkills = ACTIVE_SLOT_ACTIONS.map((_, i) => skills[i] ?? null);
+    this.slots = [];
+    this.activeSlots.replaceChildren(
+      ...this.slotSkills.map((skill) => {
+        const view = { key: h('span', { class: 'key' }), shade: h('div', { class: 'shade' }) };
+        this.slots.push(view);
+        const def = skill ? ACTIVE_SKILLS[skill] : null;
+        return h(
+          'div',
+          { class: `slot${def ? '' : ' empty'}` },
+          view.shade,
+          view.key,
+          h('span', { class: 'name' }, def?.name ?? '—'),
+          h('span', { class: 'cat' }, def ? SKILL_CATEGORIES[def.category] : ''),
+        );
+      }),
+    );
+    if (this.binds) this.setKeybinds(this.binds);
+  }
+
   setKeybinds(binds: Keybinds): void {
+    this.binds = binds;
     ACTIVE_SLOT_ACTIONS.forEach((action, i) => (this.slots[i]!.key.textContent = bindingLabel(binds[action])));
     this.dodge.key.textContent = bindingLabel(binds.dodge);
     this.guard.key.textContent = bindingLabel(binds.guard);

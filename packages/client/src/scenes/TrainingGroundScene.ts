@@ -52,8 +52,6 @@ const SPEEDS = [1, 2, 3];
 /** タップで歩かせた後、作戦の寄り道に戻るまでの間 */
 const TAP_HOLD = 700;
 
-/** アクティブ1〜6に入れるスキル */
-const SLOT_SKILLS: readonly (ActiveSkillId | null)[] = ['rustGreatsword', 'thunderGun', 'emberOil', null, null, null];
 
 /** 案山子の配置。感電が飛び移れるよう寄せて立てる */
 const SCARECROW_SPOTS = [
@@ -159,7 +157,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.keybinds = loadKeybinds();
     this.input2 = new InputController(this.keybinds, this.game.canvas);
     this.input2.onWheel = (dir) => this.switchLock(dir);
-    this.hud = new Hud(SLOT_SKILLS, DODGE.cooldown, this.player.trump!, {
+    this.hud = new Hud(this.player.actives, DODGE.cooldown, this.player.trump!, {
       onTrump: () => this.useTrump(),
       onSpeed: () => this.cycleSpeed(),
       onBreakdown: () => this.toggleBreakdown(),
@@ -260,6 +258,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     applyBuild(this.world, this.player, this.buildState.build);
     if (this.player.queued && this.player.queued.skill !== this.player.trump) this.player.queued = undefined;
     this.hud.setTrump(this.player.trump);
+    this.hud.setSlots(this.player.actives);
     saveBuildState(this.buildState);
   }
 
@@ -499,7 +498,8 @@ export class TrainingGroundScene extends Phaser.Scene {
 
     // アクティブスキル。押した瞬間だけ出す。硬直中に押した分は少しの間だけ覚えておく
     ACTIVE_SLOT_ACTIONS.forEach((action, i) => {
-      const skill = SLOT_SKILLS[i];
+      // 手動のときは、ビルドのアクティブを順に6枠へ入れる
+      const skill = this.player.actives[i];
       if (skill && input.consumePressed(action)) this.buffered = { skill, until: world.time + INPUT_BUFFER };
     });
     if (this.buffered && this.buffered.until < world.time) this.buffered = null;

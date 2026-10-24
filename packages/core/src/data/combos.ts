@@ -18,6 +18,11 @@ export const COMBOS = {
   breakStrike: { name: '崩し打ち', labels: ['昏倒に追撃'], color: 0xd8c25a },
   readStrike: { name: '見切り斬り', labels: ['見切り'], color: 0x9fc4e8 },
   rainBlade: { name: '雨垂れ', labels: ['雨垂れの刃'], color: 0x4a7fb5 },
+  selfImmolation: { name: '身を焼く', labels: ['油染み'], color: 0xff6a2e },
+  stake: { name: '火刑', labels: ['火に魅入られた者'], color: 0xe85a2e },
+  runningCut: { name: '駆け斬り', labels: ['駆ける刃'], color: 0xe6dccb },
+  mirror: { name: '鏡合わせ', labels: ['鏡合わせ'], color: 0xc9c2b4 },
+  oddGrip: { name: '持ち替え', labels: ['持ち替えの妙'], color: 0xd8c25a },
 } as const satisfies Record<string, ComboDef>;
 
 export type ComboId = keyof typeof COMBOS;

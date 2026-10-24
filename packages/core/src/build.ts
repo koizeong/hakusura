@@ -2,7 +2,8 @@ import { ACTIVE_SKILLS, TRUMP_SKILL_IDS, type ActiveSkillId } from './data/skill
 import { PASSIVES, type PassiveId } from './data/passives';
 import { CONDITIONS } from './data/conditions';
 import { ARTIFACTS } from './data/artifacts';
-import { AFFIXES, EQUIP_SLOTS, EQUIP_SLOT_IDS, type EquipSlotId, type Item } from './data/equipment';
+import { AFFIXES, EQUIP_SLOTS, EQUIP_SLOT_IDS, itemTotal, type EquipSlotId, type Item } from './data/equipment';
+import { gripOf } from './data/grips';
 import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import type { CombatWorld, Unit } from './world';
 
@@ -62,6 +63,11 @@ export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   unit.artifacts = items.flatMap((i) => (i.artifact ? [i.artifact] : []));
   unit.conditions = items.flatMap((i) => (i.condition ? [i.condition] : []));
   unit.trump = build.trump;
+  // 武器の数で持ち方が決まる。二刀流で左右の補正値の合計が同じなら、そのタグも付く
+  const weapons = (['weapon1', 'weapon2'] as const).map((s) => build.equipment[s]).filter((i): i is Item => !!i && !i.artifact);
+  unit.grip = gripOf(weapons.length);
+  unit.tags = [unit.grip];
+  if (weapons.length === 2 && itemTotal(weapons[0]!) === itemTotal(weapons[1]!)) unit.tags.push('dualTotalsEqual');
   unit.tactics = build.tactics.map((t) => ({ ...t }));
   const ratio = unit.maxHp > 0 ? unit.hp / unit.maxHp : 1;
   unit.maxHp = Math.max(1, Math.round(unit.baseMaxHp * world.statOf(unit, 'maxHp')));
