@@ -130,6 +130,13 @@ export interface GenerateOptions {
   condition?: ConditionId;
   /** 武器ならこの種類で作る */
   weaponType?: WeaponTypeId;
+  /** 武器ならこの中から種類を選ぶ */
+  weaponTypes?: readonly WeaponTypeId[];
+  /** 出やすい補正値の項目。項目を選ぶたび、半分の確率でこの中から選ぶ */
+  preferAffixes?: readonly AffixId[];
+  /** 条件文が入る確率と、出やすい条件文。条件文を選ぶとき、半分の確率でこの中から選ぶ */
+  conditionChance?: number;
+  preferConditions?: readonly ConditionId[];
 }
 
 /**
@@ -145,14 +152,19 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
   const kind = options.kind ?? EQUIP_SLOTS[slotId].kind;
   const slot = kind === 'armor' ? (EQUIP_SLOTS[slotId].kind === 'armor' ? slotId : pick(EQUIP_SLOT_IDS.filter((s) => EQUIP_SLOTS[s].kind === 'armor'))) : undefined;
 
+  // 出やすいものがあれば、半分の確率でその中から選ぶ
+  const pickPreferred = <T>(all: readonly T[], preferred: readonly T[] | undefined): T =>
+    preferred && preferred.length > 0 && random() < 0.5 ? pick(preferred) : pick(all);
+
   const count = R.countMin + Math.floor(random() * (R.countMax - R.countMin + 1));
-  const condition = options.condition ?? (count >= 2 && random() < R.conditionChance ? pick(CONDITION_IDS) : undefined);
+  const conditionChance = options.conditionChance ?? R.conditionChance;
+  const condition = options.condition ?? (count >= 2 && random() < conditionChance ? pickPreferred(CONDITION_IDS, options.preferConditions) : undefined);
   const affixCount = Math.max(1, count - (condition ? 1 : 0));
 
   const commons = AFFIX_IDS.filter((id) => (AFFIXES[id] as AffixDef).common);
   const chosen: AffixId[] = [pick(commons)];
-  while (chosen.length < affixCount) {
-    const id = pick(AFFIX_IDS);
+  for (let guard = 0; chosen.length < affixCount && guard < 100; guard++) {
+    const id = pickPreferred(AFFIX_IDS, options.preferAffixes);
     if (!chosen.includes(id)) chosen.push(id);
   }
 
@@ -178,7 +190,7 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
     const lower = statDef(AFFIXES[affix].stat).lowerIsBetter;
     return { affix, value: lower ? -benefits[i]! : benefits[i]! };
   });
-  const weaponType = kind === 'weapon' ? (options.weaponType ?? pick(LOOT_WEAPON_TYPE_IDS)) : undefined;
+  const weaponType = kind === 'weapon' ? (options.weaponType ?? pick(options.weaponTypes ?? LOOT_WEAPON_TYPE_IDS)) : undefined;
   return {
     id: `item-${Date.now().toString(36)}-${(itemCounter++).toString(36)}-${Math.floor(random() * 1e6).toString(36)}`,
     name: weaponType ? WEAPON_TYPES[weaponType].name : kind === 'armor' && slot ? pick(ARMOR_NAMES[slot] ?? ['古い防具']) : pick(BASE_NAMES[kind]),

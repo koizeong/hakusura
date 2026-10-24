@@ -1276,3 +1276,26 @@ button.discard {
     white-space: nowrap;
   }
 }
+
+.destination .env {
+  display: block;
+  color: #8fb4d8;
+}
+
+.destination .risk {
+  display: block;
+  color: #c25a4a;
+}
+
+.destination .safe {
+  display: block;
+  color: #c9b79c;
+}
+
+.destination small {
+  display: block;
+}
+
+.injured {
+  color: #c25a4a !important;
+}

@@ -4,6 +4,7 @@ import {
   DEFAULT_TACTICS,
   LOOT_WEAPON_TYPE_IDS,
   STARTING_SKILLS,
+  canFight,
   generateItem,
   levelForPoints,
   newCharacter,
@@ -122,6 +123,11 @@ export function loadBuildState(random: () => number): BuildState {
     if (saved && Array.isArray(saved.characters) && saved.characters.length > 0 && Array.isArray(saved.stash)) {
       saved.current = Math.min(Math.max(0, saved.current | 0), saved.characters.length - 1);
       saved.learned ??= startingLearned();
+      // 戦える者を選んでおく(遠征や負傷の間は戦えない)
+      if (!canFight(saved.characters[saved.current]!, Date.now())) {
+        const other = saved.characters.findIndex((c) => canFight(c, Date.now()));
+        if (other >= 0) saved.current = other;
+      }
       return saved;
     }
     const now = Date.now();

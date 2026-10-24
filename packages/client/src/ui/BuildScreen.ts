@@ -61,7 +61,13 @@ import {
   expeditionYield,
   finishExpedition,
   isLearned,
-  measureBuildPower,
+  measureAt,
+  canFight,
+  injuryChance,
+  isInjured,
+  EXPEDITION_INJURY,
+  FIELDS,
+  type ExpeditionDef,
   startExpedition,
   type ActiveSkillId,
   type ExpeditionId,
@@ -208,8 +214,9 @@ export class BuildScreen {
         },
         ...state.characters.map((c, i) => {
           const left = unspentPoints(c);
-          const away = c.expedition ? (expeditionDone(c, Date.now()) ? '・帰還' : '・遠征中') : '';
-          return h('option', { value: i, selected: i === state.current, disabled: !!c.expedition }, `${c.name} Lv${c.level}${away}${left > 0 ? `(未振り ${left})` : ''}`);
+          const now = Date.now();
+          const away = c.expedition ? (expeditionDone(c, now) ? '・帰還' : '・遠征中') : isInjured(c, now) ? '・負傷' : '';
+          return h('option', { value: i, selected: i === state.current, disabled: !canFight(c, now) }, `${c.name} Lv${c.level}${away}${left > 0 ? `(未振り ${left})` : ''}`);
         }),
       ),
       h(
@@ -628,7 +635,7 @@ export class BuildScreen {
   private renderExpedition(): HTMLElement {
     const { state } = this.host;
     const now = Date.now();
-    const idle = state.characters.filter((c) => !c.expedition);
+    const idle = state.characters.filter((c) => canFight(c, now));
     if (!this.sender || !idle.includes(this.sender)) this.sender = idle.includes(this.character) ? this.character : idle[0];
     const sender = this.sender;
     const minutes = (ms: number) => {
@@ -642,13 +649,14 @@ export class BuildScreen {
       ...state.characters.map((c) => {
         const ex = c.expedition;
         let status: HTMLElement;
-        if (!ex) status = h('small', {}, '待機');
+        if (!ex && isInjured(c, now)) status = h('small', { class: 'injured' }, `負傷・治るまで${minutes((c.injuredUntil ?? now) - now)}`);
+        else if (!ex) status = h('small', {}, '待機');
         else if (expeditionDone(c, now))
           status = h('button', { class: 'commit', onclick: () => this.welcome(c) }, `${EXPEDITIONS[ex.destination].name}から迎える`);
         else status = h('small', {}, `${EXPEDITIONS[ex.destination].name}へ・残り${minutes(ex.endsAt - now)}`);
         return h(
           'div',
-          { class: `roster-row${c === sender ? ' selected' : ''}`, onclick: () => !c.expedition && ((this.sender = c), this.render()) },
+          { class: `roster-row${c === sender ? ' selected' : ''}`, onclick: () => canFight(c, now) && ((this.sender = c), this.render()) },
           h('b', {}, c.name),
           h('small', {}, `Lv${c.level}`),
           status,
@@ -656,24 +664,29 @@ export class BuildScreen {
       }),
     );
 
-    // 送り出す者のビルドの強さ。早回しで測るので、ビルドが変わったときだけ測り直す
-    const power = sender ? this.powerOf(sender) : 0;
+    // 送り出す者のビルドの強さ。行き先の環境で早回しして測るので、ビルドが変わったときだけ測り直す
     const destinations = h(
       'div',
       { class: 'destinations' },
       ...EXPEDITION_IDS.map((id) => {
         const d = EXPEDITIONS[id];
+        const power = sender ? this.powerOf(sender, id) : 0;
         const y = sender ? expeditionYield(power, id) : 0;
+        const risk = sender ? injuryChance(power, id) : 0;
         return h(
           'div',
           { class: 'destination' },
           h('div', { class: 'item-head' }, h('b', {}, d.name), h('small', {}, minutes(d.duration)), h('small', { class: 'total' }, `手強さ ${d.threat}`)),
           h('p', { class: 'artifact-text' }, d.description),
-          h(
-            'small',
-            {},
-            `経験値 ${d.exp}・装備 ${d.items}つ・新しいスキル ${Math.round(d.skillChance * 100)}%${sender ? `(見込み ×${y.toFixed(2)})` : ''}`,
-          ),
+          h('small', { class: 'env' }, `環境:${environmentText(d)}`),
+          h('small', {}, `経験値 ${d.exp}・装備 ${d.items}つ・新しいスキル ${Math.round(d.skillChance * 100)}%`),
+          sender
+            ? h(
+                'small',
+                { class: risk > 0 ? 'risk' : 'safe' },
+                `${sender.name}の強さ ${Math.round(power)} → 見込み ×${y.toFixed(2)}${risk > 0 ? `・負傷の恐れ ${Math.round(risk * 100)}%` : ''}`,
+              )
+            : '',
           h(
             'div',
             { class: 'item-actions' },
@@ -701,8 +714,8 @@ export class BuildScreen {
         'p',
         { class: 'note' },
         sender
-          ? `${sender.name}のビルドの強さ ${Math.round(power)}。行き先の手強さより強いほど多く持ち帰る(${EXPEDITION_YIELD.min}〜${EXPEDITION_YIELD.max}倍)。遠征の間は戦えない`
-          : '皆、遠征に出ている。新しいキャラを作るか、帰りを待つ',
+          ? `強さはその地の環境で、そのビルドを早回しして測る。手強さより強いほど多く持ち帰り(${EXPEDITION_YIELD.min}〜${EXPEDITION_YIELD.max}倍)、手強さの${EXPEDITION_INJURY.below * 100}%に満たないと負傷することがある。遠征と負傷の間は戦えない`
+          : '戦える者がいない。新しいキャラを作るか、帰りと傷が癒えるのを待つ',
       ),
       h('h3', {}, '行き先'),
       destinations,
@@ -711,7 +724,10 @@ export class BuildScreen {
         {
           title: '試作用。遠征の時間を1時間進める',
           onclick: () => {
-            for (const c of state.characters) if (c.expedition) c.expedition.endsAt -= 60 * 60 * 1000;
+            for (const c of state.characters) {
+              if (c.expedition) c.expedition.endsAt -= 60 * 60 * 1000;
+              if (c.injuredUntil) c.injuredUntil -= 60 * 60 * 1000;
+            }
             this.changed();
           },
         },
@@ -720,11 +736,11 @@ export class BuildScreen {
     );
   }
 
-  private powerOf(c: Character): number {
-    const key = `${c.id}:${JSON.stringify(c.build)}`;
+  private powerOf(c: Character, destination: ExpeditionId): number {
+    const key = `${c.id}:${destination}:${JSON.stringify(c.build)}`;
     let power = this.powerCache.get(key);
     if (power === undefined) {
-      power = measureBuildPower(c.build, 20, 1);
+      power = measureAt(c.build, destination);
       this.powerCache.set(key, power);
     }
     return power;
@@ -734,7 +750,7 @@ export class BuildScreen {
     const { state } = this.host;
     // 戦っている者を送り出したら、残っている者に替える。誰も残らないなら送れない
     if (c === this.character) {
-      const other = state.characters.findIndex((o) => o !== c && !o.expedition);
+      const other = state.characters.findIndex((o) => o !== c && canFight(o, Date.now()));
       if (other < 0) {
         alert('戦える者が残らない。新しいキャラを作ってから送り出す');
         return;
@@ -748,7 +764,7 @@ export class BuildScreen {
   }
 
   private welcome(c: Character): void {
-    const report = finishExpedition(c, this.host.state.learned);
+    const report = finishExpedition(c, this.host.state.learned, Date.now());
     if (!report) return;
     this.host.state.stash.unshift(...report.items);
     this.lastReport = { name: c.name, level: c.level, report };
@@ -767,6 +783,9 @@ export class BuildScreen {
         `経験値 ${r.report.exp}(×${r.report.yield.toFixed(2)})${r.report.levelsGained > 0 ? `・Lv${r.level}に上がった(振れる点数 +${r.report.levelsGained})` : ''}`,
       ),
       r.report.skills.length > 0 ? h('p', { class: 'found' }, `覚えた:${r.report.skills.map(skillName).join('・')}`) : '',
+      r.report.injuredFor > 0
+        ? h('p', { class: 'injured' }, `深い傷を負って戻った。${Math.ceil(r.report.injuredFor / 60000)}分は戦えず、遠征にも出せない`)
+        : '',
       h('p', {}, `持ち帰った装備 ${r.report.items.length}つ(拾い物の山に入れた)`),
       h('div', { class: 'item-list' }, ...r.report.items.map((item) => itemCard(this.attrs, item))),
       h('button', { onclick: () => ((this.lastReport = undefined), this.render()) }, '閉じる'),
@@ -876,4 +895,15 @@ function weaponSummary(id: WeaponTypeId): string {
 function shortfallText(missing: number): string {
   const p = shortfallPenalty(missing);
   return `${missing}点足りない:威力${signedPercent(p.power - 1)}・間隔${signedPercent(p.interval - 1)}`;
+}
+
+/** 行き先の環境を一言で */
+function environmentText(d: ExpeditionDef): string {
+  const parts: string[] = [];
+  if (d.environment.weather) parts.push(FIELDS[d.environment.weather].name);
+  if (d.environment.floor) parts.push(`${FIELDS[d.environment.floor].name}の床`);
+  for (const [e, v] of Object.entries(d.environment.resist ?? {}) as [keyof typeof ELEMENTS, number][]) {
+    parts.push(`敵は${ELEMENTS[e].name}に${v > 0 ? '強い' : '弱い'}`);
+  }
+  return parts.length > 0 ? parts.join('・') : 'なし';
 }

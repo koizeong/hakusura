@@ -45,6 +45,8 @@ export interface Character {
   build: Build;
   /** 遠征に出ている間だけある。この間は戦えない */
   expedition?: Expedition;
+  /** 負傷して戻ったなら、治る時刻。それまで戦えず、遠征にも出せない */
+  injuredUntil?: number;
 }
 
 /** 遠征の行き先と、出た・戻る時刻 */

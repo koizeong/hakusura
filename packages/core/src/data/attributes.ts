@@ -26,9 +26,9 @@ export const ATTRIBUTE_RULES = {
   /** Lv1で振れる点数と、1レベル上がるごとに増える点数。Lv50で 3 + 49 = 52点 */
   startPoints: 3,
   pointsPerLevel: 1,
-  /** 次のレベルまでの経験値は expBase × レベル^expPower */
-  expBase: 60,
-  expPower: 1.4,
+  /** 次のレベルまでの経験値は expBase × レベル^expPower。Lv50まで合わせて約14万 */
+  expBase: 40,
+  expPower: 1.3,
   /** 基礎から1点上げるごとの効き目。全てを1つに振ってもビルドより小さく効く程度 */
   meleePerStr: 0.012,
   /** 技量1点ごとに攻撃の間隔をこの倍率にする(重ねるほど縮み方が鈍る) */
