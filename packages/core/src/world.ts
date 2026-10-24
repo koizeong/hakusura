@@ -4,7 +4,8 @@ import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
 import { fieldDef, type FieldId } from './data/fields';
 import { STATUS_IDS, statusDef, statusForElement, type StatusId } from './data/statuses';
 import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction } from './data/skills';
-import type { WeaponTypeId } from './data/weapons';
+import { toWeaponSpec, type WeaponRef, type WeaponSpec } from './data/weapons';
+import { shieldBurstElement, shieldDef, shieldName, type ShieldSpec } from './data/shields';
 import type { SkillVariant } from './data/variations';
 import { enemyDef, type EnemyId } from './data/enemies';
 import { attributeModifiers, type Attributes } from './data/attributes';
@@ -108,7 +109,9 @@ export interface Unit {
   /** 前の攻撃から歩いた距離。次の攻撃の溜めになる */
   distanceSinceSkill: number;
   /** 着けている武器(枠の順)。技はこの中から条件に合うものを使う。空なら素手 */
-  weapons: WeaponTypeId[];
+  weapons: WeaponSpec[];
+  /** 着けている盾。ready の間は直撃を1回防ぎ、砕けたら readyAt に張り直す */
+  shields: (ShieldSpec & { readyAt: number; ready: boolean })[];
   /** 二刀流で両手とも技に合うとき、次にどちらで出すか */
   hand: number;
   /** 最後に使ったときのクールダウンの長さ。残りの割合を出すのに使う */
@@ -150,7 +153,7 @@ export interface UnitSpec {
   tactics?: Tactic[];
   autoBattle?: boolean;
   trump?: ActiveSkillId;
-  weapons?: WeaponTypeId[];
+  weapons?: WeaponRef[];
   attributes?: Attributes;
   mortal?: boolean;
   kind?: EnemyId;
@@ -226,6 +229,11 @@ export type CombatEvent =
   | { type: 'projectileEnd'; projectileId: number; x: number; y: number; hit: boolean; cleared?: boolean }
   | { type: 'nova'; unitId: string; x: number; y: number; radius: number; element: ElementId }
   | { type: 'fell'; unitId: string }
+  /** 盾が砕けた。readyAt に張り直す */
+  | { type: 'shieldBroke'; unitId: string; name: string; readyAt: number }
+  | { type: 'shieldReady'; unitId: string; name: string }
+  /** 弾が弾けた */
+  | { type: 'explosion'; x: number; y: number; radius: number; element: ElementId }
   /** 倒れて消えた(mortal な者) */
   | { type: 'died'; unitId: string; name: string; kind?: EnemyId; team: Team; x: number; y: number };
 
@@ -400,7 +408,8 @@ export class CombatWorld {
       tags: [],
       lastHurtAt: -Infinity,
       distanceSinceSkill: 0,
-      weapons: spec.weapons ? [...spec.weapons] : [],
+      weapons: spec.weapons ? spec.weapons.map(toWeaponSpec) : [],
+      shields: [],
       hand: 0,
       cooldownSpans: {},
       variants: {},
@@ -595,7 +604,7 @@ export class CombatWorld {
   skillFor(unit: Unit, skillId: ActiveSkillId): ResolvedSkill | undefined {
     const def = activeSkillDef(skillId);
     if (!isTechnique(def)) return resolveSkill(skillId, undefined, unit.attributes);
-    const hands: WeaponTypeId[] = unit.weapons.length > 0 ? unit.weapons : ['fists'];
+    const hands: WeaponSpec[] = unit.weapons.length > 0 ? unit.weapons : [{ type: 'fists' }];
     const fits = hands.filter((w) => techniqueFits(def, w));
     if (fits.length === 0) return undefined;
     return resolveSkill(skillId, fits[unit.hand % fits.length], unit.attributes, unit.variants[skillId]);
@@ -932,7 +941,15 @@ export class CombatWorld {
     this.pending = this.pending.filter((p) => p.at > this.time);
     for (const p of due) this.executeSkill(p);
 
-    for (const unit of this.units.values()) unit.buffs = unit.buffs.filter((b) => b.until > this.time && b.charges > 0);
+    for (const unit of this.units.values()) {
+      unit.buffs = unit.buffs.filter((b) => b.until > this.time && b.charges > 0);
+      // 砕けた盾は、時間で張り直す
+      for (const s of unit.shields) {
+        if (s.ready || s.readyAt > this.time) continue;
+        s.ready = true;
+        this.events.push({ type: 'shieldReady', unitId: unit.id, name: shieldName(s) });
+      }
+    }
 
     this.updateAi();
     this.moveEnemies(dt);
@@ -1028,6 +1045,35 @@ export class CombatWorld {
     }
   }
 
+  /** 盾が砕ける。属性つきの盾は、その属性で周りの相手へ弾ける */
+  private breakShield(unit: Unit, shield: Unit['shields'][number], attacker: Unit, hit: Hit): void {
+    const def = shieldDef(shield.type);
+    shield.ready = false;
+    shield.readyAt = this.time + def.recharge * this.statOf(unit, 'cooldown', ['shield']);
+    const name = shieldName(shield);
+    this.events.push({ type: 'shieldBroke', unitId: unit.id, name, readyAt: shield.readyAt });
+    const element = shieldBurstElement(shield);
+    if (element) {
+      this.events.push({ type: 'nova', unitId: unit.id, x: unit.x, y: unit.y, radius: def.burst.radius, element });
+      for (const other of this.opponentsOf(unit)) {
+        if (Math.hypot(other.x - unit.x, other.y - unit.y) > def.burst.radius + other.radius) continue;
+        this.enqueue({
+          attackerId: unit.id,
+          targetId: other.id,
+          element,
+          power: def.burst.power,
+          buildup: def.burst.buildup,
+          tags: hitTags(element, ['burst', 'shield']),
+          skill: `${name}の砕け`,
+          source: `${name}の砕け`,
+          depth: 1,
+          via: [],
+        });
+      }
+    }
+    this.react('shieldBreak', unit, attacker, hit);
+  }
+
   /** 倒れて消える。倒れたときの効果(油溜まり・破裂)はここで起きる */
   private kill(unit: Unit, killer: Unit | undefined): void {
     if (!this.units.has(unit.id)) return;
@@ -1078,6 +1124,15 @@ export class CombatWorld {
       const pierce = p.resolved.action.type === 'projectile' ? (p.resolved.action.pierce ?? 0) : 0;
       if (owner && target) {
         this.queueAttack(owner, target, p.resolved, p.charge);
+        // 杖の魔弾のように、当たると弾けて周りにも当たる
+        const explode = p.resolved.action.type === 'projectile' ? p.resolved.action.explode : undefined;
+        if (explode) {
+          this.events.push({ type: 'explosion', x: p.x, y: p.y, radius: explode.radius, element: p.element });
+          for (const other of this.opponentsOf(owner)) {
+            if (other === target || Math.hypot(other.x - p.x, other.y - p.y) > explode.radius + other.radius) continue;
+            this.queueAttack(owner, other, p.resolved, p.charge, explode.ratio);
+          }
+        }
         // 貫く弾は、同じ相手に二度当たらないよう覚えて飛び続ける
         p.struck = [...(p.struck ?? []), target.id];
         if (p.struck.length > pierce) this.events.push({ type: 'projectileEnd', projectileId: p.id, x: p.x, y: p.y, hit: true });
@@ -1111,7 +1166,8 @@ export class CombatWorld {
     }
   }
 
-  private queueAttack(attacker: Unit, target: Unit, def: ResolvedSkill, charge?: number): void {
+  /** scale は弾けた分のように、威力と蓄積を割り引くとき */
+  private queueAttack(attacker: Unit, target: Unit, def: ResolvedSkill, charge?: number, scale = 1): void {
     const skillId = def.id;
     const action = def.action;
     if (action.type !== 'melee' && action.type !== 'projectile' && action.type !== 'barrage' && action.type !== 'nova') return;
@@ -1123,8 +1179,8 @@ export class CombatWorld {
         attackerId: attacker.id,
         targetId: target.id,
         element,
-        power: action.power,
-        buildup: action.buildup,
+        power: action.power * scale,
+        buildup: action.buildup * scale,
         // 2回目からは multi を付ける。1回の技につき1度だけ効かせたいルールが見分ける
         tags: hitTags(element, [...def.tags, def.category, 'weapon', skillId, ...(i > 0 ? ['multi'] : [])]),
         skill: def.name,
@@ -1199,6 +1255,7 @@ export class CombatWorld {
       ...unit.equipment.flatMap((item) => item.affixes.map(affixModifier)),
       ...unit.artifacts.flatMap((id) => artifactDef(id).modifiers ?? []),
       ...(unit.grip ? GRIPS[unit.grip].modifiers : []),
+      ...unit.shields.flatMap((s) => shieldDef(s.type).modifiers ?? []),
       // 能力値はキャラの基礎の強さとして効く
       ...(unit.attributes ? attributeModifiers(unit.attributes) : []),
     ];
@@ -1250,6 +1307,7 @@ export class CombatWorld {
       attackerStillFor: attacker ? this.time - attacker.lastMovedAt : 0,
       attackerTags: attacker?.tags ?? [],
       attackerUnhurt: attacker ? attacker.lastHurtAt === -Infinity : false,
+      attackerShieldReady: !!attacker?.shields.some((s) => s.ready),
       targetOnFloor: (field) => this.floors.some((f) => f.field === field && Math.hypot(target.x - f.x, target.y - f.y) <= f.radius),
       ...extra,
     };
@@ -1392,6 +1450,15 @@ export class CombatWorld {
       }
     }
 
+    // 盾:張られていれば、直撃を1回だけ防いで砕ける
+    if (direct && attacker && attacker.team !== target.team) {
+      const shield = target.shields.find((s) => s.ready && (shieldDef(s.type).blocks === 'any' || hit.tags.has('projectile')));
+      if (shield) {
+        this.breakShield(target, shield, attacker, hit);
+        return 'avoided';
+      }
+    }
+
     if (target.guardSince === null || !direct) return 'none';
     const from = attacker ? Math.atan2(attacker.y - target.y, attacker.x - target.x) : target.facing;
     if (Math.abs(normalizeAngle(from - target.facing)) > (DEFENSE.guardArc * Math.PI) / 180) return 'none';
@@ -1403,12 +1470,12 @@ export class CombatWorld {
     return 'guarded';
   }
 
-  /** ジャスト回避・ジャストガードの見返り。defender が持ち主、attacker が対象 */
-  private react(on: 'justDodge' | 'justGuard', defender: Unit, attacker: Unit | undefined, hit: Hit): void {
+  /** ジャスト回避・ジャストガード・盾が砕けたときの見返り。defender が持ち主、attacker が対象 */
+  private react(on: 'justDodge' | 'justGuard' | 'shieldBreak', defender: Unit, attacker: Unit | undefined, hit: Hit): void {
     const ctx = attacker
       ? this.context(attacker, defender, { hitTags: hit.tags, hitElement: hit.element })
       : this.context(defender, defender, {});
-    const src: Source = { attacker: defender, skill: on === 'justDodge' ? 'ジャスト回避' : 'ジャストガード', via: [], depth: 0 };
+    const src: Source = { attacker: defender, skill: on === 'justDodge' ? 'ジャスト回避' : on === 'justGuard' ? 'ジャストガード' : '盾', via: [], depth: 0 };
     for (const { rule } of this.rulesFor(defender)) {
       if (rule.on !== on || !ruleMatches(rule, ctx)) continue;
       for (const action of rule.do) {

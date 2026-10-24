@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld } from './world';
-import { LOOT_WEAPON_TYPE_IDS, WEAPON_TYPES, type WeaponTypeId } from './data/weapons';
+import { LOOT_WEAPON_TYPE_IDS, WEAPON_TYPES, type WeaponRef, type WeaponTypeId } from './data/weapons';
+import { ELEMENT_IDS } from './data/elements';
 import type { ActiveSkillId } from './data/skills';
 import { dealtBy, summarize } from './breakdown';
 
@@ -20,7 +21,7 @@ const GROUP = [
  * その武器と技だけで案山子と60秒戦ったときのDPS。状態の発動や連鎖で出た分も含む。
  * 案山子は動かず、攻めてこない
  */
-export function measureDps(weapon: WeaponTypeId, skill: ActiveSkillId, targets: 'solo' | 'group', seconds = 60): number {
+export function measureDps(weapon: WeaponRef, skill: ActiveSkillId, targets: 'solo' | 'group', seconds = 60): number {
   const w = new CombatWorld();
   w.addUnit({
     id: 'p',
@@ -44,8 +45,11 @@ const basic = (weapon: WeaponTypeId): ActiveSkillId => (WEAPON_TYPES[weapon].kin
 describe('火力の釣り合い', () => {
   for (const targets of ['solo', 'group'] as const) {
     it(`近接の武器は遠距離の武器の ${MELEE_OVER_RANGED} 倍以上のDPSが出る(${targets === 'solo' ? '1体' : '群れ'})`, () => {
+      // 武器の属性は拾うたびに変わるので、形と属性の組み合わせを全て測る
       const dps = (kind: 'melee' | 'ranged') =>
-        LOOT_WEAPON_TYPE_IDS.filter((id) => WEAPON_TYPES[id].kind === kind).map((id) => measureDps(id, basic(id), targets));
+        LOOT_WEAPON_TYPE_IDS.filter((id) => WEAPON_TYPES[id].kind === kind).flatMap((id) =>
+          ELEMENT_IDS.map((element) => measureDps({ type: id, element }, basic(id), targets)),
+        );
       expect(Math.min(...dps('melee')) / Math.max(...dps('ranged'))).toBeGreaterThanOrEqual(MELEE_OVER_RANGED);
     });
   }

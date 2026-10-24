@@ -24,7 +24,7 @@ function setup(opts: { weapons?: Item[]; conditions?: ConditionId[]; passives?: 
   applyBuild(w, p, { actives: [], passives: opts.passives ?? [], equipment, tactics: [] });
   withoutAttributes(p);
   // 持ち方を試すのでなければ、持ち方の補正なしで大剣と銃を持たせる
-  if (!opts.weapons) p.weapons = [...TEST_WEAPONS];
+  if (!opts.weapons) p.weapons = TEST_WEAPONS.map((type) => ({ type }));
   return { w, p };
 }
 
@@ -73,10 +73,10 @@ describe('武器の条件文', () => {
   it('177: 二刀流で左右の補正値の合計が同じなら、近攻撃が左右同時に出る', () => {
     const same = setup({ weapons: [weapon('a'), weapon('b')], conditions: ['mirroredBlades'] });
     swing(same.w, same.p, 'slash');
-    expect(same.w.log.filter((r) => r.source === '錆びた大剣の斬りつけ').length).toBe(2);
+    expect(same.w.log.filter((r) => r.source === '大剣の斬りつけ').length).toBe(2);
     const differ = setup({ weapons: [weapon('a'), weapon('b', [])], conditions: ['mirroredBlades'] });
     swing(differ.w, differ.p, 'slash');
-    expect(differ.w.log.filter((r) => r.source === '錆びた大剣の斬りつけ').length).toBe(1);
+    expect(differ.w.log.filter((r) => r.source === '大剣の斬りつけ').length).toBe(1);
   });
 });
 
@@ -139,7 +139,7 @@ describe('追加したパッシブ', () => {
   it('油染み: 自分が油まみれの間、火ダメージ+60%', () => {
     const { w, p } = setup({ passives: ['oilSoaked'] });
     w.forceStatus('p', 'oiled', true);
-    p.weapons = ['cinderAxe'];
+    p.weapons = [{ type: 'cinderAxe' }];
     swing(w, p, 'slash');
     expect(w.log[0]!.amount).toBeCloseTo(pw(resolveSkill('slash', 'cinderAxe')!) * 1.6);
     expect(w.log[0]!.combos).toContain('selfImmolation');

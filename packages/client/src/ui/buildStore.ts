@@ -3,6 +3,7 @@ import {
   ARTIFACTS,
   DEFAULT_TACTICS,
   LOOT_WEAPON_TYPE_IDS,
+  SHIELD_TYPE_IDS,
   STARTING_SKILLS,
   canFight,
   generateItem,
@@ -91,12 +92,14 @@ function initialState(random: () => number): BuildState {
     starter('shift', '移ろう数珠', 'shiftingElement', { affix: 'moveSpeed', value: -20 }),
     starter('rain', '雨垂れの護符', 'rainSoaked', { affix: 'damageTaken', value: 10 }),
   ];
-  // 武器は鉄の剣と雷管銃。近接の技は剣で、遠距離の技は銃で出る
+  // 武器は鉄の剣と雷の短銃。近接の技は剣で、遠距離の技は銃で出る
   const starterWeapons: Item[] = [
     { id: 'starter-sword', name: '鉄の剣', kind: 'weapon', weaponType: 'ironSword', affixes: [{ affix: 'maxHp', value: 10 }] },
-    { id: 'starter-gun', name: '雷管銃', kind: 'weapon', weaponType: 'capGun', affixes: [{ affix: 'moveSpeed', value: 10 }] },
+    { id: 'starter-gun', name: '雷の短銃', kind: 'weapon', weaponType: 'capGun', affixes: [{ affix: 'moveSpeed', value: 10 }] },
   ];
   // 武器の種類を一通り試せるよう、1つずつ山に置いておく
+  // 盾も1枚ずつ置く
+  const shieldSamples = SHIELD_TYPE_IDS.map((t) => generateItem(random, { kind: 'weapon', slot: 'weapon2', shieldType: t }));
   const weaponSamples = LOOT_WEAPON_TYPE_IDS.filter((t) => t !== 'ironSword' && t !== 'capGun').map((t) =>
     generateItem(random, { kind: 'weapon', slot: 'weapon1', weaponType: t }),
   );
@@ -120,7 +123,7 @@ function initialState(random: () => number): BuildState {
   const first = migrate(characterName(0), build, Date.now());
   // 変化つきの技も、試せるよう少し持たせておく
   const techniques = (['slash', 'sweep', 'shoot'] as const).map((base) => rollVariant(random, base));
-  return { characters: [first], current: 0, stash: [...starterWeapons, ...weaponSamples, ...artifacts, ...loot], learned: startingLearned(), techniques };
+  return { characters: [first], current: 0, stash: [...starterWeapons, ...weaponSamples, ...shieldSamples, ...artifacts, ...loot], learned: startingLearned(), techniques };
 }
 
 export function loadBuildState(random: () => number): BuildState {

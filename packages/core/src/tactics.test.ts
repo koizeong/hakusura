@@ -23,13 +23,13 @@ describe('作戦', () => {
       { skill: 'slash', condition: 'always', enabled: true },
     ]);
     run(w, 400);
-    expect(w.log[0]!.skill).toBe('錆びた大剣の斬りつけ');
+    expect(w.log[0]!.skill).toBe('大剣の斬りつけ');
 
     w.forceStatus('e', 'wet', true);
     w.units.get('p')!.cooldowns = {};
     w.units.get('p')!.busyUntil = 0;
     run(w, 600);
-    expect(w.log.some((r) => r.skill === '雷管銃の射撃')).toBe(true);
+    expect(w.log.some((r) => r.skill === '雷の短銃の射撃')).toBe(true);
   });
 
   it('切ってある行は使わない', () => {
@@ -38,7 +38,7 @@ describe('作戦', () => {
       { skill: 'shoot', condition: 'always', enabled: true },
     ]);
     run(w, 600);
-    expect(w.log[0]!.skill).toBe('雷管銃の射撃');
+    expect(w.log[0]!.skill).toBe('雷の短銃の射撃');
   });
 
   it('届かないときは、寄る先を教える', () => {

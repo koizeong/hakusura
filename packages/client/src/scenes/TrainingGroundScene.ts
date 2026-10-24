@@ -732,6 +732,10 @@ export class TrainingGroundScene extends Phaser.Scene {
     if (p.imbue && p.imbue.until > world.time) {
       g.lineStyle(2, ELEMENTS[skillElement(activeSkillDef(p.imbue.skill))].color, 0.7 + Math.sin(world.time / 80) * 0.3).strokeCircle(p.x, p.y, PLAYER_LOOK + 5);
     }
+    // 盾が張られている間は、薄い殻を描く
+    if (p.shields.some((s) => s.ready)) {
+      g.lineStyle(2, 0xc9d8e8, 0.55 + Math.sin(world.time / 260) * 0.15).strokeCircle(p.x, p.y, PLAYER_LOOK + 3);
+    }
     if (p.guardSince !== null) {
       const fresh = p.guardIsFresh && world.time - p.guardSince <= DEFENSE.justGuardWindow;
       g.lineStyle(fresh ? 5 : 4, fresh ? 0xf2e6c8 : 0x8a7e6a, 0.95);
@@ -965,6 +969,34 @@ export class TrainingGroundScene extends Phaser.Scene {
         fx.fillStyle(STATUSES[event.status].color, 0.3).fillCircle(event.x, event.y, event.radius);
         fx.lineStyle(2, STATUSES[event.status].color, 0.8).strokeCircle(event.x, event.y, event.radius);
         this.tweens.add({ targets: fx, alpha: 0, duration: 400, onComplete: () => fx.destroy() });
+        break;
+      }
+      case 'explosion': {
+        const fx = this.add.graphics().setDepth(29);
+        const color = ELEMENTS[event.element].color;
+        fx.fillStyle(color, 0.25).fillCircle(event.x, event.y, event.radius);
+        fx.lineStyle(2, color, 0.9).strokeCircle(event.x, event.y, event.radius);
+        this.tweens.add({ targets: fx, alpha: 0, scale: 1.15, duration: 350, onComplete: () => fx.destroy() });
+        break;
+      }
+      case 'shieldBroke': {
+        const unit = this.world.units.get(event.unitId);
+        if (!unit) break;
+        if (unit === this.player) {
+          this.callout(unit, `${event.name}が砕けた`, '#c9d8e8');
+          this.cameras.main.shake(100, 0.004);
+        }
+        const fx = this.add.graphics().setDepth(41);
+        fx.lineStyle(3, 0xc9d8e8, 1);
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * Math.PI * 2;
+          fx.lineBetween(unit.x + Math.cos(a) * 20, unit.y + Math.sin(a) * 20, unit.x + Math.cos(a) * 34, unit.y + Math.sin(a) * 34);
+        }
+        this.tweens.add({ targets: fx, alpha: 0, duration: 400, onComplete: () => fx.destroy() });
+        break;
+      }
+      case 'shieldReady': {
+        if (event.unitId === this.player.id) this.callout(this.player, '盾を張り直した', '#9fb7c9');
         break;
       }
       case 'nova': {

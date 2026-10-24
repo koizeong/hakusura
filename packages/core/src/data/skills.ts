@@ -1,6 +1,6 @@
 import type { ElementId } from './elements';
 import type { FieldId } from './fields';
-import { weaponDef, type WeaponKind, type WeaponTypeId } from './weapons';
+import { toWeaponSpec, weaponDef, type WeaponKind, type WeaponRef, type WeaponSpec, type WeaponTypeId } from './weapons';
 import { missingPoints, shortfallPenalty, type AttributeNeeds, type Attributes } from './attributes';
 import type { Predicate, Rule } from '../rules';
 import { VARIATIONS, applyVariations, variantName, type SkillVariant, type VariationDef } from './variations';
@@ -37,6 +37,8 @@ export type SkillAction =
       count?: number;
       spread?: number;
       pierce?: number;
+      /** 当たると弾け、周り radius の相手にも ratio の威力で当たる */
+      explode?: { radius: number; ratio: number };
     }
   /** 一定時間、武器の攻撃に属性の追撃を乗せる */
   | { type: 'imbue'; ratio: number; buildup: number; duration: number }
@@ -87,7 +89,8 @@ export interface FixedSkillDef extends SkillBase {
  * swing は近接の武器を振る、shot は遠距離の武器で撃つ、nova は自分の周りに放つ
  */
 export interface Technique {
-  requires: { kind?: WeaponKind; element?: ElementId };
+  /** 使える武器。tag は武器のタグ(杖・槍など) */
+  requires: { kind?: WeaponKind; element?: ElementId; tag?: string };
   shape: 'swing' | 'shot' | 'nova';
   /** 武器の威力・間隔・振りかぶりと硬直・射程・蓄積に掛ける倍率 */
   power: number;
@@ -108,6 +111,8 @@ export interface Technique {
   hits?: number;
   /** 弾が貫く数(shot) */
   pierce?: number;
+  /** 弾が当たると弾ける(shot)。武器も弾けるなら、広い方を使う */
+  explode?: { radius: number; ratio: number };
   /** この技で当てたときだけ効くルール */
   rules?: readonly Rule[];
 }
@@ -292,6 +297,30 @@ export const ACTIVE_SKILLS = {
     tags: ['attack'],
     technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 0.5, interval: 0.5, windup: 0.6 },
   },
+  burstBolt: {
+    name: '炸裂弾',
+    category: 'ranged',
+    description: '杖の魔弾を大きく弾けさせる。周りにも7割の威力',
+    needs: { int: 14 },
+    tags: ['attack', 'magic'],
+    technique: { requires: { kind: 'ranged', tag: 'staff' }, shape: 'shot', power: 1.1, interval: 1.5, windup: 1.3, explode: { radius: 100, ratio: 0.7 } },
+  },
+  soulOrbs: {
+    name: '漂う魂',
+    category: 'ranged',
+    description: '杖から魂を3つ放つ。1つごとの威力は4割',
+    needs: { int: 12 },
+    tags: ['attack', 'magic'],
+    technique: { requires: { kind: 'ranged', tag: 'staff' }, shape: 'shot', power: 0.4, interval: 1.2, count: 3, spread: 26 },
+  },
+  prayerTorrent: {
+    name: '祈りの奔流',
+    category: 'ranged',
+    description: '杖を掲げ、周りに属性の奔流を放つ',
+    needs: { fai: 12 },
+    tags: ['attack', 'magic'],
+    technique: { requires: { tag: 'staff' }, shape: 'nova', power: 0.8, interval: 1.6, radius: 150, windup: 1.4 },
+  },
   emberOil: {
     name: '燠火の塗油',
     category: 'imbue',
@@ -472,17 +501,20 @@ export function activeSkillDef(id: ActiveSkillId): ActiveSkillDef {
 export const TRUMP_SKILL_IDS = ACTIVE_SKILL_IDS.filter((id) => (ACTIVE_SKILLS[id].tags as readonly string[]).includes('trump'));
 
 /** 技なら、その武器で使えるか */
-export function techniqueFits(def: TechniqueDef, weapon: WeaponTypeId): boolean {
+export function techniqueFits(def: TechniqueDef, weapon: WeaponRef): boolean {
   const w = weaponDef(weapon);
   const r = def.technique.requires;
-  return (!r.kind || r.kind === w.kind) && (!r.element || r.element === w.element);
+  return (!r.kind || r.kind === w.kind) && (!r.element || r.element === w.element) && (!r.tag || w.tags.includes(r.tag));
 }
+
+/** 技の条件に出す、武器のタグの呼び名 */
+const WEAPON_TAG_NAMES: Record<string, string> = { staff: '杖', spear: '槍', sword: '剣', dagger: '短剣', hammer: '槌', bow: '弓', gun: '銃', heavy: '重い' };
 
 /** 技の条件を言葉にする(画面に出す) */
 export function techniqueRequirement(def: TechniqueDef, elementName: (e: ElementId) => string): string {
   const r = def.technique.requires;
   const parts = [r.element ? `${elementName(r.element)}の` : '', r.kind === 'melee' ? '近接の' : r.kind === 'ranged' ? '遠距離の' : ''];
-  return `${parts.join('')}武器`;
+  return `${parts.join('')}${r.tag ? (WEAPON_TAG_NAMES[r.tag] ?? r.tag) : '武器'}`;
 }
 
 /**
@@ -500,6 +532,8 @@ export interface ResolvedSkill {
   cooldown: number;
   action: SkillAction;
   weapon?: WeaponTypeId;
+  /** 出した武器の属性と性質まで含めたもの */
+  weaponSpec?: WeaponSpec;
   /** 能力値が足りない点数(武器と技の合計)。0 なら足りている */
   missing: number;
   /** この技で当てたときだけ効くルール(技と変化から) */
@@ -514,11 +548,11 @@ export interface ResolvedSkill {
  * 実際に出す中身を作る。attrs を渡すと、武器と技の必要な能力値に足りない分だけ
  * 威力が落ち、間隔が延びる。渡さなければ(敵やテスト)落ちない
  */
-export function resolveSkill(id: ActiveSkillId, weapon?: WeaponTypeId, attrs?: Attributes, variant?: SkillVariant): ResolvedSkill | undefined {
+export function resolveSkill(id: ActiveSkillId, weapon?: WeaponRef, attrs?: Attributes, variant?: SkillVariant): ResolvedSkill | undefined {
   const raw = resolveRaw(id, weapon, variant && variant.base === id ? variant : undefined);
   if (!raw || !attrs) return raw;
   const def = activeSkillDef(id);
-  const missing = missingPoints(def.needs, attrs) + (raw.weapon ? missingPoints(weaponDef(raw.weapon).needs, attrs) : 0);
+  const missing = missingPoints(def.needs, attrs) + (raw.weaponSpec ? missingPoints(weaponDef(raw.weaponSpec).needs, attrs) : 0);
   if (missing === 0) return raw;
   const penalty = shortfallPenalty(missing);
   const a = raw.action;
@@ -527,7 +561,7 @@ export function resolveSkill(id: ActiveSkillId, weapon?: WeaponTypeId, attrs?: A
   return { ...raw, action, cooldown: raw.cooldown * penalty.interval, missing };
 }
 
-function resolveRaw(id: ActiveSkillId, weapon?: WeaponTypeId, variant?: SkillVariant): ResolvedSkill | undefined {
+function resolveRaw(id: ActiveSkillId, weapon?: WeaponRef, variant?: SkillVariant): ResolvedSkill | undefined {
   const def = activeSkillDef(id);
   if (!isTechnique(def)) {
     return {
@@ -554,12 +588,14 @@ function resolveRaw(id: ActiveSkillId, weapon?: WeaponTypeId, variant?: SkillVar
   if (t.shape === 'swing' && w.kind === 'melee') {
     action = { type: 'melee', range, arc: Math.min(360, (t.arc ?? w.arc) * (t.arcScale ?? 1)), power, buildup, clearsProjectiles: true, hits: t.hits };
   } else if (t.shape === 'shot' && w.kind === 'ranged') {
-    action = { type: 'projectile', speed: w.speed, range, radius: w.radius, power, buildup, count: t.count, spread: t.spread, pierce: t.pierce };
+    // 技と武器の両方が弾けるなら、広い方で弾ける
+    const explode = [t.explode, w.explode].filter((e) => !!e).sort((a, b) => b!.radius - a!.radius)[0];
+    action = { type: 'projectile', speed: w.speed, range, radius: w.radius, power, buildup, count: t.count, spread: t.spread, pierce: t.pierce, explode };
   } else {
     action = { type: 'nova', radius: (t.radius ?? 150) * (t.range ?? 1), power, buildup, hits: t.hits };
   }
   const variations = variant ? variant.variations.map((v) => VARIATIONS[v]) : [];
-  const rules = [...(t.rules ?? []), ...variations.flatMap((v) => (v as VariationDef).rules ?? [])];
+  const rules = [...(w.rules ?? []), ...(t.rules ?? []), ...variations.flatMap((v) => (v as VariationDef).rules ?? [])];
   const intervalWhen = variations.flatMap((v) => ((v as VariationDef).intervalWhen ? [(v as VariationDef).intervalWhen!] : []));
   return {
     id,
@@ -569,12 +605,13 @@ function resolveRaw(id: ActiveSkillId, weapon?: WeaponTypeId, variant?: SkillVar
     intervalWhen: intervalWhen.length > 0 ? intervalWhen : undefined,
     category: w.kind === 'melee' ? 'melee' : 'ranged',
     element: w.element,
-    tags: [...def.tags, ...w.tags, weapon, ...(w.kind === 'ranged' ? ['projectile'] : [])],
+    tags: [...def.tags, ...w.tags, w.id, ...(w.kind === 'ranged' ? ['projectile'] : [])],
     windup: w.windup * (t.windup ?? 1),
     recovery: w.recovery * (t.windup ?? 1),
     cooldown: w.interval * t.interval,
     action,
-    weapon,
+    weapon: w.id,
+    weaponSpec: toWeaponSpec(weapon),
     missing: 0,
   };
 }

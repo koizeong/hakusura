@@ -201,6 +201,10 @@ export class Hud {
     if (player.imbue && player.imbue.until > world.time) {
       parts.push(`<b class="imbue">${ACTIVE_SKILLS[player.imbue.skill].name} ${((player.imbue.until - world.time) / 1000).toFixed(1)}秒</b>`);
     }
+    // 盾。張られていれば名前、砕けていれば張り直すまでの秒数
+    for (const s of player.shields) {
+      parts.push(s.ready ? `<b class="shield">盾</b>` : `<span class="shield-down">盾 ${Math.ceil((s.readyAt - world.time) / 1000)}秒</span>`);
+    }
     if (world.weatherCall) {
       parts.push(`<b class="weather">雨 ${((world.weatherCall.until - world.time) / 1000).toFixed(1)}秒</b>`);
     }

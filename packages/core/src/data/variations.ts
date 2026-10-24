@@ -23,6 +23,8 @@ export interface VariationDef {
   addCount?: number;
   addHits?: number;
   addPierce?: number;
+  /** 弾が当たると弾ける(shot) */
+  explode?: { radius: number; ratio: number };
   /** この技で当てたときだけ効くルール */
   rules?: readonly Rule[];
   /** 条件を満たしているときだけ、間隔に掛ける倍率 */
@@ -118,6 +120,65 @@ export const VARIATIONS = {
     addCount: 2,
     power: 0.45,
   },
+  gouging: {
+    prefix: '抉る',
+    text: '当てると、出血が溜まる',
+    cost: 25,
+    rules: [{ label: '抉り', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }], do: [{ type: 'applyBuildup', status: 'bleed', amount: 40 }] }],
+  },
+  numbing: {
+    prefix: '痺れる',
+    text: '当てると、感電が溜まる',
+    cost: 30,
+    rules: [{ label: '痺れ', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }], do: [{ type: 'applyBuildup', status: 'shock', amount: 16 }] }],
+  },
+  oiling: {
+    prefix: '油を引く',
+    text: '当てると、油まみれが溜まる',
+    cost: 25,
+    rules: [{ label: '油引き', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }], do: [{ type: 'applyBuildup', status: 'oiled', amount: 40 }] }],
+  },
+  doubled: {
+    prefix: '二連の',
+    text: '1回で2度当たるが、1度ごとの威力は0.6倍',
+    cost: 30,
+    appliesTo: SWING_OR_NOVA,
+    addHits: 1,
+    power: 0.6,
+  },
+  bursting: {
+    prefix: '弾ける',
+    text: '弾が当たると弾け、周りにも5割の威力。威力は0.9倍',
+    cost: 35,
+    appliesTo: { shapes: ['shot'] },
+    explode: { radius: 70, ratio: 0.5 },
+    power: 0.9,
+  },
+  piercing: {
+    prefix: '貫く',
+    text: '弾が2体まで貫く',
+    cost: 25,
+    appliesTo: { shapes: ['shot'] },
+    addPierce: 2,
+  },
+  stillHand: {
+    prefix: '静かな',
+    text: '0.8秒動かずに放つと、威力+40%',
+    cost: 25,
+    rules: [{ label: '静かな手', on: 'damage', when: [{ type: 'selfStill', ms: 800 }, { type: 'hitHasTag', tag: 'attack' }], add: 0.4 }],
+  },
+  firstCut: {
+    prefix: '初太刀の',
+    text: '一度も被弾していない間、威力+35%',
+    cost: 25,
+    rules: [{ label: '初太刀', on: 'damage', when: [{ type: 'selfUnhurt' }, { type: 'hitHasTag', tag: 'attack' }], add: 0.35 }],
+  },
+  shielded: {
+    prefix: '盾越しの',
+    text: '盾が張られている間、威力+35%',
+    cost: 20,
+    rules: [{ label: '盾越し', on: 'damage', when: [{ type: 'selfShieldReady' }, { type: 'hitHasTag', tag: 'attack' }], add: 0.35 }],
+  },
   heavy: { prefix: '重い', text: '威力1.5倍、間隔1.4倍', cost: 10, power: 1.5, interval: 1.4 },
   quick: { prefix: '速い', text: '威力0.75倍、間隔0.65倍', cost: 10, power: 0.75, interval: 0.65 },
   long: { prefix: '長い', text: '射程1.4倍', cost: 20, range: 1.4 },
@@ -182,6 +243,7 @@ export function applyVariations(t: Technique, ids: readonly VariationId[]): Tech
       count: v.addCount ? (out.count ?? 1) + v.addCount : out.count,
       hits: v.addHits ? (out.hits ?? 1) + v.addHits : out.hits,
       pierce: v.addPierce ? (out.pierce ?? 0) + v.addPierce : out.pierce,
+      explode: v.explode && (!out.explode || out.explode.radius < v.explode.radius) ? v.explode : out.explode,
     };
   }
   return out;

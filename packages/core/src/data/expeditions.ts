@@ -26,6 +26,8 @@ export interface ExpeditionDef {
   /** 出やすい装備の種類・武器・補正値・条件文 */
   itemKinds?: readonly EquipKind[];
   weaponTypes?: readonly WeaponTypeId[];
+  /** 武器と盾に出やすい属性 */
+  preferElements?: readonly ElementId[];
   preferAffixes?: readonly AffixId[];
   preferConditions?: readonly ConditionId[];
   /** 条件文つきの装備が出る確率 */
@@ -63,6 +65,7 @@ export const EXPEDITIONS = {
     items: 4,
     environment: { resist: { lightning: 0.3 } },
     preferAffixes: ['slashDamage', 'bleedBuildup', 'meleeDamage', 'moveSpeed'],
+    preferElements: ['slash'],
     preferConditions: ['bleedingSprint', 'bleedBack', 'runningBlade', 'untouched'],
     conditionChance: 0.25,
     skillChance: 0.3,
@@ -79,7 +82,8 @@ export const EXPEDITIONS = {
     items: 6,
     environment: { floor: 'oilPool', resist: { fire: 0.5 } },
     itemKinds: ['weapon', 'weapon', 'armor'],
-    weaponTypes: ['rustGreatsword', 'cinderAxe', 'boneFlail', 'emberSling'],
+    weaponTypes: ['rustGreatsword', 'cinderAxe', 'boneFlail', 'emberSling', 'warHammer'],
+    preferElements: ['fire'],
     preferAffixes: ['fireDamage', 'burnBuildup', 'meleeDamage', 'maxHp'],
     preferConditions: ['oilWalker', 'twinStrikeOnBurning', 'twoHandedReach', 'mirroredBlades'],
     conditionChance: 0.3,
@@ -97,7 +101,8 @@ export const EXPEDITIONS = {
     items: 10,
     environment: { weather: 'rain', resist: { slash: 0.3 } },
     itemKinds: ['accessory', 'armor', 'weapon'],
-    weaponTypes: ['stormSpear', 'capGun', 'boneBow'],
+    weaponTypes: ['stormSpear', 'capGun', 'boneBow', 'staff', 'dagger'],
+    preferElements: ['lightning'],
     preferAffixes: ['lightningDamage', 'shockBuildup', 'statusDamage', 'cooldown'],
     preferConditions: ['rainSoaked', 'manyAilments', 'cleanBody', 'crowdCleaver'],
     conditionChance: 0.6,

@@ -18,3 +18,4 @@ export * from './expeditions';
 export * from './variations';
 export * from './enemies';
 export * from './encounters';
+export * from './shields';

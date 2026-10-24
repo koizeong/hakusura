@@ -89,7 +89,7 @@ describe('スキルの予約', () => {
     w.queueSkill('p', 'thunderPrayer', 6000);
     run(w, 1200);
     expect(w.queuedGoal('p')?.id).toBe('e');
-    expect(w.log.some((r) => r.skill === '雷管銃の射撃')).toBe(true);
+    expect(w.log.some((r) => r.skill === '雷の短銃の射撃')).toBe(true);
     w.moveUnit('p', 300, 0);
     run(w, 1500);
     expect(w.log.some((r) => r.skill === '雷鳴の祈祷')).toBe(true);

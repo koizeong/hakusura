@@ -29,7 +29,7 @@ const equip = (w: CombatWorld, p: Unit, items: Item[], extra: Partial<Build> = {
   const slots = ['accessory1', 'accessory2', 'accessory3'] as const;
   applyBuild(w, p, emptyBuild({ equipment: Object.fromEntries(items.map((it, i) => [slots[i], it])), ...extra }));
   // 武器を着けると持ち方の補正が乗るので、テストでは武器だけ直に持たせる。能力値の効き目も外す
-  p.weapons = [...TEST_WEAPONS];
+  p.weapons = TEST_WEAPONS.map((type) => ({ type }));
   withoutAttributes(p);
 };
 
@@ -314,7 +314,8 @@ describe('装備の名前', () => {
     const random = () => ((n = (n * 16807) % 2147483647) / 2147483647);
     for (let i = 0; i < 50; i++) {
       const it = generateItem(random, { slot: 'feet', kind: 'armor' });
-      expect(['擦り切れた長靴', '腐りかけた脛当て', '泥まみれの革靴']).toContain(it.name);
+      expect(['長靴', '脛当て', '革靴'].some((noun) => it.name.endsWith(noun))).toBe(true);
+      expect(it.material).toBeDefined();
     }
   });
 });

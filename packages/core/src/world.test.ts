@@ -190,7 +190,7 @@ describe('状態の相互作用', () => {
     w.forceStatus('d', 'stun', true);
     slash(w, { x: 50, y: 0 });
     expect(w.log[0]!.amount).toBeCloseTo(power('slash') * 1.5);
-    expect(w.log[0]!.source).toBe('錆びた大剣の斬りつけ(昏倒に追撃)');
+    expect(w.log[0]!.source).toBe('大剣の斬りつけ(昏倒に追撃)');
   });
 });
 
@@ -229,7 +229,7 @@ describe('条件文', () => {
     const d = w.addUnit(dummy('d', 50));
     w.forceStatus('d', 'burn', true);
     slash(w, d);
-    const swords = w.log.filter((r) => r.source === '錆びた大剣の斬りつけ');
+    const swords = w.log.filter((r) => r.source === '大剣の斬りつけ');
     expect(swords.length).toBe(2);
     expect(swords[1]!.via).toContain('炎への二撃');
     expect(swords[1]!.emphasized).toBe(true);
@@ -280,7 +280,7 @@ describe('パッシブ', () => {
     const bolt = w.log.find((r) => r.source === '血を呼ぶ雷');
     expect(bolt).toBeDefined();
     expect(bolt!.element).toBe('lightning');
-    expect(bolt!.skill).toBe('錆びた大剣の斬りつけ');
+    expect(bolt!.skill).toBe('大剣の斬りつけ');
   });
 });
 

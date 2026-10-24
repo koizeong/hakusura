@@ -37,6 +37,15 @@ import {
   type Item,
   type Unit,
   type WeaponTypeId,
+  type WeaponRef,
+  type ShieldSpec,
+  type ShieldTypeId,
+  SHIELD_TYPES,
+  SHIELD_TYPE_IDS,
+  WEAPON_TEMPERS,
+  itemShield,
+  itemWeapon,
+  shieldBurstElement,
   ATTRIBUTES,
   ATTRIBUTE_IDS,
   ATTRIBUTE_RULES,
@@ -117,7 +126,8 @@ export class BuildScreen {
   private tab: Tab = 'equipment';
   private selectedSlot: EquipSlotId = 'head';
   private lootCondition: ConditionId | '' = '';
-  private lootWeapon: WeaponTypeId = LOOT_WEAPON_TYPE_IDS[0]!;
+  /** 選んで拾う武器の形。盾は shield: を頭に付ける */
+  private lootWeapon: string = LOOT_WEAPON_TYPE_IDS[0]!;
   /** 遠征に送り出す者と、最後に迎えたときの知らせ */
   private sender?: Character;
   private lastReport?: { name: string; level: number; report: ExpeditionReport };
@@ -337,11 +347,14 @@ export class BuildScreen {
         ? h(
             'label',
             {},
-            '武器を選んで1つ拾う ',
+            '形を選んで1つ拾う(属性と性質は運) ',
             h(
               'select',
-              { onchange: (e: Event) => (this.lootWeapon = (e.target as HTMLSelectElement).value as WeaponTypeId) },
+              { onchange: (e: Event) => (this.lootWeapon = (e.target as HTMLSelectElement).value) },
               ...LOOT_WEAPON_TYPE_IDS.map((id) => h('option', { value: id, selected: id === this.lootWeapon }, `${WEAPON_TYPES[id].name}(${weaponSummary(id)})`)),
+              ...SHIELD_TYPE_IDS.map((id) =>
+                h('option', { value: `shield:${id}`, selected: `shield:${id}` === this.lootWeapon }, `${SHIELD_TYPES[id].name}(${SHIELD_TYPES[id].description})`),
+              ),
             ),
             h('button', { onclick: () => this.lootWeaponType() }, '拾う'),
           )
@@ -411,7 +424,11 @@ export class BuildScreen {
   }
 
   private lootWeaponType(): void {
-    this.host.state.stash.unshift(generateItem(() => this.host.random(), { slot: this.selectedSlot, kind: 'weapon', weaponType: this.lootWeapon }));
+    const random = () => this.host.random();
+    const shield = this.lootWeapon.startsWith('shield:') ? (this.lootWeapon.slice(7) as ShieldTypeId) : undefined;
+    this.host.state.stash.unshift(
+      generateItem(random, { slot: this.selectedSlot, kind: 'weapon', ...(shield ? { shieldType: shield } : { weaponType: this.lootWeapon as WeaponTypeId }) }),
+    );
     this.changed();
   }
 
@@ -456,7 +473,7 @@ export class BuildScreen {
     };
     const shortages: string[] = [];
     for (const w of new Set(buildWeapons(build))) {
-      if (missingPoints(weaponDef(w).needs, preview)) shortages.push(`${WEAPON_TYPES[w].name}:要 ${needsText(weaponDef(w).needs)}`);
+      if (missingPoints(weaponDef(w).needs, preview)) shortages.push(`${weaponDef(w).name}:要 ${needsText(weaponDef(w).needs)}`);
     }
     for (const id of [...build.actives, ...(build.trump ? [build.trump] : [])]) {
       const def = activeSkillDef(id);
@@ -543,7 +560,7 @@ export class BuildScreen {
       { class: 'skills' },
       h('p', { class: 'counter' }, `アクティブ ${build.actives.length} / ${BUILD_LIMITS.actives}  ・  スキル合計 ${total} / ${BUILD_LIMITS.skills}`),
       h('h3', {}, 'アクティブ'),
-      h('p', { class: 'note' }, `技は武器の速さ・範囲・属性で出る。今の武器:${buildWeapons(build).map((w) => WEAPON_TYPES[w].name).join('・')}`),
+      h('p', { class: 'note' }, `技は武器の速さ・範囲・属性で出る。今の武器:${buildWeapons(build).map((w) => weaponDef(w).name).join('・')}`),
       ...BUILD_ACTIVE_IDS.map((id) => {
         const def = activeSkillDef(id);
         let detail: string;
@@ -553,7 +570,7 @@ export class BuildScreen {
           const weapon = buildWeapons(build).find((w) => techniqueFits(def, w));
           const r = weapon ? resolveSkill(id, weapon, this.attrs) : undefined;
           usable = !!r;
-          detail = `${techniqueRequirement(def, (e) => ELEMENTS[e].name)}・${r ? `${WEAPON_TYPES[weapon!].name}で ${(r.cooldown / 1000).toFixed(1)}秒` : '今の武器では出ない'}・${def.description ?? ''}`;
+          detail = `${techniqueRequirement(def, (e) => ELEMENTS[e].name)}・${r ? `${weaponDef(weapon!).name}で ${(r.cooldown / 1000).toFixed(1)}秒` : '今の武器では出ない'}・${def.description ?? ''}`;
           if (r?.missing) detail += `・${shortfallText(r.missing)}`;
         } else {
           const r = resolveSkill(id, undefined, this.attrs)!;
@@ -947,17 +964,21 @@ export class BuildScreen {
 
 /** 装備1つの札。補正値は得になる向きを明るく、損になる向きを赤くする */
 function itemCard(attrs: Attributes, item: Item, ...actions: HTMLElement[]): HTMLElement {
-  const needs = item.weaponType ? weaponDef(item.weaponType).needs : undefined;
+  const weapon = itemWeapon(item);
+  const shield = itemShield(item);
+  const needs = weapon ? weaponDef(weapon).needs : undefined;
   const missing = missingPoints(needs, attrs);
   const artifact = item.artifact ? ARTIFACTS[item.artifact] : undefined;
-  const kindName = item.artifact ? 'アーティファクト' : item.kind === 'armor' && item.slot ? EQUIP_SLOTS[item.slot].name : item.kind === 'weapon' ? '武器' : '装飾品';
+  const kindName = item.artifact ? 'アーティファクト' : item.kind === 'armor' && item.slot ? EQUIP_SLOTS[item.slot].name : shield ? '盾' : item.kind === 'weapon' ? '武器' : '装飾品';
   const total = itemTotal(item);
   return h(
     'div',
     { class: `item-card${artifact ? ' artifact' : ''}` },
     h('div', { class: 'item-head' }, h('b', {}, item.name), h('small', {}, kindName), artifact ? '' : h('small', { class: 'total' }, `合計 ${signedPercent(total / 100)}`)),
     artifact ? h('p', { class: 'artifact-text' }, artifact.text) : '',
-    item.weaponType ? h('div', { class: 'weapon-stats' }, weaponSummary(item.weaponType)) : '',
+    weapon ? h('div', { class: 'weapon-stats' }, weaponSummary(weapon)) : '',
+    weapon?.tempers?.length ? h('div', { class: 'weapon-stats temper' }, weapon.tempers.map((t) => `${WEAPON_TEMPERS[t].prefix}:${WEAPON_TEMPERS[t].text}`).join('・')) : '',
+    shield ? h('div', { class: 'weapon-stats' }, shieldSummary(shield)) : '',
     needs ? h('div', { class: `needs${missing ? ' short' : ''}` }, `要 ${needsText(needs)}${missing ? `(${shortfallText(missing)})` : ''}`) : '',
     ...item.affixes.map((a) =>
       h('div', { class: `affix ${benefitOf(a) >= 0 ? 'good' : 'bad'}` }, `${AFFIXES[a.affix].name} ${signedPercent(a.value / 100)}`),
@@ -968,10 +989,16 @@ function itemCard(attrs: Attributes, item: Item, ...actions: HTMLElement[]): HTM
 }
 
 /** 武器の性能を一行で */
-function weaponSummary(id: WeaponTypeId): string {
-  const w = WEAPON_TYPES[id];
-  const shape = w.kind === 'melee' ? `扇${w.arc}°` : `弾速${w.speed}`;
-  return `${WEAPON_KINDS[w.kind]}・${ELEMENTS[w.element].name}・威力${w.power}・間隔${(w.interval / 1000).toFixed(2)}秒・射程${w.range}・${shape}`;
+function weaponSummary(ref: WeaponRef): string {
+  const w = weaponDef(ref);
+  const shape = w.kind === 'melee' ? `扇${Math.round(w.arc)}°` : `弾速${w.speed}${w.explode ? '・当たると弾ける' : ''}`;
+  return `${WEAPON_KINDS[w.kind]}・${ELEMENTS[w.element].name}・威力${Math.round(w.power)}・間隔${(w.interval / 1000).toFixed(2)}秒・射程${Math.round(w.range)}・${shape}`;
+}
+
+/** 盾の性能を一行で */
+function shieldSummary(s: ShieldSpec): string {
+  const burst = shieldBurstElement(s);
+  return `${SHIELD_TYPES[s.type].description}${burst ? `・砕けると${ELEMENTS[burst].name}で弾ける` : ''}`;
 }
 
 /** 能力値が足りないときの影響を一言で */

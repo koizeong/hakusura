@@ -1,8 +1,10 @@
-import type { ElementId } from './elements';
-import type { AttributeNeeds } from './attributes';
+import { ELEMENTS, type ElementDef, type ElementId } from './elements';
+import { ATTRIBUTE_IDS, type AttributeNeeds } from './attributes';
+import type { Rule } from '../rules';
 
 /**
- * 武器の種類。攻撃の速さ・範囲・近接か遠距離か・属性は武器が持つ。
+ * 武器の形。攻撃の速さ・範囲・近接か遠距離かは形が持つ。属性と性質は拾うたびに変わり、
+ * 「重い雷の槍」のように形・属性・性質の組み合わせで1本の武器になる。
  * アクティブスキル(技)は、この数値に倍率を掛けて使う
  */
 export type WeaponKind = 'melee' | 'ranged';
@@ -26,6 +28,8 @@ interface WeaponBase {
   tags: readonly string[];
   /** 必要な能力値。足りなくても使えるが、威力が落ち間隔が延びる */
   needs?: AttributeNeeds;
+  /** この形で当てたときに効くルール(戦槌の昏倒など) */
+  rules?: readonly Rule[];
 }
 
 export interface MeleeWeaponDef extends WeaponBase {
@@ -39,6 +43,8 @@ export interface RangedWeaponDef extends WeaponBase {
   /** 弾の速さと大きさ */
   speed: number;
   radius: number;
+  /** 当たると弾ける。周り radius の相手にも ratio の威力で当たる(杖の魔弾) */
+  explode?: { radius: number; ratio: number };
 }
 
 export type WeaponTypeDef = MeleeWeaponDef | RangedWeaponDef;
@@ -72,7 +78,7 @@ export const WEAPON_TYPES = {
     tags: ['sword'],
   },
   rustGreatsword: {
-    name: '錆びた大剣',
+    name: '大剣',
     kind: 'melee',
     element: 'slash',
     power: 52,
@@ -100,7 +106,7 @@ export const WEAPON_TYPES = {
     tags: ['light'],
   },
   cinderAxe: {
-    name: '熾火の斧',
+    name: '戦斧',
     kind: 'melee',
     element: 'fire',
     power: 88,
@@ -110,11 +116,11 @@ export const WEAPON_TYPES = {
     recovery: 500,
     range: 110,
     arc: 120,
-    needs: { str: 16, fai: 10 },
+    needs: { str: 16 },
     tags: ['axe', 'heavy'],
   },
   stormSpear: {
-    name: '雷の槍',
+    name: '槍',
     kind: 'melee',
     element: 'lightning',
     power: 46,
@@ -124,11 +130,11 @@ export const WEAPON_TYPES = {
     recovery: 380,
     range: 170,
     arc: 36,
-    needs: { dex: 14, int: 10 },
+    needs: { dex: 14 },
     tags: ['spear'],
   },
   capGun: {
-    name: '雷管銃',
+    name: '短銃',
     kind: 'ranged',
     element: 'lightning',
     power: 26,
@@ -143,7 +149,7 @@ export const WEAPON_TYPES = {
     tags: ['gun'],
   },
   emberSling: {
-    name: '火打ちの投石紐',
+    name: '投石紐',
     kind: 'ranged',
     element: 'fire',
     power: 14,
@@ -154,7 +160,7 @@ export const WEAPON_TYPES = {
     range: 650,
     speed: 700,
     radius: 8,
-    needs: { dex: 8, fai: 10 },
+    needs: { dex: 8 },
     tags: ['sling'],
   },
   boneBow: {
@@ -172,6 +178,52 @@ export const WEAPON_TYPES = {
     needs: { dex: 14 },
     tags: ['bow'],
   },
+  dagger: {
+    name: '短剣',
+    kind: 'melee',
+    element: 'slash',
+    power: 19,
+    buildup: 30,
+    interval: 480,
+    windup: 110,
+    recovery: 170,
+    range: 72,
+    arc: 90,
+    needs: { dex: 12 },
+    tags: ['dagger', 'light'],
+  },
+  warHammer: {
+    name: '戦槌',
+    kind: 'melee',
+    element: 'slash',
+    power: 66,
+    buildup: 35,
+    interval: 1500,
+    windup: 420,
+    recovery: 480,
+    range: 105,
+    arc: 110,
+    needs: { str: 20 },
+    tags: ['hammer', 'heavy'],
+    // 叩けば昏倒が溜まる
+    rules: [{ label: '槌の重み', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'applyBuildup', status: 'stun', amount: 22 }] }],
+  },
+  staff: {
+    name: '杖',
+    kind: 'ranged',
+    element: 'lightning',
+    power: 22,
+    buildup: 45,
+    interval: 2300,
+    windup: 380,
+    recovery: 380,
+    range: 620,
+    speed: 430,
+    radius: 11,
+    explode: { radius: 70, ratio: 0.45 },
+    needs: { int: 12 },
+    tags: ['staff', 'magic'],
+  },
 } as const satisfies Record<string, WeaponTypeDef>;
 
 export type WeaponTypeId = keyof typeof WEAPON_TYPES;
@@ -179,6 +231,137 @@ export const WEAPON_TYPE_IDS = Object.keys(WEAPON_TYPES) as WeaponTypeId[];
 /** 拾い物で出る武器。素手は出ない */
 export const LOOT_WEAPON_TYPE_IDS = WEAPON_TYPE_IDS.filter((id) => id !== 'fists');
 
-export function weaponDef(id: WeaponTypeId): WeaponTypeDef {
-  return WEAPON_TYPES[id];
+/**
+ * 武器の性質。拾った武器に0〜2個付き、形の数値を少し傾ける。
+ * 得と損が釣り合うようにして、補正値の合計には数えない
+ */
+export interface TemperDef {
+  prefix: string;
+  text: string;
+  /** 付けられる武器。なければどれにも付く */
+  kind?: WeaponKind;
+  power?: number;
+  interval?: number;
+  range?: number;
+  buildup?: number;
+  arc?: number;
+  windup?: number;
+  /** 必要な能力値に足す点数 */
+  needs?: AttributeNeeds;
+  /** 必要な能力値に掛ける倍率(錆びた武器は扱いが雑でいい) */
+  needsScale?: number;
+}
+
+export const WEAPON_TEMPERS = {
+  heavy: { prefix: '重い', text: '威力1.2倍・間隔1.15倍・筋力+4', power: 1.2, interval: 1.15, needs: { str: 4 } },
+  light: { prefix: '軽い', text: '威力0.85倍・間隔0.82倍', power: 0.85, interval: 0.82 },
+  long: { prefix: '長い', text: '射程1.2倍・振りかぶり1.15倍', range: 1.2, windup: 1.15 },
+  keen: { prefix: '研がれた', text: '蓄積1.5倍・威力0.92倍', buildup: 1.5, power: 0.92 },
+  crude: { prefix: '粗い', text: '威力1.12倍・蓄積0.7倍', power: 1.12, buildup: 0.7 },
+  broad: { prefix: '幅広の', text: '扇1.3倍・威力0.9倍', kind: 'melee', arc: 1.3, power: 0.9 },
+  rusted: { prefix: '錆びた', text: '威力0.88倍・必要な能力値0.6倍', power: 0.88, needsScale: 0.6 },
+  balanced: { prefix: '手に馴染む', text: '振りかぶりと硬直0.75倍', windup: 0.75 },
+  hungry: { prefix: '餓えた', text: '威力1.25倍・蓄積0.6倍・技量+4', power: 1.25, buildup: 0.6, needs: { dex: 4 } },
+} as const satisfies Record<string, TemperDef>;
+
+export type TemperId = keyof typeof WEAPON_TEMPERS;
+export const TEMPER_IDS = Object.keys(WEAPON_TEMPERS) as TemperId[];
+
+/** 1本の武器。形と、拾ったときに決まる属性と性質 */
+export interface WeaponSpec {
+  type: WeaponTypeId;
+  /** なければ形のもとの属性 */
+  element?: ElementId;
+  tempers?: readonly TemperId[];
+}
+
+/** 形だけでも、1本の武器としても渡せる */
+export type WeaponRef = WeaponTypeId | WeaponSpec;
+
+export function toWeaponSpec(w: WeaponRef): WeaponSpec {
+  return typeof w === 'string' ? { type: w } : w;
+}
+
+export type ResolvedWeapon = WeaponTypeDef & { id: WeaponTypeId; tempers: readonly TemperId[] };
+
+/** 形に属性と性質を重ねた、実際の武器の数値 */
+export function weaponDef(ref: WeaponRef): ResolvedWeapon {
+  const spec = toWeaponSpec(ref);
+  const base: WeaponTypeDef = WEAPON_TYPES[spec.type];
+  const element = spec.element ?? base.element;
+  const tempers = spec.tempers ?? [];
+  let power = base.power;
+  let interval = base.interval;
+  let range = base.range;
+  let buildup = base.buildup;
+  let windup = base.windup;
+  let recovery = base.recovery;
+  let arc = base.kind === 'melee' ? base.arc : 0;
+  // 属性の必要な能力値(火は信仰、雷は理力)は、形の必要な能力値に足す
+  const needs: Record<string, number> = { ...(base.needs ?? {}) };
+  for (const [id, v] of Object.entries((ELEMENTS[element] as ElementDef).weaponNeeds ?? {})) needs[id] = Math.max(needs[id] ?? 0, v as number);
+  let needsScale = 1;
+  for (const id of tempers) {
+    const t: TemperDef = WEAPON_TEMPERS[id];
+    power *= t.power ?? 1;
+    interval *= t.interval ?? 1;
+    range *= t.range ?? 1;
+    buildup *= t.buildup ?? 1;
+    windup *= t.windup ?? 1;
+    recovery *= t.windup ?? 1;
+    arc *= t.arc ?? 1;
+    needsScale *= t.needsScale ?? 1;
+    for (const [a, v] of Object.entries(t.needs ?? {})) needs[a] = (needs[a] ?? 0) + (v as number);
+  }
+  const scaled = Object.fromEntries(
+    ATTRIBUTE_IDS.filter((a) => needs[a]).map((a) => [a, Math.round(needs[a]! * needsScale)]),
+  ) as AttributeNeeds;
+  const common = {
+    name: weaponName(spec),
+    element,
+    power,
+    interval,
+    range,
+    buildup,
+    windup,
+    recovery,
+    needs: Object.keys(scaled).length > 0 ? scaled : undefined,
+    id: spec.type,
+    tempers,
+  };
+  return base.kind === 'melee' ? { ...base, ...common, arc: Math.min(360, arc) } : { ...base, ...common };
+}
+
+/** 「重い雷の槍」のような名前。性質、属性、形の順に並べる */
+export function weaponName(ref: WeaponRef): string {
+  const spec = toWeaponSpec(ref);
+  const base = WEAPON_TYPES[spec.type];
+  const element = spec.element ?? base.element;
+  // 斬は名前に出さない。素手は属性を名乗らない
+  const elementPrefix = spec.type === 'fists' ? '' : (ELEMENTS[element] as ElementDef).weaponPrefix;
+  return `${(spec.tempers ?? []).map((t) => WEAPON_TEMPERS[t].prefix).join('')}${elementPrefix}${base.name}`;
+}
+
+/** その武器に付けられる性質 */
+export function temperFits(id: TemperId, type: WeaponTypeId): boolean {
+  const kind: WeaponKind | undefined = (WEAPON_TEMPERS[id] as TemperDef).kind;
+  return !kind || kind === WEAPON_TYPES[type].kind;
+}
+
+/** 拾う武器の属性と性質を決める。半分はもとの属性、残りは属性も変わる */
+export function rollWeapon(random: () => number, type: WeaponTypeId, prefer: { elements?: readonly ElementId[] } = {}): WeaponSpec {
+  const pick = <T>(list: readonly T[]): T => list[Math.floor(random() * list.length)]!;
+  const ids = Object.keys(ELEMENTS) as ElementId[];
+  let element: ElementId = WEAPON_TYPES[type].element;
+  const r = random();
+  if (prefer.elements && prefer.elements.length > 0 && r < 0.35) element = pick(prefer.elements);
+  else if (r < 0.65) element = pick(ids);
+  const fits = TEMPER_IDS.filter((t) => temperFits(t, type));
+  const n = random() < 0.25 ? 0 : random() < 0.8 ? 1 : 2;
+  const tempers: TemperId[] = [];
+  while (tempers.length < n) {
+    const t = pick(fits);
+    if (!tempers.includes(t)) tempers.push(t);
+  }
+  return { type, element, tempers };
 }

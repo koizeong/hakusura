@@ -130,6 +130,11 @@ export const PASSIVES = {
     description: '敵の直撃を30%の確率で見切る(次の攻撃が倍)',
     rules: [{ label: '見切りの心得', on: 'incoming', when: [], chance: 0.3, as: 'justDodge' }],
   },
+  shatterRage: {
+    name: '砕けた盾の怒り',
+    description: '盾が砕けると、次の一撃が+100%',
+    rules: [{ label: '砕けた盾の怒り', on: 'shieldBreak', when: [], do: [{ type: 'grantBuff', label: '砕けた盾の怒り', add: 1, tags: ['weapon'], duration: 6000, charges: 1 }] }],
+  },
   parryStance: {
     name: '弾きの構え',
     description: '敵の直撃を20%の確率で弾く(相手が昏倒)',

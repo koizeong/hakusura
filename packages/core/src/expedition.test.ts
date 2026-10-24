@@ -119,7 +119,7 @@ describe('行き先ごとの特徴', () => {
       startExpedition(c, 'rustMine', 0, seed);
       for (const item of finishExpedition(c, learnedCopy())!.items) {
         total++;
-        if (item.kind === 'weapon') {
+        if (item.kind === 'weapon' && !item.shieldType) {
           weapons++;
           expect(EXPEDITIONS.rustMine.weaponTypes).toContain(item.weaponType);
         }

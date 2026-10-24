@@ -3,11 +3,13 @@ import { variantProblem, type SkillVariant } from './data/variations';
 import { PASSIVES, type PassiveId } from './data/passives';
 import { CONDITIONS } from './data/conditions';
 import { ARTIFACTS } from './data/artifacts';
-import { AFFIXES, EQUIP_SLOTS, EQUIP_SLOT_IDS, itemTotal, type EquipSlotId, type Item } from './data/equipment';
+import { AFFIXES, ARMOR_MATERIALS, EQUIP_SLOTS, EQUIP_SLOT_IDS, itemShield, itemTotal, itemWeapon, type EquipSlotId, type Item } from './data/equipment';
+import { SHIELD_TYPES, type ShieldSpec } from './data/shields';
+import { ELEMENTS } from './data/elements';
 import { gripOf } from './data/grips';
 import { ATTRIBUTE_IDS, ATTRIBUTE_RULES, baseAttributes, expToNext, pointsAtLevel, spentPoints, type Attributes } from './data/attributes';
 import type { ExpeditionId } from './data/expeditions';
-import { WEAPON_TYPES, type WeaponTypeId } from './data/weapons';
+import { WEAPON_TEMPERS, WEAPON_TYPES, type WeaponSpec } from './data/weapons';
 import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import type { CombatWorld, Unit } from './world';
 
@@ -117,13 +119,23 @@ export function buildProblems(build: Build, points: number = ATTRIBUTE_RULES.sta
   return out;
 }
 
-/** ビルドで着けている武器の種類(枠の順)。なければ素手 */
-export function buildWeapons(build: Build): WeaponTypeId[] {
-  const types = (['weapon1', 'weapon2'] as const).flatMap((slot) => {
+/** ビルドで着けている武器(枠の順)。なければ素手 */
+export function buildWeapons(build: Build): WeaponSpec[] {
+  const weapons = (['weapon1', 'weapon2'] as const).flatMap((slot) => {
     const item = build.equipment[slot];
-    return item && !item.artifact && item.weaponType ? [item.weaponType] : [];
+    const w = item && !item.artifact ? itemWeapon(item) : undefined;
+    return w ? [w] : [];
   });
-  return types.length > 0 ? types : ['fists'];
+  return weapons.length > 0 ? weapons : [{ type: 'fists' }];
+}
+
+/** ビルドで着けている盾(枠の順) */
+export function buildShields(build: Build): ShieldSpec[] {
+  return (['weapon1', 'weapon2'] as const).flatMap((slot) => {
+    const item = build.equipment[slot];
+    const s = item && !item.artifact ? itemShield(item) : undefined;
+    return s ? [s] : [];
+  });
 }
 
 /** 今の武器では使えない技。作戦に入れても出ない */
@@ -157,11 +169,17 @@ export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   unit.trump = build.trump;
   unit.attributes = { ...(build.attributes ?? baseAttributes()) };
   unit.variants = { ...(build.variants ?? {}) };
-  // 武器の数で持ち方が決まる。二刀流で左右の補正値の合計が同じなら、そのタグも付く
-  const weapons = (['weapon1', 'weapon2'] as const).map((s) => build.equipment[s]).filter((i): i is Item => !!i && !i.artifact);
-  unit.weapons = weapons.flatMap((i) => (i.weaponType ? [i.weaponType] : []));
+  // 武器と盾の数で持ち方が決まる。二刀流で左右の補正値の合計が同じなら、そのタグも付く
+  const weapons = (['weapon1', 'weapon2'] as const).map((s) => build.equipment[s]).filter((i): i is Item => !!i && !i.artifact && !!i.weaponType);
+  unit.weapons = weapons.map((i) => itemWeapon(i)!);
   unit.hand = 0;
-  unit.grip = gripOf(weapons.length);
+  // 盾は、同じ盾を着け直しただけなら張り直しの残りを保つ
+  const before = unit.shields;
+  unit.shields = buildShields(build).map((spec, i) => {
+    const old = before[i];
+    return old && old.type === spec.type && old.element === spec.element ? old : { ...spec, readyAt: 0, ready: true };
+  });
+  unit.grip = gripOf(weapons.length, unit.shields.length);
   unit.tags = [unit.grip];
   if (weapons.length === 2 && itemTotal(weapons[0]!) === itemTotal(weapons[1]!)) unit.tags.push('dualTotalsEqual');
   unit.tactics = build.tactics.map((t) => ({ ...t }));
@@ -263,6 +281,10 @@ function validateBuild(raw: unknown): string | null {
     if (item.condition !== undefined && !(item.condition in CONDITIONS)) return '知らない条件文がある';
     if (item.artifact !== undefined && !(item.artifact in ARTIFACTS)) return '知らないアーティファクトがある';
     if (item.weaponType !== undefined && !(item.weaponType in WEAPON_TYPES)) return '知らない武器がある';
+    if (item.element !== undefined && !(item.element in ELEMENTS)) return '知らない属性がある';
+    if (item.tempers !== undefined && (!Array.isArray(item.tempers) || !item.tempers.every((t) => t in WEAPON_TEMPERS))) return '知らない性質がある';
+    if (item.shieldType !== undefined && !(item.shieldType in SHIELD_TYPES)) return '知らない盾がある';
+    if (item.material !== undefined && !(item.material in ARMOR_MATERIALS)) return '知らない素材がある';
   }
   return null;
 }

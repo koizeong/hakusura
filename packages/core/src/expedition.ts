@@ -152,6 +152,7 @@ export function finishExpedition(c: Character, learned: Learned, now: number = e
       generateItem(rand, {
         ...(kind ? { kind, ...(kind === 'weapon' ? { slot: 'weapon1' as const } : {}) } : {}),
         weaponTypes: def.weaponTypes,
+        preferElements: def.preferElements,
         preferAffixes: def.preferAffixes,
         preferConditions: def.preferConditions,
         conditionChance: def.conditionChance,

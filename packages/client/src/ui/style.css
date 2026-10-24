@@ -1460,3 +1460,16 @@ button.discard {
     justify-content: space-between;
   }
 }
+
+/* 盾 */
+.own-statuses .shield {
+  color: #c9d8e8;
+}
+
+.own-statuses .shield-down {
+  color: var(--dim);
+}
+
+.weapon-stats.temper {
+  color: #c9b79c;
+}

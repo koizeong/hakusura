@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld } from './world';
 import { resolveSkill } from './data/skills';
-import { WEAPON_TYPES, type WeaponTypeId } from './data/weapons';
-import { generateItem } from './data/equipment';
+import { WEAPON_TYPES, weaponName, type WeaponTypeId } from './data/weapons';
+import { generateItem, itemWeapon } from './data/equipment';
 import { applyBuild, buildWeapons, unusableActives, type Build } from './build';
 
 const run = (w: CombatWorld, ms: number) => {
@@ -82,25 +82,26 @@ describe('武器の装備', () => {
     tactics: [],
   });
 
-  it('拾った武器は種類を持ち、名前は種類の名前', () => {
+  it('拾った武器は形・属性・性質を持ち、名前はそれを並べたもの', () => {
     const random = (() => {
       let n = 0;
       return () => ((n = (n * 9301 + 49297) % 233280) / 233280);
     })();
-    const item = generateItem(random, { kind: 'weapon', slot: 'weapon1' });
-    expect(item.weaponType).toBeDefined();
-    expect(item.name).toBe(WEAPON_TYPES[item.weaponType!].name);
+    const item = generateItem(random, { kind: 'weapon', slot: 'weapon1', weaponType: 'stormSpear' });
+    expect(item.weaponType).toBe('stormSpear');
+    expect(item.name).toBe(weaponName(itemWeapon(item)!));
+    expect(item.name.endsWith(WEAPON_TYPES.stormSpear.name)).toBe(true);
   });
 
   it('ビルドに着けた武器を戦う者が持つ', () => {
     const w = new CombatWorld();
     const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0 });
     applyBuild(w, p, build(['stormSpear', 'boneBow'], []));
-    expect(p.weapons).toEqual(['stormSpear', 'boneBow']);
+    expect(p.weapons.map((w) => w.type)).toEqual(['stormSpear', 'boneBow']);
   });
 
   it('今の武器では使えない技を知らせる', () => {
-    expect(buildWeapons(build([], []))).toEqual(['fists']);
+    expect(buildWeapons(build([], []))).toEqual([{ type: 'fists' }]);
     expect(unusableActives(build(['ironSword'], ['slash', 'shoot', 'discharge']))).toEqual(['shoot', 'discharge']);
     expect(unusableActives(build(['stormSpear', 'capGun'], ['slash', 'shoot', 'discharge']))).toEqual([]);
   });

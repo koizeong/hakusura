@@ -37,7 +37,9 @@ export type Predicate =
   /** 自分が一度も被弾していない(倒れるか、勘定をやり直すと戻る) */
   | { type: 'selfUnhurt' }
   /** そのスキルを使った回数が n の倍数のとき(3回目ごと、など) */
-  | { type: 'useEvery'; n: number };
+  | { type: 'useEvery'; n: number }
+  /** 自分の盾が張られている(砕けていない盾が1枚でもある) */
+  | { type: 'selfShieldReady' };
 
 export type Action =
   /** 同じ攻撃をもう一度当てる。power があれば、その割合の威力で */
@@ -75,7 +77,10 @@ export type Rule = RuleBase &
         scale?: { duration?: number; radius?: number };
       }
     | /** 状態の蓄積を止める。発動中なら消す */ { on: 'buildup'; block: true }
-    | /** ジャスト回避・ジャストガードしたとき。対象は攻撃してきた者 */ { on: 'justDodge' | 'justGuard'; do: readonly Action[] }
+    | /** ジャスト回避・ジャストガードしたとき。盾が砕けたときも。対象は攻撃してきた者 */ {
+        on: 'justDodge' | 'justGuard' | 'shieldBreak';
+        do: readonly Action[];
+      }
     | /** 条件つきの補正値。tags があれば、そのタグを全て持つときだけ効く */ {
         on: 'stat';
         stat: StatId;
@@ -124,6 +129,7 @@ export interface PredicateContext {
   targetOnFloor?(field: FieldId): boolean;
   attackerTags?: readonly string[];
   attackerUnhurt?: boolean;
+  attackerShieldReady?: boolean;
   useIndex?: number;
 }
 
@@ -165,6 +171,8 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return ctx.attackerUnhurt ?? false;
     case 'useEvery':
       return ctx.useIndex !== undefined && ctx.useIndex % p.n === 0;
+    case 'selfShieldReady':
+      return ctx.attackerShieldReady ?? false;
   }
 }
 

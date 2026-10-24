@@ -120,6 +120,13 @@ export const CONDITIONS = {
     cost: 30,
     rule: { label: '長い間合い', on: 'stat', stat: 'meleeRange', when: [{ type: 'selfHasTag', tag: 'twoHanded' }], add: 1 },
   },
+  // 盾を足したときに考えた条件文。docs/conditions.md の200個の外なので 201 から振る
+  behindShield: {
+    no: 201,
+    text: '盾が張られている間、与ダメージ+30%',
+    cost: 25,
+    rule: { label: '盾の陰', on: 'damage', when: [{ type: 'selfShieldReady' }], add: 0.3 },
+  },
   untouched: {
     no: 47,
     text: '無傷の間、移動速度と攻撃速度+30%',

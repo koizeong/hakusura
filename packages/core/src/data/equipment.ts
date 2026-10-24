@@ -1,7 +1,9 @@
 import { statDef, type StatId } from './stats';
 import { CONDITIONS, CONDITION_IDS, type ConditionId } from './conditions';
 import type { ArtifactId } from './artifacts';
-import { LOOT_WEAPON_TYPE_IDS, WEAPON_TYPES, type WeaponTypeId } from './weapons';
+import { LOOT_WEAPON_TYPE_IDS, rollWeapon, weaponName, type TemperId, type WeaponSpec, type WeaponTypeId } from './weapons';
+import { SHIELD_TYPE_IDS, rollShield, shieldName, type ShieldSpec, type ShieldTypeId } from './shields';
+import type { ElementId } from './elements';
 
 /** 装備の部位 */
 export const EQUIP_SLOTS = {
@@ -28,13 +30,30 @@ const BASE_NAMES: Record<EquipKind, readonly string[]> = {
   weapon: [],
 };
 
-/** 防具の部位ごとの名前の候補 */
+/** 防具の部位ごとの形の名前 */
 const ARMOR_NAMES: Partial<Record<EquipSlotId, readonly string[]>> = {
-  head: ['錆びた兜', '鎖の頭巾', '割れた面頬', '煤けた頭巾'],
-  body: ['継ぎ接ぎの外套', '古い革鎧', '骨の肩当て', '黴びた鎖帷子'],
-  hands: ['煤けた籠手', '擦り切れた手甲', '縫い直した手袋'],
-  feet: ['擦り切れた長靴', '腐りかけた脛当て', '泥まみれの革靴'],
+  head: ['兜', '頭巾', '面頬', '冠'],
+  body: ['外套', '鎧', '肩当て', '帷子'],
+  hands: ['籠手', '手甲', '手袋'],
+  feet: ['長靴', '脛当て', '革靴'],
 };
+
+/**
+ * 防具の素材。名前の頭に付き、出やすい補正値が決まる。
+ * 「血染めの外套」なら出血の物が、「鎖の帷子」なら守りの物が出やすい
+ */
+export const ARMOR_MATERIALS = {
+  leather: { prefix: '擦り切れた革の', affixes: ['moveSpeed', 'cooldown'] },
+  chain: { prefix: '錆びた鎖の', affixes: ['damageTaken', 'maxHp'] },
+  bone: { prefix: '骨の', affixes: ['statusDamage', 'bleedBuildup', 'burnBuildup', 'shockBuildup'] },
+  soot: { prefix: '煤けた', affixes: ['fireDamage', 'burnBuildup'] },
+  storm: { prefix: '雷に焼けた', affixes: ['lightningDamage', 'shockBuildup'] },
+  blood: { prefix: '血染めの', affixes: ['slashDamage', 'bleedBuildup', 'meleeDamage'] },
+  pilgrim: { prefix: '巡礼者の', affixes: ['maxHp', 'damage'] },
+  hunter: { prefix: '狩人の', affixes: ['rangedDamage', 'moveSpeed'] },
+} as const satisfies Record<string, { prefix: string; affixes: readonly AffixId[] }>;
+export type ArmorMaterialId = keyof typeof ARMOR_MATERIALS;
+export const ARMOR_MATERIAL_IDS = Object.keys(ARMOR_MATERIALS) as ArmorMaterialId[];
 
 /** 補正値の項目。common の項目は、どの装備にも必ず1つ入る */
 export interface AffixDef {
@@ -82,6 +101,8 @@ export const EQUIP_RULES = {
   conditionChance: 0.3,
   /** 補正値の刻み */
   step: 5,
+  /** 武器の枠のとき、盾が出る確率 */
+  shieldChance: 0.2,
 } as const;
 
 export interface ItemAffix {
@@ -100,8 +121,26 @@ export interface Item {
   affixes: ItemAffix[];
   condition?: ConditionId;
   artifact?: ArtifactId;
-  /** 武器の種類。攻撃の速さ・範囲・近接か遠距離か・属性はここで決まる */
+  /** 武器の形。攻撃の速さ・範囲・近接か遠距離かはここで決まる */
   weaponType?: WeaponTypeId;
+  /** 武器と盾の属性。なければ形のもとの属性(盾は属性なし) */
+  element?: ElementId;
+  /** 武器の性質 */
+  tempers?: TemperId[];
+  /** 盾の形。盾は武器の枠に着ける */
+  shieldType?: ShieldTypeId;
+  /** 防具の素材 */
+  material?: ArmorMaterialId;
+}
+
+/** 武器なら、その1本 */
+export function itemWeapon(item: Item): WeaponSpec | undefined {
+  return item.weaponType ? { type: item.weaponType, element: item.element, tempers: item.tempers } : undefined;
+}
+
+/** 盾なら、その1枚 */
+export function itemShield(item: Item): ShieldSpec | undefined {
+  return item.shieldType ? { type: item.shieldType, element: item.element } : undefined;
 }
 
 /** 得になる向きをプラスにした補正値 */
@@ -132,6 +171,12 @@ export interface GenerateOptions {
   weaponType?: WeaponTypeId;
   /** 武器ならこの中から種類を選ぶ */
   weaponTypes?: readonly WeaponTypeId[];
+  /** 武器と盾に出やすい属性 */
+  preferElements?: readonly ElementId[];
+  /** 武器の枠のとき、盾になる確率 */
+  shieldChance?: number;
+  /** 盾ならこの形で作る */
+  shieldType?: ShieldTypeId;
   /** 出やすい補正値の項目。項目を選ぶたび、半分の確率でこの中から選ぶ */
   preferAffixes?: readonly AffixId[];
   /** 条件文が入る確率と、出やすい条件文。条件文を選ぶとき、半分の確率でこの中から選ぶ */
@@ -156,6 +201,10 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
   const pickPreferred = <T>(all: readonly T[], preferred: readonly T[] | undefined): T =>
     preferred && preferred.length > 0 && random() < 0.5 ? pick(preferred) : pick(all);
 
+  // 防具は素材を決め、その素材らしい補正値を出やすくする
+  const material = kind === 'armor' ? pick(ARMOR_MATERIAL_IDS) : undefined;
+  const preferAffixes = [...(options.preferAffixes ?? []), ...(material ? ARMOR_MATERIALS[material].affixes : [])];
+
   const count = R.countMin + Math.floor(random() * (R.countMax - R.countMin + 1));
   const conditionChance = options.conditionChance ?? R.conditionChance;
   const condition = options.condition ?? (count >= 2 && random() < conditionChance ? pickPreferred(CONDITION_IDS, options.preferConditions) : undefined);
@@ -164,7 +213,7 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
   const commons = AFFIX_IDS.filter((id) => (AFFIXES[id] as AffixDef).common);
   const chosen: AffixId[] = [pick(commons)];
   for (let guard = 0; chosen.length < affixCount && guard < 100; guard++) {
-    const id = pickPreferred(AFFIX_IDS, options.preferAffixes);
+    const id = pickPreferred(AFFIX_IDS, preferAffixes);
     if (!chosen.includes(id)) chosen.push(id);
   }
 
@@ -190,14 +239,18 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
     const lower = statDef(AFFIXES[affix].stat).lowerIsBetter;
     return { affix, value: lower ? -benefits[i]! : benefits[i]! };
   });
-  const weaponType = kind === 'weapon' ? (options.weaponType ?? pick(options.weaponTypes ?? LOOT_WEAPON_TYPE_IDS)) : undefined;
-  return {
-    id: `item-${Date.now().toString(36)}-${(itemCounter++).toString(36)}-${Math.floor(random() * 1e6).toString(36)}`,
-    name: weaponType ? WEAPON_TYPES[weaponType].name : kind === 'armor' && slot ? pick(ARMOR_NAMES[slot] ?? ['古い防具']) : pick(BASE_NAMES[kind]),
-    kind,
-    slot,
-    affixes,
-    condition,
-    weaponType,
-  };
+  const id = `item-${Date.now().toString(36)}-${(itemCounter++).toString(36)}-${Math.floor(random() * 1e6).toString(36)}`;
+  if (kind === 'weapon') {
+    // 武器の枠には、ときどき盾が出る
+    const shieldType =
+      options.shieldType ?? (!options.weaponType && random() < (options.shieldChance ?? EQUIP_RULES.shieldChance) ? pick(SHIELD_TYPE_IDS) : undefined);
+    if (shieldType) {
+      const shield = rollShield(random, shieldType);
+      return { id, name: shieldName(shield), kind, affixes, condition, shieldType, element: shield.element };
+    }
+    const weapon = rollWeapon(random, options.weaponType ?? pick(options.weaponTypes ?? LOOT_WEAPON_TYPE_IDS), { elements: options.preferElements });
+    return { id, name: weaponName(weapon), kind, affixes, condition, weaponType: weapon.type, element: weapon.element, tempers: [...(weapon.tempers ?? [])] };
+  }
+  const name = kind === 'armor' && slot && material ? `${ARMOR_MATERIALS[material].prefix}${pick(ARMOR_NAMES[slot] ?? ['防具'])}` : pick(BASE_NAMES[kind]);
+  return { id, name, kind, slot, affixes, condition, material };
 }
