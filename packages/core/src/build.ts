@@ -4,6 +4,7 @@ import { CONDITIONS } from './data/conditions';
 import { ARTIFACTS } from './data/artifacts';
 import { AFFIXES, EQUIP_SLOTS, EQUIP_SLOT_IDS, itemTotal, type EquipSlotId, type Item } from './data/equipment';
 import { gripOf } from './data/grips';
+import { ATTRIBUTE_IDS, ATTRIBUTE_RULES, baseAttributes, spentPoints, type Attributes } from './data/attributes';
 import { WEAPON_TYPES, type WeaponTypeId } from './data/weapons';
 import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import type { CombatWorld, Unit } from './world';
@@ -25,6 +26,8 @@ export interface Build {
   equipment: Partial<Record<EquipSlotId, Item>>;
   trump?: ActiveSkillId;
   tactics: Tactic[];
+  /** 能力値。振り直しは無料。なければ全て基礎値 */
+  attributes?: Attributes;
 }
 
 /** 作戦に入れられるアクティブ。切り札と敵のスキルは除く */
@@ -41,6 +44,9 @@ export function buildProblems(build: Build): string[] {
   for (const [slot, item] of Object.entries(build.equipment) as [EquipSlotId, Item][]) {
     if (!canEquip(item, slot)) out.push(`${item.name}は${EQUIP_SLOTS[slot].name}に着けられない`);
   }
+  const attrs = build.attributes ?? baseAttributes();
+  if (spentPoints(attrs) > ATTRIBUTE_RULES.points) out.push(`能力値は${ATTRIBUTE_RULES.points}点まで振れる`);
+  if (ATTRIBUTE_IDS.some((id) => attrs[id] < ATTRIBUTE_RULES.base)) out.push(`能力値は${ATTRIBUTE_RULES.base}より下げられない`);
   return out;
 }
 
@@ -82,6 +88,7 @@ export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   unit.artifacts = items.flatMap((i) => (i.artifact ? [i.artifact] : []));
   unit.conditions = items.flatMap((i) => (i.condition ? [i.condition] : []));
   unit.trump = build.trump;
+  unit.attributes = { ...(build.attributes ?? baseAttributes()) };
   // 武器の数で持ち方が決まる。二刀流で左右の補正値の合計が同じなら、そのタグも付く
   const weapons = (['weapon1', 'weapon2'] as const).map((s) => build.equipment[s]).filter((i): i is Item => !!i && !i.artifact);
   unit.weapons = weapons.flatMap((i) => (i.weaponType ? [i.weaponType] : []));
@@ -164,6 +171,10 @@ function validateBuild(raw: unknown): string | null {
   if (!Array.isArray(b.passives) || !b.passives.every((id) => id in PASSIVES)) return '知らないパッシブがある';
   if (b.trump !== undefined && !(TRUMP_SKILL_IDS as unknown[]).includes(b.trump)) return '知らない切り札がある';
   if (!Array.isArray(b.tactics)) return '作戦がない';
+  if (b.attributes !== undefined) {
+    const a = b.attributes as Record<string, unknown>;
+    if (!a || typeof a !== 'object' || !ATTRIBUTE_IDS.every((id) => typeof a[id] === 'number' && Number.isFinite(a[id]))) return '能力値が壊れている';
+  }
   for (const t of b.tactics as Tactic[]) {
     if (!(t?.skill in ACTIVE_SKILLS) || !(t?.condition in TACTIC_CONDITIONS)) return '作戦に知らない部品がある';
   }

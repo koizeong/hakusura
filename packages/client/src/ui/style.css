@@ -1077,3 +1077,54 @@ button.discard {
   font-size: 12px;
   color: var(--dim);
 }
+
+.attributes .attr-row {
+  display: grid;
+  grid-template-columns: 56px 40px 36px 40px 1fr;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid #241f1b;
+}
+
+.attributes .attr-row button {
+  padding: 6px 0;
+  font-size: 16px;
+}
+
+.attributes .attr-value {
+  text-align: center;
+  font-size: 18px;
+  color: #e8dcc8;
+}
+
+.attributes .attr-row small {
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.attributes .counter {
+  font-size: 14px;
+  color: #c9b79c;
+}
+
+.attributes .shortages {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: #c25a4a;
+}
+
+.attributes .note {
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.needs {
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.needs.short {
+  color: #c25a4a;
+}

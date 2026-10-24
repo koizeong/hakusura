@@ -3,7 +3,7 @@ import { CombatWorld, type Unit } from './world';
 import { ACTIVE_SKILLS } from './data/skills';
 import { AFFIXES, EQUIP_RULES, generateItem, itemTotal, type AffixDef, type Item } from './data/equipment';
 import { applyBuild, buildProblems, canEquip, decodeBuild, encodeBuild, type Build } from './build';
-import { TEST_WEAPONS, SWORD, GUN, pw } from './testkit';
+import { AMPLE, TEST_WEAPONS, SWORD, GUN, pw } from './testkit';
 
 const run = (w: CombatWorld, ms: number) => {
   for (let t = 0; t < ms; t += 10) w.update(10);
@@ -14,7 +14,7 @@ function seeded(seed: number) {
   return () => w.random();
 }
 
-const emptyBuild = (extra: Partial<Build> = {}): Build => ({ actives: [], passives: [], equipment: {}, tactics: [], ...extra });
+const emptyBuild = (extra: Partial<Build> = {}): Build => ({ actives: [], passives: [], equipment: {}, tactics: [], attributes: AMPLE, ...extra });
 
 const item = (extra: Partial<Item>): Item => ({ id: 'x', name: '試し', kind: 'accessory', affixes: [], ...extra });
 

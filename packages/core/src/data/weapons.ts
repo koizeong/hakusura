@@ -1,4 +1,5 @@
 import type { ElementId } from './elements';
+import type { AttributeNeeds } from './attributes';
 
 /**
  * 武器の種類。攻撃の速さ・範囲・近接か遠距離か・属性は武器が持つ。
@@ -23,6 +24,8 @@ interface WeaponBase {
   /** 届く距離 */
   range: number;
   tags: readonly string[];
+  /** 必要な能力値。足りなくても使えるが、威力が落ち間隔が延びる */
+  needs?: AttributeNeeds;
 }
 
 export interface MeleeWeaponDef extends WeaponBase {
@@ -65,6 +68,7 @@ export const WEAPON_TYPES = {
     recovery: 320,
     range: 100,
     arc: 130,
+    needs: { str: 10, dex: 10 },
     tags: ['sword'],
   },
   rustGreatsword: {
@@ -78,6 +82,7 @@ export const WEAPON_TYPES = {
     recovery: 420,
     range: 110,
     arc: 150,
+    needs: { str: 18 },
     tags: ['sword', 'heavy'],
   },
   boneFlail: {
@@ -91,6 +96,7 @@ export const WEAPON_TYPES = {
     recovery: 220,
     range: 90,
     arc: 110,
+    needs: { dex: 12 },
     tags: ['light'],
   },
   cinderAxe: {
@@ -104,6 +110,7 @@ export const WEAPON_TYPES = {
     recovery: 500,
     range: 110,
     arc: 120,
+    needs: { str: 16, fai: 10 },
     tags: ['axe', 'heavy'],
   },
   stormSpear: {
@@ -117,6 +124,7 @@ export const WEAPON_TYPES = {
     recovery: 380,
     range: 170,
     arc: 36,
+    needs: { dex: 14, int: 10 },
     tags: ['spear'],
   },
   capGun: {
@@ -131,6 +139,7 @@ export const WEAPON_TYPES = {
     range: 750,
     speed: 900,
     radius: 7,
+    needs: { dex: 12 },
     tags: ['gun'],
   },
   emberSling: {
@@ -145,6 +154,7 @@ export const WEAPON_TYPES = {
     range: 650,
     speed: 700,
     radius: 8,
+    needs: { dex: 8, fai: 10 },
     tags: ['sling'],
   },
   boneBow: {
@@ -159,6 +169,7 @@ export const WEAPON_TYPES = {
     range: 700,
     speed: 850,
     radius: 5,
+    needs: { dex: 14 },
     tags: ['bow'],
   },
 } as const satisfies Record<string, WeaponTypeDef>;

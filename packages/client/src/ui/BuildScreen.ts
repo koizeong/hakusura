@@ -37,13 +37,24 @@ import {
   type Item,
   type Unit,
   type WeaponTypeId,
+  ATTRIBUTES,
+  ATTRIBUTE_IDS,
+  ATTRIBUTE_RULES,
+  baseAttributes,
+  missingPoints,
+  needsText,
+  shortfallPenalty,
+  weaponDef,
+  spentPoints,
+  type AttributeId,
+  type Attributes,
 } from '@hakusura/core';
 import { h, signedPercent } from './dom';
 import { createTacticsEditor } from './TacticsEditor';
 import { PRESET_LIMIT, currentBuild, presetName, type BuildState } from './buildStore';
 
-type Tab = 'equipment' | 'skills' | 'tactics' | 'trump' | 'code';
-const TABS: Record<Tab, string> = { equipment: '装備', skills: 'スキル', tactics: '作戦', trump: '切り札', code: 'コード' };
+type Tab = 'equipment' | 'attributes' | 'skills' | 'tactics' | 'trump' | 'code';
+const TABS: Record<Tab, string> = { equipment: '装備', attributes: '能力', skills: 'スキル', tactics: '作戦', trump: '切り札', code: 'コード' };
 
 /** 拾い物を一度に拾う数 */
 const LOOT_COUNT = 6;
@@ -128,6 +139,8 @@ export class BuildScreen {
     switch (this.tab) {
       case 'equipment':
         return this.renderEquipment();
+      case 'attributes':
+        return this.renderAttributes();
       case 'skills':
         return this.renderSkills();
       case 'tactics':
@@ -232,7 +245,7 @@ export class BuildScreen {
           'div',
           { class: `slot-row${slot === this.selectedSlot ? ' selected' : ''}`, onclick: () => this.selectSlot(slot) },
           h('span', { class: 'slot-name' }, EQUIP_SLOTS[slot].name),
-          item ? itemCard(item, h('button', { onclick: (e: Event) => (e.stopPropagation(), this.unequip(slot)) }, '外す')) : h('span', { class: 'empty' }, '空き'),
+          item ? itemCard(this.attrs, item, h('button', { onclick: (e: Event) => (e.stopPropagation(), this.unequip(slot)) }, '外す')) : h('span', { class: 'empty' }, '空き'),
         );
       }),
     );
@@ -287,6 +300,7 @@ export class BuildScreen {
               { class: 'item-list' },
               ...candidates.map((item) =>
                 itemCard(
+                  this.attrs,
                   item,
                   h('button', { onclick: () => this.equip(item) }, '着ける'),
                   h('button', { class: 'discard', onclick: () => this.discard(item) }, '捨てる'),
@@ -337,6 +351,75 @@ export class BuildScreen {
   }
 
   /** 今の武器では出ない技を知らせる */
+  /** 今のビルドの能力値。古い保存で持っていなければ基礎値 */
+  private get attrs(): Attributes {
+    return this.build.attributes ?? baseAttributes();
+  }
+
+  // ---- 能力 ----
+
+  private renderAttributes(): HTMLElement {
+    const build = this.build;
+    const attrs = (build.attributes ??= baseAttributes());
+    const left = ATTRIBUTE_RULES.points - spentPoints(attrs);
+    const step = (id: AttributeId, by: number) => {
+      const next = attrs[id] + by;
+      if (next < ATTRIBUTE_RULES.base || (by > 0 && left <= 0)) return;
+      attrs[id] = next;
+      this.changed();
+    };
+    // 今の武器と技のうち、能力値が足りないもの
+    const shortages: string[] = [];
+    for (const w of new Set(buildWeapons(build))) {
+      const m = missingPoints(weaponDef(w).needs, attrs);
+      if (m) shortages.push(`${WEAPON_TYPES[w].name}:要 ${needsText(weaponDef(w).needs)}`);
+    }
+    for (const id of build.actives) {
+      const def = activeSkillDef(id);
+      if (missingPoints(def.needs, attrs)) shortages.push(`${def.name}:要 ${needsText(def.needs)}`);
+    }
+    if (build.trump && missingPoints(activeSkillDef(build.trump).needs, attrs)) {
+      const def = activeSkillDef(build.trump);
+      shortages.push(`${def.name}:要 ${needsText(def.needs)}`);
+    }
+    return h(
+      'div',
+      { class: 'attributes' },
+      h('p', { class: 'counter' }, `残り ${left} 点(振り直しは無料)`),
+      ...ATTRIBUTE_IDS.map((id) =>
+        h(
+          'div',
+          { class: 'attr-row' },
+          h('span', { class: 'attr-name' }, ATTRIBUTES[id].name),
+          h('button', { disabled: attrs[id] <= ATTRIBUTE_RULES.base, onclick: () => step(id, -1) }, '−'),
+          h('b', { class: 'attr-value' }, String(attrs[id])),
+          h('button', { disabled: left <= 0, onclick: () => step(id, 1) }, '+'),
+          h('small', {}, ATTRIBUTES[id].description),
+        ),
+      ),
+      h(
+        'button',
+        {
+          class: 'discard',
+          onclick: () => {
+            build.attributes = baseAttributes();
+            this.changed();
+          },
+        },
+        '全て振り直す',
+      ),
+      h('h3', {}, '足りないもの'),
+      shortages.length === 0
+        ? h('p', { class: 'note' }, '今の武器と技は、全て足りている')
+        : h('ul', { class: 'shortages' }, ...shortages.map((t) => h('li', {}, t))),
+      h(
+        'p',
+        { class: 'note' },
+        `足りなくても使えるが、足りない1点ごとに威力-${ATTRIBUTE_RULES.powerPerMissing * 100}%・間隔+${ATTRIBUTE_RULES.intervalPerMissing * 100}%(武器と技の分を合わせる)`,
+      ),
+    );
+  }
+
   private renderUnusable(): HTMLElement | string {
     const ids = unusableActives(this.build);
     if (ids.length === 0) return '';
@@ -371,12 +454,16 @@ export class BuildScreen {
         if (isTechnique(def)) {
           // 今の武器のうち、最初に合うもので出したときの数値を見せる
           const weapon = buildWeapons(build).find((w) => techniqueFits(def, w));
-          const r = weapon ? resolveSkill(id, weapon) : undefined;
+          const r = weapon ? resolveSkill(id, weapon, this.attrs) : undefined;
           usable = !!r;
           detail = `${techniqueRequirement(def, (e) => ELEMENTS[e].name)}・${r ? `${WEAPON_TYPES[weapon!].name}で ${(r.cooldown / 1000).toFixed(1)}秒` : '今の武器では出ない'}・${def.description ?? ''}`;
+          if (r?.missing) detail += `・${shortfallText(r.missing)}`;
         } else {
-          detail = `${SKILL_CATEGORIES[def.category]}・${(def.cooldown / 1000).toFixed(1)}秒・${def.description ?? ''}`;
+          const r = resolveSkill(id, undefined, this.attrs)!;
+          detail = `${SKILL_CATEGORIES[def.category]}・${(r.cooldown / 1000).toFixed(1)}秒・${def.description ?? ''}`;
+          if (r.missing) detail += `・${shortfallText(r.missing)}`;
         }
+        if (def.needs) detail = `要 ${needsText(def.needs)}・${detail}`;
         return h(
           'label',
           { class: `skill-row${usable ? '' : ' unusable'}` },
@@ -503,7 +590,9 @@ export class BuildScreen {
 }
 
 /** 装備1つの札。補正値は得になる向きを明るく、損になる向きを赤くする */
-function itemCard(item: Item, ...actions: HTMLElement[]): HTMLElement {
+function itemCard(attrs: Attributes, item: Item, ...actions: HTMLElement[]): HTMLElement {
+  const needs = item.weaponType ? weaponDef(item.weaponType).needs : undefined;
+  const missing = missingPoints(needs, attrs);
   const artifact = item.artifact ? ARTIFACTS[item.artifact] : undefined;
   const kindName = item.artifact ? 'アーティファクト' : item.kind === 'armor' && item.slot ? EQUIP_SLOTS[item.slot].name : item.kind === 'weapon' ? '武器' : '装飾品';
   const total = itemTotal(item);
@@ -513,6 +602,7 @@ function itemCard(item: Item, ...actions: HTMLElement[]): HTMLElement {
     h('div', { class: 'item-head' }, h('b', {}, item.name), h('small', {}, kindName), artifact ? '' : h('small', { class: 'total' }, `合計 ${signedPercent(total / 100)}`)),
     artifact ? h('p', { class: 'artifact-text' }, artifact.text) : '',
     item.weaponType ? h('div', { class: 'weapon-stats' }, weaponSummary(item.weaponType)) : '',
+    needs ? h('div', { class: `needs${missing ? ' short' : ''}` }, `要 ${needsText(needs)}${missing ? `(${shortfallText(missing)})` : ''}`) : '',
     ...item.affixes.map((a) =>
       h('div', { class: `affix ${benefitOf(a) >= 0 ? 'good' : 'bad'}` }, `${AFFIXES[a.affix].name} ${signedPercent(a.value / 100)}`),
     ),
@@ -526,4 +616,10 @@ function weaponSummary(id: WeaponTypeId): string {
   const w = WEAPON_TYPES[id];
   const shape = w.kind === 'melee' ? `扇${w.arc}°` : `弾速${w.speed}`;
   return `${WEAPON_KINDS[w.kind]}・${ELEMENTS[w.element].name}・威力${w.power}・間隔${(w.interval / 1000).toFixed(2)}秒・射程${w.range}・${shape}`;
+}
+
+/** 能力値が足りないときの影響を一言で */
+function shortfallText(missing: number): string {
+  const p = shortfallPenalty(missing);
+  return `${missing}点足りない:威力${signedPercent(p.power - 1)}・間隔${signedPercent(p.interval - 1)}`;
 }

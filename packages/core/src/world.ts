@@ -5,6 +5,7 @@ import { fieldDef, type FieldId } from './data/fields';
 import { STATUS_IDS, statusDef, statusForElement, type StatusId } from './data/statuses';
 import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction } from './data/skills';
 import type { WeaponTypeId } from './data/weapons';
+import { ATTRIBUTE_RULES, type Attributes } from './data/attributes';
 import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import { matchCombos, type ComboId } from './data/combos';
 import { artifactDef, type ArtifactId, type ArtifactTraits } from './data/artifacts';
@@ -110,6 +111,8 @@ export interface Unit {
   hand: number;
   /** 最後に使ったときのクールダウンの長さ。残りの割合を出すのに使う */
   cooldownSpans: Partial<Record<ActiveSkillId, number>>;
+  /** 能力値。なければ(敵など)、能力値の足りなさで威力は落ちない */
+  attributes?: Attributes;
 }
 
 export interface Buff {
@@ -136,6 +139,7 @@ export interface UnitSpec {
   autoBattle?: boolean;
   trump?: ActiveSkillId;
   weapons?: WeaponTypeId[];
+  attributes?: Attributes;
 }
 
 export interface Hit {
@@ -350,6 +354,7 @@ export class CombatWorld {
       weapons: spec.weapons ? [...spec.weapons] : [],
       hand: 0,
       cooldownSpans: {},
+      attributes: spec.attributes ? { ...spec.attributes } : undefined,
     };
     this.units.set(unit.id, unit);
     return unit;
@@ -530,11 +535,11 @@ export class CombatWorld {
    */
   skillFor(unit: Unit, skillId: ActiveSkillId): ResolvedSkill | undefined {
     const def = activeSkillDef(skillId);
-    if (!isTechnique(def)) return resolveSkill(skillId);
+    if (!isTechnique(def)) return resolveSkill(skillId, undefined, unit.attributes);
     const hands: WeaponTypeId[] = unit.weapons.length > 0 ? unit.weapons : ['fists'];
     const fits = hands.filter((w) => techniqueFits(def, w));
     if (fits.length === 0) return undefined;
-    return resolveSkill(skillId, fits[unit.hand % fits.length]);
+    return resolveSkill(skillId, fits[unit.hand % fits.length], unit.attributes);
   }
 
   private executeSkill(pending: PendingAction): void {
@@ -922,7 +927,7 @@ export class CombatWorld {
       charge,
     });
     if (attacker.imbue && attacker.imbue.until > this.time) {
-      const imbue = resolveSkill(attacker.imbue.skill);
+      const imbue = resolveSkill(attacker.imbue.skill, undefined, attacker.attributes);
       if (imbue && imbue.action.type === 'imbue') {
         const imbueElement = skillElement(imbue);
         this.enqueue({
@@ -984,6 +989,10 @@ export class CombatWorld {
       ...unit.equipment.flatMap((item) => item.affixes.map(affixModifier)),
       ...unit.artifacts.flatMap((id) => artifactDef(id).modifiers ?? []),
       ...(unit.grip ? GRIPS[unit.grip].modifiers : []),
+      // 体力は1上げるごとに最大HPを増やす
+      ...(unit.attributes
+        ? [{ stat: 'maxHp' as const, tags: [], value: ATTRIBUTE_RULES.hpPerVit * (unit.attributes.vit - ATTRIBUTE_RULES.base), group: 'attribute:vit' }]
+        : []),
     ];
     return all.filter((m) => (m.stat ?? 'damage') === stat);
   }

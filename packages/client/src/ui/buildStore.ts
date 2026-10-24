@@ -1,4 +1,4 @@
-import { ARTIFACT_IDS, ARTIFACTS, LOOT_WEAPON_TYPE_IDS, DEFAULT_TACTICS, generateItem, type Build, type ConditionId, type Item } from '@hakusura/core';
+import { ARTIFACT_IDS, ARTIFACTS, LOOT_WEAPON_TYPE_IDS, type Attributes, DEFAULT_TACTICS, generateItem, type Build, type ConditionId, type Item } from '@hakusura/core';
 
 /** 名前つきのビルド。ボス前などで切り替える */
 export interface Preset {
@@ -24,6 +24,11 @@ const NUMERALS = ['一', '二', '三', '四', '五', '六', '七', '八', '九',
 /** 新しいビルドの名前 */
 export function presetName(index: number): string {
   return `支度${NUMERALS[index] ?? index + 1}`;
+}
+
+/** 最初の振り分け。剣・銃・塗油に足り、16点を残す */
+function starterAttributes(): Attributes {
+  return { str: 14, dex: 14, int: 10, fai: 14, vit: 12 };
 }
 
 /** 今選んでいるビルド */
@@ -69,6 +74,7 @@ function initialState(random: () => number): BuildState {
     },
     trump: 'rainBell',
     tactics: DEFAULT_TACTICS.map((t) => ({ ...t })),
+    attributes: starterAttributes(),
   };
   return { presets: [{ name: presetName(0), build }], current: 0, stash: [...starterWeapons, ...weaponSamples, ...artifacts, ...loot] };
 }
@@ -78,6 +84,8 @@ export function loadBuildState(random: () => number): BuildState {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as BuildState | null;
     if (saved && Array.isArray(saved.presets) && saved.presets.length > 0 && Array.isArray(saved.stash)) {
       saved.current = Math.min(Math.max(0, saved.current | 0), saved.presets.length - 1);
+      // 能力値を入れる前の保存なら、最初の振り分けを持たせる
+      for (const p of saved.presets) p.build.attributes ??= starterAttributes();
       return saved;
     }
   } catch {

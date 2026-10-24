@@ -1,6 +1,7 @@
 import type { ElementId } from './elements';
 import type { FieldId } from './fields';
 import { weaponDef, type WeaponKind, type WeaponTypeId } from './weapons';
+import { missingPoints, shortfallPenalty, type AttributeNeeds, type Attributes } from './attributes';
 
 /** スキルの6分類。分類もタグとしてヒットに乗る */
 export const SKILL_CATEGORIES = {
@@ -49,6 +50,8 @@ interface SkillBase {
   /** 画面に出す説明 */
   description?: string;
   tags: readonly string[];
+  /** 必要な能力値。足りなくても使えるが、威力が落ち間隔が延びる */
+  needs?: AttributeNeeds;
 }
 
 /** 数値を自分で持つスキル。付与・切り札・敵のスキル */
@@ -109,6 +112,7 @@ export const ACTIVE_SKILLS = {
     name: '薙ぎ払い',
     category: 'melee',
     description: '広く薙ぐ。扇が180度になり、少し遅い',
+    needs: { str: 12 },
     tags: ['attack'],
     technique: { requires: { kind: 'melee' }, shape: 'swing', power: 0.9, interval: 1.3, arc: 180 },
   },
@@ -116,6 +120,7 @@ export const ACTIVE_SKILLS = {
     name: '突き',
     category: 'melee',
     description: '細く遠くまで突く。射程が1.6倍、扇は30度',
+    needs: { dex: 14 },
     tags: ['attack'],
     technique: { requires: { kind: 'melee' }, shape: 'swing', power: 1.1, interval: 1.1, range: 1.6, arc: 30 },
   },
@@ -123,6 +128,7 @@ export const ACTIVE_SKILLS = {
     name: '旋風',
     category: 'melee',
     description: '周り全てを薙ぎ、弾もまとめてかき消す(二刀流向け)',
+    needs: { dex: 16 },
     tags: ['attack', 'dual'],
     technique: { requires: { kind: 'melee' }, shape: 'swing', power: 0.8, interval: 1.4, range: 0.95, arc: 360 },
   },
@@ -130,6 +136,7 @@ export const ACTIVE_SKILLS = {
     name: '叩き割り',
     category: 'melee',
     description: '大きく振りかぶって叩き割る。威力2.2倍、間隔2倍',
+    needs: { str: 20 },
     tags: ['attack'],
     technique: { requires: { kind: 'melee' }, shape: 'swing', power: 2.2, interval: 2, windup: 1.6 },
   },
@@ -137,6 +144,7 @@ export const ACTIVE_SKILLS = {
     name: '抉り',
     category: 'melee',
     description: '斬の武器で抉る。蓄積が2倍(二刀流向け)',
+    needs: { dex: 14 },
     tags: ['attack', 'dual'],
     technique: { requires: { kind: 'melee', element: 'slash' }, shape: 'swing', power: 0.8, interval: 1.1, buildup: 2, arc: 90 },
   },
@@ -144,6 +152,7 @@ export const ACTIVE_SKILLS = {
     name: '焼き払い',
     category: 'melee',
     description: '火の武器で焼き払う。扇が200度になり、蓄積が1.4倍',
+    needs: { fai: 14 },
     tags: ['attack'],
     technique: { requires: { kind: 'melee', element: 'fire' }, shape: 'swing', power: 0.9, interval: 1.4, buildup: 1.4, arc: 200 },
   },
@@ -158,6 +167,7 @@ export const ACTIVE_SKILLS = {
     name: '三連射',
     category: 'ranged',
     description: '3発を扇に撃つ。1発ごとの威力は半分',
+    needs: { dex: 16 },
     tags: ['attack'],
     technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 0.5, interval: 1.5, count: 3, spread: 12 },
   },
@@ -165,6 +175,7 @@ export const ACTIVE_SKILLS = {
     name: '狙い撃ち',
     category: 'ranged',
     description: 'じっくり狙う。威力2.4倍、射程1.3倍、間隔2.2倍',
+    needs: { dex: 18 },
     tags: ['attack'],
     technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 2.4, interval: 2.2, range: 1.3, windup: 1.8 },
   },
@@ -172,6 +183,7 @@ export const ACTIVE_SKILLS = {
     name: '放電',
     category: 'melee',
     description: '雷の武器から周りへ放つ。蓄積が1.5倍',
+    needs: { int: 16 },
     tags: ['attack'],
     technique: { requires: { element: 'lightning' }, shape: 'nova', power: 0.9, interval: 2.2, buildup: 1.5, radius: 150 },
   },
@@ -180,6 +192,7 @@ export const ACTIVE_SKILLS = {
     category: 'imbue',
     element: 'fire',
     description: '一定時間、武器の攻撃に火の追撃が乗る',
+    needs: { fai: 12 },
     tags: ['buff'],
     windup: 500,
     recovery: 300,
@@ -192,6 +205,7 @@ export const ACTIVE_SKILLS = {
     category: 'imbue',
     element: 'lightning',
     description: '一定時間、武器の攻撃に雷の追撃が乗る',
+    needs: { int: 12 },
     tags: ['buff'],
     windup: 500,
     recovery: 300,
@@ -203,6 +217,7 @@ export const ACTIVE_SKILLS = {
     name: '雨乞いの鈴',
     category: 'imbue',
     description: '12秒、雨を呼ぶ。全員が濡れる',
+    needs: { fai: 16 },
     tags: ['buff', 'trump'],
     windup: 600,
     recovery: 300,
@@ -224,6 +239,7 @@ export const ACTIVE_SKILLS = {
     category: 'melee',
     element: 'lightning',
     description: '周りの敵すべてに雷を落とし、感電させる',
+    needs: { int: 18 },
     tags: ['attack', 'trump'],
     windup: 700,
     recovery: 400,
@@ -304,12 +320,42 @@ export interface ResolvedSkill {
   cooldown: number;
   action: SkillAction;
   weapon?: WeaponTypeId;
+  /** 能力値が足りない点数(武器と技の合計)。0 なら足りている */
+  missing: number;
 }
 
-export function resolveSkill(id: ActiveSkillId, weapon?: WeaponTypeId): ResolvedSkill | undefined {
+/**
+ * 実際に出す中身を作る。attrs を渡すと、武器と技の必要な能力値に足りない分だけ
+ * 威力が落ち、間隔が延びる。渡さなければ(敵やテスト)落ちない
+ */
+export function resolveSkill(id: ActiveSkillId, weapon?: WeaponTypeId, attrs?: Attributes): ResolvedSkill | undefined {
+  const raw = resolveRaw(id, weapon);
+  if (!raw || !attrs) return raw;
+  const def = activeSkillDef(id);
+  const missing = missingPoints(def.needs, attrs) + (raw.weapon ? missingPoints(weaponDef(raw.weapon).needs, attrs) : 0);
+  if (missing === 0) return raw;
+  const penalty = shortfallPenalty(missing);
+  const a = raw.action;
+  const action: SkillAction =
+    'power' in a ? { ...a, power: a.power * penalty.power } : a.type === 'imbue' ? { ...a, ratio: a.ratio * penalty.power } : a;
+  return { ...raw, action, cooldown: raw.cooldown * penalty.interval, missing };
+}
+
+function resolveRaw(id: ActiveSkillId, weapon?: WeaponTypeId): ResolvedSkill | undefined {
   const def = activeSkillDef(id);
   if (!isTechnique(def)) {
-    return { id, name: def.name, category: def.category, element: def.element, tags: def.tags, windup: def.windup, recovery: def.recovery, cooldown: def.cooldown, action: def.action };
+    return {
+      id,
+      name: def.name,
+      category: def.category,
+      element: def.element,
+      tags: def.tags,
+      windup: def.windup,
+      recovery: def.recovery,
+      cooldown: def.cooldown,
+      action: def.action,
+      missing: 0,
+    };
   }
   if (!weapon || !techniqueFits(def, weapon)) return undefined;
   const w = weaponDef(weapon);
@@ -337,6 +383,7 @@ export function resolveSkill(id: ActiveSkillId, weapon?: WeaponTypeId): Resolved
     cooldown: w.interval * t.interval,
     action,
     weapon,
+    missing: 0,
   };
 }
 
