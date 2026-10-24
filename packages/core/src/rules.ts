@@ -41,7 +41,13 @@ export type Predicate =
   /** 自分の盾が張られている(砕けていない盾が1枚でもある) */
   | { type: 'selfShieldReady' }
   /** 相手の背後から攻めている */
-  | { type: 'fromBehind' };
+  | { type: 'fromBehind' }
+  /** 相手のその状態の蓄積が ratio 以上(発動中なら満タンとみなす) */
+  | { type: 'targetBuildupAtLeast'; status: StatusId; ratio: number }
+  /** 自分がその床の上にいる */
+  | { type: 'selfOnFloor'; field: FieldId }
+  /** 直前に使ったスキル */
+  | { type: 'lastSkillWas'; skill: string };
 
 export type Action =
   /** 対象の状態を消す(凍結を砕くなど) */
@@ -137,6 +143,9 @@ export interface PredicateContext {
   attackerUnhurt?: boolean;
   attackerShieldReady?: boolean;
   fromBehind?: boolean;
+  targetBuildup?(status: StatusId): number;
+  attackerOnFloor?(field: FieldId): boolean;
+  attackerLastSkill?: string;
   useIndex?: number;
 }
 
@@ -182,6 +191,12 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return ctx.attackerShieldReady ?? false;
     case 'fromBehind':
       return ctx.fromBehind ?? false;
+    case 'targetBuildupAtLeast':
+      return (ctx.targetBuildup?.(p.status) ?? 0) >= p.ratio;
+    case 'selfOnFloor':
+      return ctx.attackerOnFloor?.(p.field) ?? false;
+    case 'lastSkillWas':
+      return ctx.attackerLastSkill === p.skill;
   }
 }
 

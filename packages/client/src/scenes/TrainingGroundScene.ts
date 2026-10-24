@@ -25,6 +25,8 @@ import {
   type StatusDef,
   type FloorPatch,
   FLOOR_IDS,
+  FORMS,
+  learnedForms,
   ENEMIES,
   Encounter,
   type EncounterId,
@@ -152,6 +154,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     });
     this.buildState = loadBuildState(Math.random);
     applyBuild(this.world, this.player, currentBuild(this.buildState));
+    this.player.forms = learnedForms(this.buildState.learned);
     SCARECROW_SPOTS.forEach((spot, i) => {
       const unit = this.world.addUnit({
         id: `scarecrow${i}`,
@@ -356,6 +359,7 @@ export class TrainingGroundScene extends Phaser.Scene {
   /** 支度が変わったら、すぐ戦いに反映して覚えておく */
   private onBuildChange(): void {
     applyBuild(this.world, this.player, currentBuild(this.buildState));
+    this.player.forms = learnedForms(this.buildState.learned);
     if (this.player.queued && this.player.queued.skill !== this.player.trump) this.player.queued = undefined;
     this.hud.setTrump(this.player.trump);
     this.hud.setSlots(this.player.actives);
@@ -1210,6 +1214,17 @@ export class TrainingGroundScene extends Phaser.Scene {
       }
       case 'weatherCalled': {
         this.callout(this.player, `${FIELDS[event.field].name}を呼んだ`, '#8fb4d8');
+        break;
+      }
+      case 'form': {
+        if (event.unitId !== this.player.id) break;
+        this.callout(this.player, event.name, `#${FORMS[event.form].color.toString(16).padStart(6, '0')}`);
+        break;
+      }
+      case 'fervor': {
+        if (event.unitId !== this.player.id) break;
+        this.callout(this.player, '昂り', '#f0c060');
+        this.cameras.main.flash(160, 120, 90, 30);
         break;
       }
       case 'floorChanged': {

@@ -301,6 +301,21 @@ input {
   background: var(--blood);
 }
 
+/* 昂り */
+.fervor {
+  width: 420px;
+  height: 4px;
+  margin-top: 3px;
+  background: #0c0b0a;
+  border: 1px solid #3a2f28;
+}
+
+.fervor-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #8a5a20, #f0c060);
+  transition: width 0.15s;
+}
+
 /* 削られた分を遅れて縮める帯 */
 .hp-lag {
   position: absolute;
@@ -628,7 +643,8 @@ canvas {
     gap: 4px;
   }
 
-  .hp {
+  .hp,
+  .fervor {
     width: min(420px, calc(100vw - 24px));
   }
 
@@ -1492,4 +1508,41 @@ button.discard {
 
 .weapon-stats.temper {
   color: #c9b79c;
+}
+
+/* 作戦の連携と型 */
+.tactic .follow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.tactic .follow {
+  white-space: nowrap;
+}
+
+.tactic .follow select {
+  flex: 1;
+  min-width: 0;
+  min-height: 32px;
+}
+
+.form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  align-items: baseline;
+  padding: 5px 2px;
+  border-bottom: 1px solid #241f1b;
+}
+
+.form-row small {
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.form-row.unknown b {
+  opacity: 0.45;
 }

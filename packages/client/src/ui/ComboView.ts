@@ -1,4 +1,4 @@
-import { COMBOS, type ComboId, type DamageRecord } from '@hakusura/core';
+import { comboDef, type ComboId, type DamageRecord } from '@hakusura/core';
 import { formatNumber, h } from './dom';
 
 /** 連鎖や条件が絡んだヒットが途切れずに続くと数える。この間あくと途切れる */
@@ -51,8 +51,8 @@ export class ComboView {
       let line = this.lines.get(id);
       if (!line) {
         const count = h('span', { class: 'count' });
-        const color = `#${COMBOS[id].color.toString(16).padStart(6, '0')}`;
-        line = { el: h('div', { class: 'combo-line', style: `color:${color}` }, h('span', { class: 'name' }, COMBOS[id].name), count), count, hits: 0, until: 0 };
+        const color = `#${comboDef(id).color.toString(16).padStart(6, '0')}`;
+        line = { el: h('div', { class: 'combo-line', style: `color:${color}` }, h('span', { class: 'name' }, comboDef(id).name), count), count, hits: 0, until: 0 };
         this.lines.set(id, line);
         this.list.prepend(line.el);
       }

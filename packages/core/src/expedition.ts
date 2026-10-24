@@ -4,6 +4,7 @@ import { dealtBy, summarize } from './breakdown';
 import { generateItem, type Item } from './data/equipment';
 import { EXPEDITION_INJURY, EXPEDITION_YIELD, expeditionDef, type ExpeditionDef, type ExpeditionId } from './data/expeditions';
 import { ACTIVE_SKILLS, ACTIVE_SKILL_IDS, TRUMP_SKILL_IDS, activeSkillDef, isTechnique, techniqueFits, type ActiveSkillId } from './data/skills';
+import { FORM_IDS, STARTING_FORMS, type FormId } from './data/forms';
 import { VARIANT_RULES, generateVariant, type SkillVariant, type VariationId } from './data/variations';
 import { WEAPON_TYPE_IDS, weaponDef, type WeaponTypeId } from './data/weapons';
 import { ATTRIBUTE_IDS, baseAttributes } from './data/attributes';
@@ -13,13 +14,24 @@ import { PASSIVE_IDS, type PassiveId } from './data/passives';
 export interface Learned {
   actives: ActiveSkillId[];
   passives: PassiveId[];
+  /** 覚えた型。なければ最初の型だけ */
+  forms?: FormId[];
 }
 
 /** 最初から覚えているスキル */
 export const STARTING_SKILLS: Learned = {
   actives: ['slash', 'shoot', 'sweep', 'emberOil', 'rainBell'],
   passives: ['sootPrayer', 'bloodCallsThunder', 'readTheBlow', 'parryStance'],
+  forms: [...STARTING_FORMS],
 };
+
+/** 覚えている型 */
+export function learnedForms(learned: Learned): FormId[] {
+  return learned.forms ?? [...STARTING_FORMS];
+}
+
+/** 型の書が見つかる確率。スキルを見つける確率にこれを掛ける */
+const EXPEDITION_FORM_CHANCE = 0.8;
 
 /** 遠征で見つかるスキル。敵のスキルは出ない */
 const FINDABLE_ACTIVES = ACTIVE_SKILL_IDS.filter((id) => !(ACTIVE_SKILLS[id].tags as readonly string[]).includes('enemy'));
@@ -122,6 +134,8 @@ export interface ExpeditionReport {
   skills: (ActiveSkillId | PassiveId)[];
   /** 見つけた変化つきの技 */
   variants: SkillVariant[];
+  /** 型の書で覚えた型 */
+  forms: FormId[];
   /** 負傷して戻ったなら、治るまでの時間(ミリ秒) */
   injuredFor: number;
 }
@@ -172,6 +186,16 @@ export function finishExpedition(c: Character, learned: Learned, now: number = e
     skills.push(found.id);
   }
 
+  // 型の書を見つける。スキルと同じくらいの頻度で、まだ知らない型を1つ覚える
+  const forms: FormId[] = [];
+  const knownForms = learnedForms(learned);
+  const unknownForms = FORM_IDS.filter((id) => !knownForms.includes(id));
+  if (unknownForms.length > 0 && rand() < Math.min(1, def.skillChance * y * EXPEDITION_FORM_CHANCE)) {
+    const found = unknownForms[Math.floor(rand() * unknownForms.length)]!;
+    learned.forms = [...knownForms, found];
+    forms.push(found);
+  }
+
   // 変化つきの技を見つける。元の技を覚えていなければ、一緒に覚える
   const variants: SkillVariant[] = [];
   if (rand() < Math.min(1, def.variantChance * y)) {
@@ -193,7 +217,7 @@ export function finishExpedition(c: Character, learned: Learned, now: number = e
   }
 
   c.expedition = undefined;
-  return { destination: ex.destination, power, yield: y, exp, levelsGained, items, skills, variants, injuredFor };
+  return { destination: ex.destination, power, yield: y, exp, levelsGained, items, skills, variants, forms, injuredFor };
 }
 
 /** 変化が付く技(敵のものでない技) */

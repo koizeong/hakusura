@@ -1,4 +1,4 @@
-import { ACTIVE_SKILLS, FIELDS, SKILL_CATEGORIES, STATUSES, STATUS_IDS, type ActiveSkillId, type CombatWorld, type Unit } from '@hakusura/core';
+import { ACTIVE_SKILLS, FERVOR, FIELDS, SKILL_CATEGORIES, STATUSES, STATUS_IDS, type ActiveSkillId, type CombatWorld, type Unit } from '@hakusura/core';
 import { ACTIVE_SLOT_ACTIONS, bindingLabel, type Keybinds } from '../input/keybinds';
 import { h } from './dom';
 import type { BattleMode } from './TrainingPanel';
@@ -23,6 +23,7 @@ export class Hud {
   private hpLag: HTMLElement;
   private lagRatio = 1;
   private vignette: HTMLElement;
+  private fervorFill: HTMLElement;
   private hpText: HTMLElement;
   private statuses: HTMLElement;
   private slots: SlotView[] = [];
@@ -55,6 +56,7 @@ export class Hud {
     this.hpFill = h('div', { class: 'hp-fill' });
     this.hpLag = h('div', { class: 'hp-lag' });
     this.vignette = h('div', { class: 'hurt-vignette' });
+    this.fervorFill = h('div', { class: 'fervor-fill' });
     this.hpText = h('span', { class: 'hp-text' });
     this.statuses = h('div', { class: 'own-statuses' });
     this.activeSlots = h('div', { class: 'active-slots' });
@@ -94,6 +96,8 @@ export class Hud {
         this.lock,
         this.statuses,
         h('div', { class: 'hp' }, this.hpLag, this.hpFill, this.hpText),
+        // 昂り。コンボと型で溜まり、満ちると切り札が早く戻る
+        h('div', { class: 'fervor', title: '昂り' }, this.fervorFill),
         h(
           'div',
           { class: 'slots manual-only' },
@@ -177,6 +181,7 @@ export class Hud {
     if (this.lock.textContent !== lockText) this.lock.textContent = lockText;
     this.lock.classList.toggle('on', !!lockTarget);
 
+    this.fervorFill.style.width = `${Math.min(100, (player.fervor / FERVOR.max) * 100)}%`;
     const ratio = Math.max(0, player.hp / player.maxHp);
     this.hpFill.style.width = `${ratio * 100}%`;
     // 削られた分は少し残してから縮める。回復したらすぐ追いつく

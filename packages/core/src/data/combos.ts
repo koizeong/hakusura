@@ -1,3 +1,5 @@
+import { FORMS, FORM_IDS } from './forms';
+
 /**
  * コンボ。ヒットに関わったルールのラベルやタグが揃うと成立し、戦闘中に名前を出す。
  * labels は相互作用・条件文・パッシブ・見返りのラベル、tags はヒットのタグ。どちらも全て揃って成立する
@@ -9,7 +11,7 @@ export interface ComboDef {
   color: number;
 }
 
-export const COMBOS = {
+const BASIC = {
   thunderRain: { name: '雷雨', labels: ['濡れで倍'], color: 0x7fd4ff },
   chainShock: { name: '連鎖', tags: ['shock', 'chain'], color: 0xb8e8ff },
   oilFire: { name: '油火', labels: ['油で倍'], color: 0xff9a3e },
@@ -31,13 +33,23 @@ export const COMBOS = {
   doomSpread: { name: '宣告の伝染', labels: ['死の宣告'], color: 0x6a3a7a },
 } as const satisfies Record<string, ComboDef>;
 
-export type ComboId = keyof typeof COMBOS;
+/** 型も、決まればコンボとして名前を出す */
+export const COMBOS: Record<string, ComboDef> = {
+  ...BASIC,
+  ...Object.fromEntries(FORM_IDS.map((id) => [`form:${id}`, { name: FORMS[id].name, labels: [FORMS[id].name], color: FORMS[id].color }])),
+};
+
+export type ComboId = string;
 export const COMBO_IDS = Object.keys(COMBOS) as ComboId[];
+
+export function comboDef(id: ComboId): ComboDef {
+  return COMBOS[id] ?? { name: id, color: 0xffffff };
+}
 
 /** ヒットに関わったラベルとタグから、成立したコンボを返す */
 export function matchCombos(labels: readonly string[], tags: ReadonlySet<string>): ComboId[] {
   return COMBO_IDS.filter((id) => {
-    const def: ComboDef = COMBOS[id];
+    const def = comboDef(id);
     return (def.labels ?? []).every((l) => labels.includes(l)) && (def.tags ?? []).every((t) => tags.has(t));
   });
 }

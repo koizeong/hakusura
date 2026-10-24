@@ -4,6 +4,7 @@ import {
   DEFAULT_TACTICS,
   LOOT_WEAPON_TYPE_IDS,
   SHIELD_TYPE_IDS,
+  STARTING_FORMS,
   STARTING_SKILLS,
   canFight,
   generateItem,
@@ -39,7 +40,7 @@ const OLD_CHARACTERS_KEY = 'hakusura.characters.v1';
 const OLD_BUILDS_KEY = 'hakusura.build.v3';
 
 function startingLearned(): Learned {
-  return { actives: [...STARTING_SKILLS.actives], passives: [...STARTING_SKILLS.passives] };
+  return { actives: [...STARTING_SKILLS.actives], passives: [...STARTING_SKILLS.passives], forms: [...STARTING_FORMS] };
 }
 
 /** 前の保存のキャラを、振った分に足りるレベルにして作り直す */
@@ -133,6 +134,7 @@ export function loadBuildState(random: () => number): BuildState {
       saved.current = Math.min(Math.max(0, saved.current | 0), saved.characters.length - 1);
       saved.learned ??= startingLearned();
       saved.techniques ??= [];
+      saved.learned.forms ??= [...STARTING_FORMS];
       // 戦える者を選んでおく(負傷の間は戦えない)
       if (!canFight(saved.characters[saved.current]!, Date.now())) {
         const other = saved.characters.findIndex((c) => canFight(c, Date.now()));

@@ -38,6 +38,8 @@ import {
   type Unit,
   type WeaponTypeId,
   type WeaponRef,
+  FORMS,
+  learnedForms,
   ELEMENT_IDS,
   buildWeight,
   weightCapacity,
@@ -717,7 +719,11 @@ export class BuildScreen {
 
   private renderTactics(): HTMLElement {
     const build = this.build;
-    const editor = createTacticsEditor(build.tactics, { skills: () => build.actives, onChange: () => this.host.onChange() });
+    const editor = createTacticsEditor(build.tactics, {
+      skills: () => build.actives,
+      forms: () => learnedForms(this.host.state.learned),
+      onChange: () => this.host.onChange(),
+    });
     return h('div', {}, editor.el);
   }
 
@@ -899,6 +905,7 @@ export class BuildScreen {
         `経験値 ${r.report.exp}(×${r.report.yield.toFixed(2)})${r.report.levelsGained > 0 ? `・Lv${r.level}に上がった(振れる点数 +${r.report.levelsGained})` : ''}`,
       ),
       r.report.skills.length > 0 ? h('p', { class: 'found' }, `覚えた:${r.report.skills.map(skillName).join('・')}`) : '',
+      ...r.report.forms.map((f) => h('p', { class: 'found' }, `型の書:${FORMS[f].name}を覚えた`)),
       ...r.report.variants.map((v) =>
         h('p', { class: 'found' }, `変化つきの技:${variantName(v, activeSkillDef(v.base).name)}(${variantText(v)})`),
       ),

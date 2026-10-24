@@ -1,5 +1,5 @@
 import type { ElementId } from './data/elements';
-import { COMBOS, type ComboId } from './data/combos';
+import { comboDef, type ComboId } from './data/combos';
 import type { DamageRecord } from './world';
 
 export interface BreakdownRow {
@@ -56,7 +56,7 @@ export function summarize(records: readonly DamageRecord[], now: number): Breakd
     bySource: group((r) => [r.source]),
     byElement: group((r) => [r.element]).map((row) => ({ ...row, element: row.key as ElementId })),
     byVia: group((r) => r.via),
-    byCombo: group((r) => r.combos).map((row) => ({ ...row, combo: row.key as ComboId, key: COMBOS[row.key as ComboId].name })),
+    byCombo: group((r) => r.combos).map((row) => ({ ...row, combo: row.key as ComboId, key: comboDef(row.key).name })),
   };
 }
 

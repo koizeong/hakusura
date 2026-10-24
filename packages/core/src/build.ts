@@ -10,7 +10,7 @@ import { gripOf } from './data/grips';
 import { ATTRIBUTE_IDS, ATTRIBUTE_RULES, baseAttributes, expToNext, pointsAtLevel, spentPoints, type Attributes } from './data/attributes';
 import type { ExpeditionId } from './data/expeditions';
 import { WEAPON_TEMPERS, WEAPON_TYPES, type WeaponSpec } from './data/weapons';
-import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
+import { FOLLOW_UP, TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import type { CombatWorld, Unit } from './world';
 
 /** ビルドの枠。docs/plan.md の「ビルド枠の構成」 */
@@ -206,7 +206,8 @@ export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   // 重さが担える重さを超えると鈍重になる
   if (buildWeight(build) > weightCapacity(unit.attributes)) unit.tags.push('overweight');
   if (weapons.length === 2 && itemTotal(weapons[0]!) === itemTotal(weapons[1]!)) unit.tags.push('dualTotalsEqual');
-  unit.tactics = build.tactics.map((t) => ({ ...t }));
+  unit.tactics = build.tactics.map((t) => ({ ...t, then: t.then ? [...t.then] : undefined }));
+  unit.followUp = undefined;
   const ratio = unit.maxHp > 0 ? unit.hp / unit.maxHp : 1;
   unit.maxHp = Math.max(1, Math.round(unit.baseMaxHp * world.statOf(unit, 'maxHp')));
   unit.hp = Math.max(1, Math.min(unit.maxHp, Math.round(unit.maxHp * ratio)));
@@ -296,6 +297,7 @@ function validateBuild(raw: unknown): string | null {
   }
   for (const t of b.tactics as Tactic[]) {
     if (!(t?.skill in ACTIVE_SKILLS) || !(t?.condition in TACTIC_CONDITIONS)) return '作戦に知らない部品がある';
+    if (t.then !== undefined && (!Array.isArray(t.then) || t.then.length > FOLLOW_UP.max || !t.then.every((s) => s in ACTIVE_SKILLS))) return '作戦の連携が壊れている';
   }
   if (!b.equipment || typeof b.equipment !== 'object') return '装備がない';
   for (const [slot, item] of Object.entries(b.equipment as Record<string, Item>)) {

@@ -8,8 +8,9 @@ import { toWeaponSpec, type WeaponRef, type WeaponSpec } from './data/weapons';
 import { shieldBurstElement, shieldDef, shieldName, type ShieldSpec } from './data/shields';
 import type { SkillVariant } from './data/variations';
 import { enemyDef, type EnemyId } from './data/enemies';
+import { FERVOR, STARTING_FORMS, formDef, type FormId } from './data/forms';
 import { attributeModifiers, type Attributes } from './data/attributes';
-import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
+import { FOLLOW_UP, TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import { matchCombos, type ComboId } from './data/combos';
 import { artifactDef, type ArtifactId, type ArtifactTraits } from './data/artifacts';
 import { affixModifier, type Item } from './data/equipment';
@@ -132,6 +133,16 @@ export interface Unit {
   falls: number;
   /** 最後にスキルを使った時刻。戦っている間かどうかを見る */
   lastAttackAt: number;
+  /** 直近に使ったスキル。型と「直前の手」の条件で見る */
+  history: { skill: ActiveSkillId; at: number; element?: ElementId; category: string; applies: StatusId[] }[];
+  /** 知っている型 */
+  forms: FormId[];
+  /** 昂り。コンボと型で溜まる */
+  fervor: number;
+  /** 直近のコンボ。同じものが続くと昂りが溜まりにくい */
+  recentCombos: string[];
+  /** 作戦の連携の続き。次に出すスキルと、待つ期限 */
+  followUp?: { skills: ActiveSkillId[]; until: number };
 }
 
 export interface Buff {
@@ -236,6 +247,10 @@ export type CombatEvent =
   /** 盾が砕けた。readyAt に張り直す */
   | { type: 'shieldBroke'; unitId: string; name: string; readyAt: number }
   | { type: 'shieldReady'; unitId: string; name: string }
+  /** 型が決まった */
+  | { type: 'form'; unitId: string; form: FormId; name: string }
+  /** 昂りが満ちた */
+  | { type: 'fervor'; unitId: string }
   /** 床が別の床に変わった */
   | { type: 'floorChanged'; id: number; from: FieldId; to: FieldId; x: number; y: number }
   /** 盲目で攻撃が外れた */
@@ -431,6 +446,10 @@ export class CombatWorld {
       mortal: spec.mortal ?? false,
       falls: 0,
       lastAttackAt: -Infinity,
+      history: [],
+      forms: [...STARTING_FORMS],
+      fervor: 0,
+      recentCombos: [],
       attributes: spec.attributes ? { ...spec.attributes } : undefined,
     };
     this.units.set(unit.id, unit);
@@ -620,7 +639,15 @@ export class CombatWorld {
     unit.lastAttackAt = this.time;
     const uses = (unit.skillUses[skillId] ?? 0) + 1;
     unit.skillUses[skillId] = uses;
-    const def: ResolvedSkill = { ...this.skillFor(unit, skillId)!, useIndex: uses };
+    let def: ResolvedSkill = { ...this.skillFor(unit, skillId)!, useIndex: uses };
+    // 型。直近の手順と合えば決まり、この一手が強くなる
+    const form = this.recordStep(unit, skillId, def);
+    if (form) {
+      const f = formDef(form);
+      def = { ...def, rules: [...(def.rules ?? []), { label: f.name, on: 'damage', when: [{ type: 'hitHasTag', tag: 'attack' }], add: f.bonus }] };
+      this.events.push({ type: 'form', unitId, form, name: f.name });
+      this.gainFervor(unit, f.fervor);
+    }
     // 雨乞うのように、条件を満たしている間だけ間隔が変わる
     const ctx = this.context(unit, unit, {});
     const when = (def.intervalWhen ?? []).reduce((m, w) => (w.when.every((p) => evaluatePredicate(p, ctx)) ? m * w.mult : m), 1);
@@ -638,6 +665,55 @@ export class CombatWorld {
     if (def.windup <= 0) this.executeSkill(action);
     else this.pending.push(action);
     return true;
+  }
+
+  /** 使ったスキルを手順に足し、決まった型を返す。決まったら手順は空にする */
+  private recordStep(unit: Unit, skill: ActiveSkillId, def: ResolvedSkill): FormId | undefined {
+    unit.history.push({ skill, at: this.time, element: def.element, category: def.category, applies: appliedStatuses(def) });
+    if (unit.history.length > 6) unit.history.shift();
+    for (const id of unit.forms) {
+      const f = formDef(id);
+      const n = f.steps.length;
+      const tail = unit.history.slice(-n);
+      if (tail.length < n) continue;
+      const fits = tail.every((h, i) => {
+        const step = f.steps[i]!;
+        if (i > 0 && h.at - tail[i - 1]!.at > f.window) return false;
+        return (
+          (!step.skill || step.skill === h.skill) &&
+          (!step.element || step.element === h.element) &&
+          (!step.category || step.category === h.category) &&
+          (!step.applies || h.applies.includes(step.applies))
+        );
+      });
+      if (!fits || (f.distinct && new Set(tail.map((h) => h.skill)).size < n)) continue;
+      unit.history = [unit.history.at(-1)!];
+      return id;
+    }
+    return undefined;
+  }
+
+  /** 昂りを溜める。満ちたら切り札が早く戻り、続く数撃が強くなる */
+  private gainFervor(unit: Unit, amount: number): void {
+    unit.fervor += amount;
+    if (unit.fervor < FERVOR.max) return;
+    unit.fervor = 0;
+    if (unit.trump && (unit.cooldowns[unit.trump] ?? 0) > this.time) {
+      unit.cooldowns[unit.trump] = Math.max(this.time, unit.cooldowns[unit.trump]! - FERVOR.trumpCut);
+    }
+    const b = FERVOR.buff;
+    unit.buffs.push({ label: b.label, add: b.add, tags: ['weapon'], until: this.time + b.duration, charges: b.charges });
+    this.events.push({ type: 'fervor', unitId: unit.id });
+  }
+
+  /** コンボのヒットで昂りが溜まる。同じコンボが続くほど溜まりにくい */
+  private onCombo(unit: Unit, combos: readonly string[]): void {
+    for (const c of combos) {
+      const same = unit.recentCombos.filter((r) => r === c).length;
+      unit.recentCombos.push(c);
+      if (unit.recentCombos.length > FERVOR.recent) unit.recentCombos.shift();
+      this.gainFervor(unit, FERVOR.perCombo / (1 + FERVOR.repeatPenalty * same));
+    }
   }
 
   /**
@@ -833,7 +909,9 @@ export class CombatWorld {
     const def = this.skillFor(unit, tactic.skill);
     if (!def || (actionReach(def.action) !== undefined && !target)) return false;
     const ctx = this.context(target ?? unit, unit, {});
-    return TACTIC_CONDITIONS[tactic.condition].when.every((p) => evaluatePredicate(p, ctx));
+    // 知らない条件(古い作戦など)の行は使わない
+    const condition = TACTIC_CONDITIONS[tactic.condition];
+    return !!condition && condition.when.every((p) => evaluatePredicate(p, ctx));
   }
 
   /** そのスキルが届く距離。近攻撃の射程の補正も含む。届かせる必要がなければ undefined */
@@ -906,12 +984,37 @@ export class CombatWorld {
   private runTactics(unit: Unit): void {
     if (this.runQueued(unit) !== 'continue') return;
     const target = this.tacticTarget(unit);
+    const aim = target ?? { x: unit.x + Math.cos(unit.facing), y: unit.y + Math.sin(unit.facing) };
+    // 連携の続きがあれば、期限までそれを待って出す。他の行は使わない
+    const follow = unit.followUp;
+    if (follow && follow.until >= this.time && follow.skills.length > 0) {
+      const next = follow.skills[0]!;
+      const reach = this.reachOf(unit, next);
+      const reachable = reach === undefined || (!!target && this.inReach(unit, target, reach));
+      const usable = this.canUseSkill(unit.id, next) && (unit.actives.length === 0 || unit.actives.includes(next));
+      if (!usable && !this.skillFor(unit, next)) {
+        unit.followUp = undefined;
+      } else {
+        if (usable && reachable && this.useSkill(unit.id, next, aim, reach !== undefined ? target?.id : undefined)) {
+          const rest = follow.skills.slice(1);
+          const used = this.skillFor(unit, next);
+          unit.followUp = rest.length > 0 ? { skills: rest, until: this.time + (used?.windup ?? 0) + FOLLOW_UP.window } : undefined;
+        }
+        return;
+      }
+    } else if (follow) {
+      unit.followUp = undefined;
+    }
     for (const tactic of unit.tactics) {
       if (!this.tacticReady(unit, tactic, target)) continue;
       const reach = this.reachOf(unit, tactic.skill);
       if (reach !== undefined && (!target || !this.inReach(unit, target, reach))) continue;
-      const aim = target ?? { x: unit.x + Math.cos(unit.facing), y: unit.y + Math.sin(unit.facing) };
-      if (this.useSkill(unit.id, tactic.skill, aim, reach !== undefined ? target?.id : undefined)) return;
+      const windup = this.skillFor(unit, tactic.skill)?.windup ?? 0;
+      if (this.useSkill(unit.id, tactic.skill, aim, reach !== undefined ? target?.id : undefined)) {
+        const then = (tactic.then ?? []).slice(0, FOLLOW_UP.max);
+        unit.followUp = then.length > 0 ? { skills: then, until: this.time + windup + FOLLOW_UP.window } : undefined;
+        return;
+      }
     }
   }
 
@@ -1483,6 +1586,9 @@ export class CombatWorld {
       attackerTags: attacker?.tags ?? [],
       attackerUnhurt: attacker ? attacker.lastHurtAt === -Infinity : false,
       attackerShieldReady: !!attacker?.shields.some((s) => s.ready),
+      targetBuildup: (s) => (this.isActive(target, s) ? 1 : target.statuses[s].buildup / statusDef(s).max),
+      attackerOnFloor: (field) => !!attacker && this.floorsUnder(attacker).some((f) => f.field === field),
+      attackerLastSkill: attacker?.history.at(-1)?.skill,
       // 相手の向きの後ろ半分から攻めている
       fromBehind:
         !!attacker &&
@@ -1562,6 +1668,7 @@ export class CombatWorld {
     };
     this.log.push(record);
     this.events.push({ type: 'damage', record, x: target.x, y: target.y });
+    if (attacker && attacker.team !== target.team && record.combos.length > 0) this.onCombo(attacker, record.combos);
     if (target.hp <= 0 && target.mortal) {
       this.kill(target, attacker);
       return;
@@ -1901,6 +2008,26 @@ function normalizeAngle(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2;
   while (a < -Math.PI) a += Math.PI * 2;
   return a;
+}
+
+/** そのスキルが溜める状態。属性・変化や武器のルール・付与・天候・床から */
+function appliedStatuses(def: ResolvedSkill): StatusId[] {
+  const out = new Set<StatusId>();
+  const a = def.action;
+  if (a.type === 'weather' || a.type === 'floor') {
+    const applies = fieldDef(a.field).applies;
+    if (applies) out.add(applies.status);
+  } else if (a.type === 'selfCare') {
+    if (a.status) out.add(a.status);
+  } else if (def.element) {
+    const s = statusForElement(def.element);
+    if (s && ('buildup' in a ? a.buildup > 0 : true)) out.add(s);
+  }
+  for (const rule of def.rules ?? []) {
+    if (rule.on !== 'hit') continue;
+    for (const act of rule.do) if (act.type === 'applyBuildup') out.add(act.status);
+  }
+  return [...out];
 }
 
 /** 数に入れる状態。蓄積でかかるもの */
