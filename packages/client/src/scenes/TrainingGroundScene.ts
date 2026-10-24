@@ -130,6 +130,8 @@ export class TrainingGroundScene extends Phaser.Scene {
   private encounter: Encounter | null = null;
   private encounterView!: EncounterView;
   private enemySerial = 0;
+  /** 最後に被弾した時刻(画面の時刻)。当たった瞬間に白く光らせる */
+  private hurtAt = new Map<string, number>();
 
   constructor() {
     super('TrainingGround');
@@ -706,6 +708,8 @@ export class TrainingGroundScene extends Phaser.Scene {
       g.fillRect(s.x - 20, s.y - 14, 40, 5);
       g.fillStyle(0x8a7454).fillCircle(s.x, s.y - 28, 9);
       g.lineStyle(1, 0x2a2018).strokeCircle(s.x, s.y - 28, 9);
+      const flash = this.hurtFlash(s.id);
+      if (flash > 0) g.fillStyle(0xffffff, flash * 0.6).fillCircle(s.x, s.y - 14, 20);
       this.drawStatuses(s, s.y + 26);
       if (world.isIncapacitated(s)) {
         const a = world.time / 150;
@@ -729,8 +733,10 @@ export class TrainingGroundScene extends Phaser.Scene {
     // 自分
     const p = this.player;
     const invulnerable = p.invulnerableUntil > world.time;
-    g.fillStyle(0xcbbfa8, invulnerable ? 0.35 : 1).fillCircle(p.x, p.y, PLAYER_LOOK);
+    const hurt = this.hurtFlash(p.id);
+    g.fillStyle(hurt > 0 ? 0xe04030 : 0xcbbfa8, invulnerable ? 0.35 : 1).fillCircle(p.x, p.y, PLAYER_LOOK);
     g.lineStyle(2, 0x6b2b22, invulnerable ? 0.35 : 1).strokeCircle(p.x, p.y, PLAYER_LOOK);
+    if (hurt > 0) g.lineStyle(3, 0xff6050, hurt).strokeCircle(p.x, p.y, PLAYER_LOOK + 4 + (1 - hurt) * 10);
     // 本当の当たり判定
     g.fillStyle(0x7a1f22, 1).fillCircle(p.x, p.y, p.radius * 0.6);
     g.lineStyle(1, 0xf2e6c8, 0.9).strokeCircle(p.x, p.y, p.radius);
@@ -779,6 +785,13 @@ export class TrainingGroundScene extends Phaser.Scene {
     const len = Math.hypot(dx, dy);
     const k = len > STICK.full ? STICK.full / len : 1;
     g.fillStyle(0xc9b79c, 0.45).fillCircle(stick.startX + dx * k, stick.startY + dy * k, 18);
+  }
+
+  /** 被弾の光の強さ(0〜1)。当たった瞬間が1で、すぐ消える */
+  private hurtFlash(id: string): number {
+    const at = this.hurtAt.get(id);
+    if (at === undefined) return 0;
+    return Math.max(0, 1 - (this.time.now - at) / 140);
   }
 
   /** 床を描く。種類ごとに少し飾る */
@@ -849,6 +862,9 @@ export class TrainingGroundScene extends Phaser.Scene {
         g.fillCircle(u.x, u.y, r * (1 + Math.sin(world.time / 300 + u.x) * 0.06)).strokeCircle(u.x, u.y, r);
         g.fillStyle(0x2a2010, 0.8).fillCircle(u.x - r * 0.3, u.y - r * 0.2, r * 0.25);
     }
+    // 当たった瞬間は白く光る
+    const flash = this.hurtFlash(u.id);
+    if (flash > 0) g.fillStyle(0xffffff, flash * 0.7).fillCircle(u.x, u.y, r * 1.1);
     // 体力。減ってから見せる
     if (u.hp < u.maxHp) {
       const w = Math.max(28, r * 2.2);
@@ -943,6 +959,27 @@ export class TrainingGroundScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * 自分が被弾したとき。画面の縁を赤く滲ませ、重い一撃ほど揺らす。
+   * 継続ダメージは揺らさず、滲みも薄くする
+   */
+  private onPlayerHurt(amount: number, dot: boolean): void {
+    const ratio = amount / Math.max(1, this.player.maxHp);
+    this.hud.hurt(dot ? ratio * 0.3 : ratio);
+    if (dot) return;
+    this.cameras.main.shake(120, Math.min(0.014, 0.003 + ratio * 0.06));
+    // 足元に赤い飛沫
+    const p = this.player;
+    const fx = this.add.graphics().setDepth(41);
+    fx.fillStyle(0xb02a30, 0.85);
+    for (let i = 0; i < 7; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = 10 + Math.random() * 16;
+      fx.fillCircle(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, 2 + Math.random() * 2.5);
+    }
+    this.tweens.add({ targets: fx, alpha: 0, duration: 380, onComplete: () => fx.destroy() });
+  }
+
   /** 小さな文字を浮かべて消す */
   private floatText(x: number, y: number, label: string, color: string): void {
     const text = this.add.text(x, y, label, { fontFamily: FONT, fontSize: '16px', color, stroke: '#000000', strokeThickness: 3 }).setOrigin(0.5).setDepth(44);
@@ -965,6 +1002,8 @@ export class TrainingGroundScene extends Phaser.Scene {
       case 'damage': {
         const { record } = event;
         if (record.attackerId === this.player.id && record.targetTeam !== this.player.team) this.combo.push(record, this.time.now);
+        if (record.amount > 0) this.hurtAt.set(record.targetId, this.time.now);
+        if (record.targetId === this.player.id && record.amount > 0) this.onPlayerHurt(record.amount, record.tags.includes('dot'));
         if (record.amount <= 0 && record.depth > 0) return;
         const color = `#${ELEMENTS[record.element].color.toString(16).padStart(6, '0')}`;
         const big = record.emphasized;

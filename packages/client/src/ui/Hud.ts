@@ -19,6 +19,10 @@ export interface HudActions {
 export class Hud {
   readonly el: HTMLElement;
   private hpFill: HTMLElement;
+  /** 減った分を遅れて縮める白い帯。どれだけ削られたかが見える */
+  private hpLag: HTMLElement;
+  private lagRatio = 1;
+  private vignette: HTMLElement;
   private hpText: HTMLElement;
   private statuses: HTMLElement;
   private slots: SlotView[] = [];
@@ -49,6 +53,8 @@ export class Hud {
     actions: HudActions,
   ) {
     this.hpFill = h('div', { class: 'hp-fill' });
+    this.hpLag = h('div', { class: 'hp-lag' });
+    this.vignette = h('div', { class: 'hurt-vignette' });
     this.hpText = h('span', { class: 'hp-text' });
     this.statuses = h('div', { class: 'own-statuses' });
     this.activeSlots = h('div', { class: 'active-slots' });
@@ -80,13 +86,14 @@ export class Hud {
     this.el = h(
       'div',
       { class: 'hud' },
+      this.vignette,
       h('div', { class: 'corner' }, buildButton, this.speedButton, breakdownButton),
       h(
         'div',
         { class: 'bottom' },
         this.lock,
         this.statuses,
-        h('div', { class: 'hp' }, this.hpFill, this.hpText),
+        h('div', { class: 'hp' }, this.hpLag, this.hpFill, this.hpText),
         h(
           'div',
           { class: 'slots manual-only' },
@@ -170,7 +177,11 @@ export class Hud {
     if (this.lock.textContent !== lockText) this.lock.textContent = lockText;
     this.lock.classList.toggle('on', !!lockTarget);
 
-    this.hpFill.style.width = `${Math.max(0, (player.hp / player.maxHp) * 100)}%`;
+    const ratio = Math.max(0, player.hp / player.maxHp);
+    this.hpFill.style.width = `${ratio * 100}%`;
+    // 削られた分は少し残してから縮める。回復したらすぐ追いつく
+    this.lagRatio = ratio >= this.lagRatio ? ratio : this.lagRatio + (ratio - this.lagRatio) * 0.06;
+    this.hpLag.style.width = `${this.lagRatio * 100}%`;
     this.hpText.textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
     const cooldownLeft = (skill: ActiveSkillId) => Math.max(0, (player.cooldowns[skill] ?? 0) - world.time) / (player.cooldownSpans[skill] ?? 1);
 
@@ -217,6 +228,16 @@ export class Hud {
       this.lastStatusHtml = html;
       this.statuses.innerHTML = html;
     }
+  }
+
+  /** 被弾したとき、画面の縁を赤く滲ませる。重い一撃ほど濃い */
+  hurt(ratio: number): void {
+    const v = this.vignette;
+    v.style.transition = 'none';
+    v.style.opacity = String(Math.min(0.9, 0.3 + ratio * 4));
+    void v.offsetWidth;
+    v.style.transition = 'opacity 0.45s ease-out';
+    v.style.opacity = '0';
   }
 
   /** 作戦に入っているスキルを1つずつ並べ、クールダウンを見せる */

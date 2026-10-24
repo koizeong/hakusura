@@ -296,8 +296,28 @@ input {
 }
 
 .hp-fill {
+  position: relative;
   height: 100%;
   background: var(--blood);
+}
+
+/* 削られた分を遅れて縮める帯 */
+.hp-lag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: #e8dcc8;
+  opacity: 0.75;
+}
+
+/* 被弾したときに画面の縁が赤く滲む */
+.hurt-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(120, 0, 0, 0) 45%, rgba(150, 10, 10, 0.55) 80%, rgba(90, 0, 0, 0.85) 100%);
 }
 
 .hp-text {
