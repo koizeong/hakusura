@@ -43,6 +43,8 @@ import { BuildScreen } from '../ui/BuildScreen';
 import { currentBuild, currentCharacter, loadBuildState, resetBuildState, saveBuildState, type BuildState } from '../ui/buildStore';
 
 const ARENA = { width: 1600, height: 1000 };
+/** 霧と夜の暗がりの絵の大きさ。場のどこにいても場を覆える */
+const VEIL_SIZE = 4000;
 const FONT = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif';
 const MOVE_SPEED = 230;
 /** 自動のときの移動。すいすい動いて弾を避ける */
@@ -102,8 +104,8 @@ export class TrainingGroundScene extends Phaser.Scene {
   private keybinds!: Keybinds;
   private gfx!: Phaser.GameObjects.Graphics;
   private rainGfx!: Phaser.GameObjects.Graphics;
-  /** 霧と夜の暗がり。自分の周りだけ見える */
-  private veilGfx!: Phaser.GameObjects.Graphics;
+  /** 霧と夜の暗がり。自分の周りだけ見える。毎回描くと重いので、一度作った絵を動かす */
+  private veils!: Record<'fog' | 'night', Phaser.GameObjects.Image>;
   private hud!: Hud;
   private breakdown!: BreakdownView;
   private walking = false;
@@ -174,7 +176,7 @@ export class TrainingGroundScene extends Phaser.Scene {
 
     this.gfx = this.add.graphics();
     this.rainGfx = this.add.graphics().setScrollFactor(0).setDepth(50);
-    this.veilGfx = this.add.graphics().setDepth(48);
+    this.veils = { fog: this.makeVeil('veil-fog', [200, 204, 208], 0.72, 200), night: this.makeVeil('veil-night', [5, 5, 12], 0.8, 240) };
     this.stickGfx = this.add.graphics().setScrollFactor(0).setDepth(60);
     this.combo = new ComboView();
     this.cameras.main.setBounds(0, 0, ARENA.width, ARENA.height);
@@ -861,6 +863,55 @@ export class TrainingGroundScene extends Phaser.Scene {
         g.fillRect(u.x - r * 1.2, u.y + r * 0.5, r * 2.4, r * 0.45);
         g.fillStyle(0x2a2a30, 1).fillCircle(u.x, u.y + r * 1.15, r * 0.3);
         break;
+      case 'hood': {
+        // 頭巾の者。尖った頭と、闇の中の顔
+        const pts = [
+          { x: u.x, y: u.y - r * 1.4 },
+          { x: u.x + r, y: u.y + r * 0.9 },
+          { x: u.x - r, y: u.y + r * 0.9 },
+        ];
+        g.fillPoints(pts, true).strokePoints(pts, true);
+        g.fillStyle(0x0a0808, 0.9).fillCircle(u.x, u.y - r * 0.2, r * 0.38);
+        break;
+      }
+      case 'spike': {
+        // 棘に覆われた体
+        g.fillCircle(u.x, u.y, r * 0.85).strokeCircle(u.x, u.y, r * 0.85);
+        g.lineStyle(2, def.look.color, 1);
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * Math.PI * 2;
+          g.lineBetween(u.x + Math.cos(a) * r * 0.8, u.y + Math.sin(a) * r * 0.8, u.x + Math.cos(a) * r * 1.35, u.y + Math.sin(a) * r * 1.35);
+        }
+        break;
+      }
+      case 'star': {
+        const pts = Array.from({ length: 12 }, (_, i) => {
+          const a = (i / 12) * Math.PI * 2 + world.time / 2000;
+          const d = i % 2 === 0 ? r * 1.3 : r * 0.6;
+          return { x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d };
+        });
+        g.fillPoints(pts, true).strokePoints(pts, true);
+        break;
+      }
+      case 'eye': {
+        // 影の目。半ば透けて見える
+        g.fillStyle(def.look.color, 0.55).fillEllipse(u.x, u.y, r * 2.4, r * 1.3);
+        g.lineStyle(2, winding ? 0xe0503a : 0x1a1410, 1).strokeEllipse(u.x, u.y, r * 2.4, r * 1.3);
+        g.fillStyle(0xd8c8f0, 0.9).fillCircle(u.x + Math.cos(u.facing) * r * 0.4, u.y + Math.sin(u.facing) * r * 0.2, r * 0.3);
+        break;
+      }
+      case 'sac': {
+        // 脈打つ肉の袋
+        const pulse = 1 + Math.sin(world.time / 260 + u.y) * 0.07;
+        g.fillEllipse(u.x, u.y, r * 2 * pulse, r * 1.7 * pulse).strokeEllipse(u.x, u.y, r * 2 * pulse, r * 1.7 * pulse);
+        g.fillStyle(0x2a1010, 0.6).fillCircle(u.x - r * 0.35, u.y - r * 0.1, r * 0.22).fillCircle(u.x + r * 0.3, u.y + r * 0.25, r * 0.18);
+        break;
+      }
+      case 'cross': {
+        g.fillRect(u.x - r * 0.3, u.y - r * 1.3, r * 0.6, r * 2.6).strokeRect(u.x - r * 0.3, u.y - r * 1.3, r * 0.6, r * 2.6);
+        g.fillRect(u.x - r, u.y - r * 0.7, r * 2, r * 0.5).strokeRect(u.x - r, u.y - r * 0.7, r * 2, r * 0.5);
+        break;
+      }
       default:
         // 油袋は膨らんだり萎んだりする
         g.fillCircle(u.x, u.y, r * (1 + Math.sin(world.time / 300 + u.x) * 0.06)).strokeCircle(u.x, u.y, r);
@@ -902,13 +953,37 @@ export class TrainingGroundScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * 自分の周りだけ明るい暗がりの絵を作る。中心から inner までは透け、外へ行くほど濃くなる。
+   * 絵の端より外も覆えるよう、場の倍より大きく広げて置く
+   */
+  private makeVeil(key: string, rgb: [number, number, number], alpha: number, inner: number): Phaser.GameObjects.Image {
+    const size = 512;
+    const shown = VEIL_SIZE;
+    const tex = this.textures.createCanvas(key, size, size)!;
+    const ctx = tex.getContext();
+    const c = size / 2;
+    const grad = ctx.createRadialGradient(c, c, 0, c, c, c);
+    const color = (a: number) => `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a})`;
+    grad.addColorStop(0, color(0));
+    grad.addColorStop(inner / (shown / 2), color(0));
+    grad.addColorStop((inner + 240) / (shown / 2), color(alpha));
+    grad.addColorStop(1, color(alpha));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    tex.refresh();
+    return this.add.image(0, 0, key).setDisplaySize(shown, shown).setDepth(48).setVisible(false);
+  }
+
   /** 天候を描く。雨と砂嵐は画面に、霧と夜は自分の周りだけ見える暗がりにする */
   private drawWeather(): void {
     const g = this.rainGfx;
-    const veil = this.veilGfx;
     g.clear();
-    veil.clear();
     const weather = this.world.weather;
+    for (const [id, veil] of Object.entries(this.veils)) {
+      veil.setVisible(weather === id);
+      if (weather === id) veil.setPosition(this.player.x, this.player.y);
+    }
     if (!weather) return;
     const { width, height } = this.cameras.main;
     const t = this.world.time;
@@ -942,22 +1017,7 @@ export class TrainingGroundScene extends Phaser.Scene {
         break;
       }
       case 'fog':
-      case 'night': {
-        // 自分の周りだけ明るい。外へ行くほど濃くなる輪を重ねる
-        const p = this.player;
-        const color = weather === 'fog' ? 0xc8ccd0 : 0x05050c;
-        const inner = weather === 'fog' ? 200 : 240;
-        const max = weather === 'fog' ? 0.72 : 0.8;
-        // 細い輪を重ねて、境目が見えないようにする
-        const steps = 24;
-        const band = 10;
-        for (let i = 0; i < steps; i++) {
-          veil.lineStyle(band, color, (max * (i + 1)) / (steps + 1)).strokeCircle(p.x, p.y, inner + i * band + band / 2);
-        }
-        const outer = inner + steps * band;
-        veil.lineStyle(6000, color, max).strokeCircle(p.x, p.y, outer + 3000);
-        break;
-      }
+      case 'night':
       case 'calm':
         break;
     }
@@ -1214,6 +1274,20 @@ export class TrainingGroundScene extends Phaser.Scene {
       }
       case 'weatherCalled': {
         this.callout(this.player, `${FIELDS[event.field].name}を呼んだ`, '#8fb4d8');
+        break;
+      }
+      case 'blink': {
+        // 影の跡を残して移る
+        const fx = this.add.graphics().setDepth(29);
+        fx.fillStyle(0x2a1a3a, 0.6).fillCircle(event.from.x, event.from.y, 16);
+        fx.lineStyle(2, 0x6a5a8a, 0.5).lineBetween(event.from.x, event.from.y, event.to.x, event.to.y);
+        this.tweens.add({ targets: fx, alpha: 0, duration: 450, onComplete: () => fx.destroy() });
+        break;
+      }
+      case 'summoned': {
+        const fx = this.add.graphics().setDepth(29);
+        fx.lineStyle(2, 0x8a9a5a, 0.9).strokeCircle(event.x, event.y, 22);
+        this.tweens.add({ targets: fx, alpha: 0, scale: 1.6, duration: 500, onComplete: () => fx.destroy() });
         break;
       }
       case 'form': {

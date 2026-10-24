@@ -37,20 +37,19 @@ export class Encounter {
     return (this.endedAt ?? this.world.time) - this.startedAt;
   }
 
-  /** 倒した数 */
+  /** 倒した数。呼び出された敵も数える */
   get kills(): number {
     return this.deadKinds().length;
   }
 
   /** 倒した敵の種類。倒した順 */
   deadKinds(): EnemyId[] {
-    const ids = new Set(this.spawned);
-    return this.world.deaths.flatMap((d) => (ids.has(d.unitId) && d.kind ? [d.kind] : []));
+    return this.world.deaths.flatMap((d) => (d.time >= this.startedAt && d.team !== this.hero.team && d.kind ? [d.kind] : []));
   }
 
-  /** 場に残っている、この戦闘で呼んだ敵 */
+  /** 場に残っている敵。この戦闘で呼んだ敵と、それが呼び出した敵 */
   alive(): Unit[] {
-    return this.spawned.flatMap((id) => this.world.units.get(id) ?? []);
+    return [...this.world.units.values()].filter((u) => u.mortal && u.team !== this.hero.team);
   }
 
   update(): void {

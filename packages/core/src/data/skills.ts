@@ -29,6 +29,12 @@ export type SkillAction =
   | { type: 'floor'; field: FieldId; radius: number; duration: number }
   /** 自分に効く。最大HPの heal だけ回復し、status を満タンにする */
   | { type: 'selfCare'; heal?: number; status?: StatusId }
+  /** 敵を呼ぶ(ENEMIES の名前)。fromCorpse なら近くの死体を起こし、死体は消える。呼んだ者が max 体を超えない */
+  | { type: 'summon'; enemy: string; count: number; max: number; radius: number; fromCorpse?: boolean }
+  /** 相手の背後か正面へ一瞬で移る */
+  | { type: 'blink'; where: 'behind' | 'front'; distance: number; range: number }
+  /** radius 内の仲間を最大HPの ratio だけ癒す。腐敗していれば傷になる */
+  | { type: 'healAllies'; ratio: number; radius: number }
   /** count 発を spread 度ずつずらして撃つ。pierce があれば、その数だけ相手を貫いて飛び続ける */
   | {
       type: 'projectile';
@@ -85,6 +91,8 @@ export interface FixedSkillDef extends SkillBase {
   /** 使ってから再び使えるまで(ミリ秒) */
   cooldown: number;
   action: SkillAction;
+  /** このスキルで当てたときだけ効くルール(宣告の矢の死の宣告など) */
+  rules?: readonly Rule[];
 }
 
 /**
@@ -544,6 +552,155 @@ export const ACTIVE_SKILLS = {
     cooldown: 4600,
     action: { type: 'barrage', pattern: 'ring', count: 10, spin: 18, speed: 130, radius: 6, range: 560, power: 9, buildup: 28 },
   },
+  /** 屍術師。近くの死体を屍喰いとして起こす */
+  raiseDead: {
+    name: '死体起こし',
+    category: 'summon',
+    tags: ['enemy'],
+    windup: 1200,
+    recovery: 500,
+    cooldown: 6500,
+    action: { type: 'summon', enemy: 'ghoul', count: 2, max: 4, radius: 450, fromCorpse: true },
+  },
+  /** 屍術師の墓の矢。遅い腐れの矢 */
+  graveBolt: {
+    name: '墓の矢',
+    category: 'ranged',
+    element: 'rot',
+    tags: ['attack', 'enemy', 'projectile'],
+    windup: 700,
+    recovery: 300,
+    cooldown: 3200,
+    action: { type: 'barrage', pattern: 'fan', count: 2, spread: 16, speed: 200, radius: 7, range: 600, power: 9, buildup: 40 },
+  },
+  /** 棘の亡者のひっかき */
+  huskClaw: {
+    name: '亡者の爪',
+    category: 'melee',
+    element: 'pierce',
+    tags: ['attack', 'enemy'],
+    windup: 600,
+    recovery: 500,
+    cooldown: 2200,
+    action: { type: 'melee', range: 60, arc: 110, power: 16, buildup: 35 },
+  },
+  /** 霜の巫女の霜の輪 */
+  frostRing: {
+    name: '霜の輪',
+    category: 'ranged',
+    element: 'ice',
+    tags: ['attack', 'enemy', 'projectile'],
+    windup: 800,
+    recovery: 400,
+    cooldown: 4200,
+    action: { type: 'barrage', pattern: 'ring', count: 8, spin: 22, speed: 150, radius: 7, range: 560, power: 9, buildup: 30 },
+  },
+  /** 霜の巫女。狙った相手の足元を凍らせる */
+  frostFloor: {
+    name: '凍てつく足元',
+    category: 'ranged',
+    tags: ['enemy'],
+    windup: 900,
+    recovery: 400,
+    cooldown: 7000,
+    action: { type: 'floor', field: 'iceFloor', radius: 90, duration: 8000 },
+  },
+  /** 影潜みの影渡り。相手の背後へ移る */
+  shadowStep: {
+    name: '影渡り',
+    category: 'melee',
+    tags: ['enemy'],
+    windup: 300,
+    recovery: 150,
+    cooldown: 5500,
+    action: { type: 'blink', where: 'behind', distance: 42, range: 450 },
+  },
+  /** 影潜みの影の刃。闇で目を奪う */
+  shadowCut: {
+    name: '影の刃',
+    category: 'melee',
+    element: 'dark',
+    tags: ['attack', 'enemy'],
+    windup: 350,
+    recovery: 450,
+    cooldown: 1600,
+    action: { type: 'melee', range: 55, arc: 100, power: 16, buildup: 45 },
+  },
+  /** 疫病の運び手。瘴気を呼ぶ */
+  miasmaCall: {
+    name: '瘴気の祈り',
+    category: 'imbue',
+    tags: ['enemy'],
+    windup: 1400,
+    recovery: 500,
+    cooldown: 26000,
+    action: { type: 'weather', field: 'miasma', duration: 14000 },
+  },
+  /** 疫病の運び手。周りの仲間を癒す。腐っていれば傷になる */
+  plagueMend: {
+    name: '膿の癒し',
+    category: 'heal',
+    tags: ['enemy', 'heal'],
+    windup: 900,
+    recovery: 400,
+    cooldown: 4500,
+    action: { type: 'healAllies', ratio: 0.12, radius: 260 },
+  },
+  /** 宣告者の宣告の矢。当たると死の宣告が溜まる */
+  doomBolt: {
+    name: '宣告の矢',
+    category: 'ranged',
+    element: 'curse',
+    tags: ['attack', 'enemy', 'projectile'],
+    windup: 900,
+    recovery: 400,
+    cooldown: 3600,
+    action: { type: 'barrage', pattern: 'fan', count: 1, speed: 170, radius: 9, range: 680, power: 8, buildup: 30 },
+    rules: [{ label: '宣告', on: 'hit', when: [], do: [{ type: 'applyBuildup', status: 'doom', amount: 28 }] }],
+  },
+  /** 血の狂信者の跳びかかり。相手の目の前へ */
+  zealotLeap: {
+    name: '跳びかかり',
+    category: 'melee',
+    tags: ['enemy'],
+    windup: 550,
+    recovery: 100,
+    cooldown: 6000,
+    action: { type: 'blink', where: 'front', distance: 34, range: 380 },
+  },
+  /** 血の狂信者の血裂き。血の攻撃で、出血した相手から吸う */
+  bloodRend: {
+    name: '血裂き',
+    category: 'melee',
+    element: 'blood',
+    tags: ['attack', 'enemy'],
+    windup: 450,
+    recovery: 450,
+    cooldown: 1500,
+    action: { type: 'melee', range: 58, arc: 120, power: 14, buildup: 45 },
+  },
+  /** 巣袋。屍喰いを産む */
+  spawnBrood: {
+    name: '産み落とし',
+    category: 'summon',
+    tags: ['enemy'],
+    windup: 1000,
+    recovery: 300,
+    cooldown: 5000,
+    action: { type: 'summon', enemy: 'ghoul', count: 1, max: 4, radius: 60 },
+  },
+  /** 黙りの修道士の沈黙の輪。当たると静寂が溜まる */
+  hushRing: {
+    name: '沈黙の輪',
+    category: 'ranged',
+    element: 'dark',
+    tags: ['attack', 'enemy', 'projectile'],
+    windup: 900,
+    recovery: 400,
+    cooldown: 5000,
+    action: { type: 'barrage', pattern: 'ring', count: 12, spin: 15, speed: 120, radius: 6, range: 520, power: 6, buildup: 15 },
+    rules: [{ label: '沈黙', on: 'hit', when: [], do: [{ type: 'applyBuildup', status: 'silence', amount: 22 }] }],
+  },
 } as const satisfies Record<string, ActiveSkillDef>;
 
 export type ActiveSkillId = keyof typeof ACTIVE_SKILLS;
@@ -630,6 +787,7 @@ function resolveRaw(id: ActiveSkillId, weapon?: WeaponRef, variant?: SkillVarian
       recovery: def.recovery,
       cooldown: def.cooldown,
       action: def.action,
+      rules: def.rules,
       missing: 0,
     };
   }
@@ -685,5 +843,6 @@ export function actionReach(a: SkillAction): number | undefined {
   if (a.type === 'barrage') return a.range * 0.7;
   if (a.type === 'floor') return 600;
   if (a.type === 'nova') return a.radius * 0.85;
+  if (a.type === 'blink') return a.range;
   return undefined;
 }

@@ -143,6 +143,10 @@ export interface Unit {
   recentCombos: string[];
   /** 作戦の連携の続き。次に出すスキルと、待つ期限 */
   followUp?: { skills: ActiveSkillId[]; until: number };
+  /** 生まれつき持つルール(敵の棘など) */
+  innateRules: Rule[];
+  /** 呼び出した者(屍術師が起こした屍喰いなど) */
+  minions: string[];
 }
 
 export interface Buff {
@@ -247,6 +251,10 @@ export type CombatEvent =
   /** 盾が砕けた。readyAt に張り直す */
   | { type: 'shieldBroke'; unitId: string; name: string; readyAt: number }
   | { type: 'shieldReady'; unitId: string; name: string }
+  /** 影渡りや跳びかかりで一瞬で移った */
+  | { type: 'blink'; unitId: string; from: Point; to: Point }
+  /** 呼び出された(死体起こし・産み落とし) */
+  | { type: 'summoned'; unitId: string; by: string; x: number; y: number; skill: string }
   /** 型が決まった */
   | { type: 'form'; unitId: string; form: FormId; name: string }
   /** 昂りが満ちた */
@@ -374,6 +382,7 @@ export class CombatWorld {
       mortal: true,
       kind,
     });
+    unit.innateRules = [...(def.rules ?? [])];
     // 現れてすぐ一斉に撃たないよう、最初の間を少しずらす
     for (const skill of def.skills) unit.cooldowns[skill] = this.time + 600 + this.random() * 1400;
     return unit;
@@ -450,6 +459,8 @@ export class CombatWorld {
       forms: [...STARTING_FORMS],
       fervor: 0,
       recentCombos: [],
+      innateRules: [],
+      minions: [],
       attributes: spec.attributes ? { ...spec.attributes } : undefined,
     };
     this.units.set(unit.id, unit);
@@ -582,8 +593,8 @@ export class CombatWorld {
       !this.isBusy(unit) &&
       unit.guardSince === null &&
       !this.isIncapacitated(unit) &&
-      // 静寂と恐怖の間は、アクティブスキルを使えない
-      !this.hasStatusFlag(unit, 'silences')
+      // 静寂と恐怖の間は、アクティブスキルを使えない。切り札は使える
+      (!this.hasStatusFlag(unit, 'silences') || (activeSkillDef(skillId).tags as readonly string[]).includes('trump'))
     );
   }
 
@@ -863,6 +874,35 @@ export class CombatWorld {
         this.processHits();
         break;
       }
+      case 'summon': {
+        this.summon(unit, action, def.name);
+        break;
+      }
+      case 'blink': {
+        if (!target) break;
+        // 背後なら相手の向きの逆側、正面なら相手と自分の間に移る
+        const a = action.where === 'behind' ? target.facing + Math.PI : Math.atan2(unit.y - target.y, unit.x - target.x);
+        const from = { x: unit.x, y: unit.y };
+        let x = target.x + Math.cos(a) * (action.distance + target.radius);
+        let y = target.y + Math.sin(a) * (action.distance + target.radius);
+        if (this.bounds) {
+          x = Math.min(this.bounds.width - unit.radius, Math.max(unit.radius, x));
+          y = Math.min(this.bounds.height - unit.radius, Math.max(unit.radius, y));
+        }
+        this.moveUnit(unit.id, x, y);
+        unit.facing = Math.atan2(target.y - y, target.x - x);
+        this.events.push({ type: 'blink', unitId: unit.id, from, to: { x, y } });
+        break;
+      }
+      case 'healAllies': {
+        this.events.push({ type: 'nova', unitId: unit.id, x: unit.x, y: unit.y, radius: action.radius, element: 'rot' });
+        for (const ally of this.units.values()) {
+          if (ally.team !== unit.team || Math.hypot(ally.x - unit.x, ally.y - unit.y) > action.radius) continue;
+          this.heal(ally, ally.maxHp * action.ratio, { attacker: unit, skill: def.name, via: [], depth: 0 });
+        }
+        this.processHits();
+        break;
+      }
       case 'selfCare': {
         if (action.heal) this.heal(unit, unit.maxHp * action.heal, { attacker: unit, skill: def.name, via: [], depth: 0 });
         if (action.status) this.addBuildup(unit, action.status, statusDef(action.status).max, { attacker: unit, skill: def.name, via: [], depth: 0 });
@@ -1029,6 +1069,7 @@ export class CombatWorld {
           // 天候のように届かせる必要のないものは、相手が近くにいて、まだその天候でないときに使う
           const def = this.skillFor(unit, skill);
           if (def?.action.type === 'weather' && this.weather === def.action.field) continue;
+          if (def && !this.worthUsing(unit, def.action)) continue;
           const near = this.opponentsOf(unit).find((u) => Math.hypot(u.x - unit.x, u.y - unit.y) < 700);
           if (near && this.useSkill(unit.id, skill, near)) break;
           continue;
@@ -1038,7 +1079,9 @@ export class CombatWorld {
           .filter(({ d }) => d <= reach * 0.9)
           .sort((a, b) => a.d - b.d)[0]?.u;
         // 敵の振りかぶりは向きを決め打ちにする。見てから横へ避けられるように
-        if (target && this.useSkill(unit.id, skill, target)) break;
+        // 影渡りのように相手のそばへ移るものだけは、相手を追う
+        const follows = this.skillFor(unit, skill)?.action.type === 'blink';
+        if (target && this.useSkill(unit.id, skill, target, follows ? target.id : undefined)) break;
       }
     }
   }
@@ -1122,6 +1165,7 @@ export class CombatWorld {
     for (const unit of this.units.values()) {
       if (!unit.kind || unit.hp <= 0 || this.isBusy(unit) || this.isIncapacitated(unit)) continue;
       const def = enemyDef(unit.kind);
+      if (def.behavior === 'stationary') continue;
       const target = this.tacticTarget(unit);
       if (!target) continue;
       const dx = target.x - unit.x;
@@ -1297,6 +1341,43 @@ export class CombatWorld {
     }
     unit.hp = Math.min(unit.maxHp, unit.hp + value);
     this.events.push({ type: 'healed', unitId: unit.id, amount: value });
+  }
+
+  /** 届かせる必要のないスキルを、今使う意味があるか(敵の判断) */
+  private worthUsing(unit: Unit, action: SkillAction): boolean {
+    if (action.type === 'summon') {
+      const alive = unit.minions.filter((id) => this.units.has(id)).length;
+      if (alive >= action.max) return false;
+      return !action.fromCorpse || this.floors.some((f) => f.field === 'corpse' && Math.hypot(f.x - unit.x, f.y - unit.y) <= action.radius);
+    }
+    if (action.type === 'healAllies') {
+      return [...this.units.values()].some(
+        (u) => u.team === unit.team && u.hp < u.maxHp * 0.85 && Math.hypot(u.x - unit.x, u.y - unit.y) <= action.radius,
+      );
+    }
+    return true;
+  }
+
+  /** 敵を呼ぶ。死体から起こすなら、近い死体を起こして消す */
+  private summon(unit: Unit, action: Extract<SkillAction, { type: 'summon' }>, skill: string): void {
+    unit.minions = unit.minions.filter((id) => this.units.has(id));
+    const room = Math.max(0, action.max - unit.minions.length);
+    const corpses = action.fromCorpse
+      ? this.floors
+          .filter((f) => f.field === 'corpse' && Math.hypot(f.x - unit.x, f.y - unit.y) <= action.radius)
+          .sort((a, b) => Math.hypot(a.x - unit.x, a.y - unit.y) - Math.hypot(b.x - unit.x, b.y - unit.y))
+      : [];
+    const count = Math.min(room, action.count, action.fromCorpse ? corpses.length : action.count);
+    for (let i = 0; i < count; i++) {
+      const corpse = corpses[i];
+      const a = this.random() * Math.PI * 2;
+      const at = corpse ?? { x: unit.x + Math.cos(a) * (unit.radius + action.radius), y: unit.y + Math.sin(a) * (unit.radius + action.radius) };
+      if (corpse) this.floors = this.floors.filter((f) => f !== corpse);
+      const id = `${unit.id}:${action.enemy}-${this.nextId++}`;
+      this.spawnEnemy(action.enemy as EnemyId, id, at.x, at.y, unit.team);
+      unit.minions.push(id);
+      this.events.push({ type: 'summoned', unitId: id, by: unit.id, x: at.x, y: at.y, skill });
+    }
   }
 
   /** 盾が砕ける。属性つきの盾は、その属性で周りの相手へ弾ける */
@@ -1509,6 +1590,7 @@ export class CombatWorld {
     for (const id of attacker.artifacts) {
       for (const rule of artifactDef(id).rules ?? []) out.push({ rule, kind: 'artifact' });
     }
+    for (const rule of attacker.innateRules) out.push({ rule, kind: 'passive' });
     // 煤けた聖火のように、自分には効かせないルールを除く
     const ignored = this.traitsOf(attacker).ignoreRules;
     return ignored.length > 0 ? out.filter(({ rule }) => !ignored.includes(rule.label)) : out;
