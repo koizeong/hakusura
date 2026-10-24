@@ -1040,3 +1040,21 @@ button.discard {
 .active-slots {
   display: contents;
 }
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.presets select {
+  flex: 1;
+  min-width: 140px;
+  padding: 6px;
+  font-size: 14px;
+}
+
+.presets button {
+  padding: 6px 10px;
+}

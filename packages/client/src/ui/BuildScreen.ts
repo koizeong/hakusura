@@ -29,7 +29,7 @@ import {
 } from '@hakusura/core';
 import { h, signedPercent } from './dom';
 import { createTacticsEditor } from './TacticsEditor';
-import type { BuildState } from './buildStore';
+import { PRESET_LIMIT, currentBuild, presetName, type BuildState } from './buildStore';
 
 type Tab = 'equipment' | 'skills' | 'tactics' | 'trump' | 'code';
 const TABS: Record<Tab, string> = { equipment: '装備', skills: 'スキル', tactics: '作戦', trump: '切り札', code: 'コード' };
@@ -59,6 +59,11 @@ export class BuildScreen {
 
   constructor(private host: BuildScreenHost) {}
 
+  /** 今選んでいるビルド */
+  private get build() {
+    return currentBuild(this.host.state);
+  }
+
   get visible(): boolean {
     return !this.el.classList.contains('hidden');
   }
@@ -79,7 +84,7 @@ export class BuildScreen {
   }
 
   render(): void {
-    const { build } = this.host.state;
+    const build = this.build;
     const problems = buildProblems(build);
     this.el.replaceChildren(
       h(
@@ -91,6 +96,7 @@ export class BuildScreen {
           h('h2', {}, '支度'),
           h('button', { class: 'close', onclick: () => this.close() }, '戦いに戻る'),
         ),
+        this.renderPresets(),
         this.renderStats(),
         problems.length > 0 ? h('p', { class: 'problems' }, problems.join(' / ')) : '',
         h(
@@ -120,6 +126,66 @@ export class BuildScreen {
     }
   }
 
+  /** ビルドの切り替え。拾い物の山は全てのビルドで共有する */
+  private renderPresets(): HTMLElement {
+    const { state } = this.host;
+    return h(
+      'div',
+      { class: 'presets' },
+      h(
+        'select',
+        {
+          onchange: (e: Event) => {
+            state.current = Number((e.target as HTMLSelectElement).value);
+            this.changed();
+          },
+        },
+        ...state.presets.map((p, i) => h('option', { value: i, selected: i === state.current }, p.name)),
+      ),
+      h(
+        'button',
+        {
+          disabled: state.presets.length >= PRESET_LIMIT,
+          title: `今のビルドを写して、新しいビルドを作る(${PRESET_LIMIT}つまで)`,
+          onclick: () => {
+            const copy = JSON.parse(JSON.stringify(this.build)) as typeof this.build;
+            state.presets.push({ name: presetName(state.presets.length), build: copy });
+            state.current = state.presets.length - 1;
+            this.changed();
+          },
+        },
+        '写して増やす',
+      ),
+      h(
+        'button',
+        {
+          onclick: () => {
+            const preset = state.presets[state.current]!;
+            const name = prompt('ビルドの名前', preset.name)?.trim();
+            if (!name) return;
+            preset.name = name.slice(0, 20);
+            this.changed();
+          },
+        },
+        '名を変える',
+      ),
+      h(
+        'button',
+        {
+          class: 'discard',
+          disabled: state.presets.length <= 1,
+          onclick: () => {
+            if (!confirm(`「${state.presets[state.current]!.name}」を消す。よいか`)) return;
+            state.presets.splice(state.current, 1);
+            state.current = Math.max(0, state.current - 1);
+            this.changed();
+          },
+        },
+        '消す',
+      ),
+    );
+  }
+
   /** 今のビルドで変わった能力。条件つきの補正は、今満たしているものだけ入る */
   private renderStats(): HTMLElement {
     const { world, player } = this.host;
@@ -143,7 +209,7 @@ export class BuildScreen {
 
   private renderEquipment(): HTMLElement {
     const { state } = this.host;
-    const equipped = state.build.equipment;
+    const equipped = this.build.equipment;
     const slots = h(
       'div',
       { class: 'slots-list' },
@@ -213,12 +279,12 @@ export class BuildScreen {
   }
 
   private equip(item: Item): void {
-    this.host.state.build.equipment[this.selectedSlot] = item;
+    this.build.equipment[this.selectedSlot] = item;
     this.changed();
   }
 
   private unequip(slot: EquipSlotId): void {
-    delete this.host.state.build.equipment[slot];
+    delete this.build.equipment[slot];
     this.changed();
   }
 
@@ -242,7 +308,7 @@ export class BuildScreen {
   // ---- スキル ----
 
   private renderSkills(): HTMLElement {
-    const { build } = this.host.state;
+    const build = this.build;
     const toggle = <T>(list: T[], id: T, on: boolean) => {
       const i = list.indexOf(id);
       if (on && i < 0) list.push(id);
@@ -281,7 +347,7 @@ export class BuildScreen {
   // ---- 作戦 ----
 
   private renderTactics(): HTMLElement {
-    const { build } = this.host.state;
+    const build = this.build;
     const editor = createTacticsEditor(build.tactics, { skills: () => build.actives, onChange: () => this.host.onChange() });
     return h('div', {}, editor.el);
   }
@@ -289,7 +355,7 @@ export class BuildScreen {
   // ---- 切り札 ----
 
   private renderTrump(): HTMLElement {
-    const { build } = this.host.state;
+    const build = this.build;
     return h(
       'div',
       { class: 'trumps' },
@@ -316,7 +382,7 @@ export class BuildScreen {
   // ---- コード ----
 
   private renderCode(): HTMLElement {
-    const code = encodeBuild(this.host.state.build);
+    const code = encodeBuild(this.build);
     const out = h('textarea', { readonly: true, rows: 4 }) as HTMLTextAreaElement;
     out.value = code;
     const input = h('textarea', { rows: 4, placeholder: 'ここにビルドコードを貼る' }) as HTMLTextAreaElement;
@@ -357,7 +423,7 @@ export class BuildScreen {
             const { state } = this.host;
             const known = new Set(state.stash.map((i) => i.id));
             for (const item of Object.values(result.build.equipment)) if (item && !known.has(item.id)) state.stash.unshift(item);
-            state.build = result.build;
+            state.presets[state.current]!.build = result.build;
             this.codeMessage = '読み込んだ';
             this.changed();
           },

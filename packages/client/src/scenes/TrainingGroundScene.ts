@@ -25,7 +25,7 @@ import { Hud } from '../ui/Hud';
 import { createTrainingPanel, type BattleMode, type EnemyAttack } from '../ui/TrainingPanel';
 import { ComboView } from '../ui/ComboView';
 import { BuildScreen } from '../ui/BuildScreen';
-import { loadBuildState, resetBuildState, saveBuildState, type BuildState } from '../ui/buildStore';
+import { currentBuild, loadBuildState, resetBuildState, saveBuildState, type BuildState } from '../ui/buildStore';
 
 const ARENA = { width: 1600, height: 1000 };
 const FONT = '"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif';
@@ -129,7 +129,7 @@ export class TrainingGroundScene extends Phaser.Scene {
       autoBattle: true,
     });
     this.buildState = loadBuildState(Math.random);
-    applyBuild(this.world, this.player, this.buildState.build);
+    applyBuild(this.world, this.player, currentBuild(this.buildState));
     SCARECROW_SPOTS.forEach((spot, i) => {
       const unit = this.world.addUnit({
         id: `scarecrow${i}`,
@@ -255,7 +255,7 @@ export class TrainingGroundScene extends Phaser.Scene {
 
   /** 支度が変わったら、すぐ戦いに反映して覚えておく */
   private onBuildChange(): void {
-    applyBuild(this.world, this.player, this.buildState.build);
+    applyBuild(this.world, this.player, currentBuild(this.buildState));
     if (this.player.queued && this.player.queued.skill !== this.player.trump) this.player.queued = undefined;
     this.hud.setTrump(this.player.trump);
     this.hud.setSlots(this.player.actives);
