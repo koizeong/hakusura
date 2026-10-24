@@ -23,6 +23,8 @@ import {
   type FieldId,
   type Unit,
   type StatusDef,
+  type FloorPatch,
+  FLOOR_IDS,
   ENEMIES,
   Encounter,
   type EncounterId,
@@ -72,13 +74,15 @@ const SCARECROW_SPOTS = [
 ];
 
 /** 床の状態を敷く場所 */
-const FLOOR_SPOTS: Record<FieldId, { x: number; y: number; radius: number }[]> = {
-  rain: [],
-  oilPool: [
-    { x: 1120, y: 510, radius: 170 },
-    { x: 700, y: 500, radius: 70 },
-  ],
-};
+/** 床を敷く場所。案山子の足元を床ごとに少しずらし、自分の近くにも1つ置く */
+function floorSpots(field: FieldId): { x: number; y: number; radius: number }[] {
+  const i = FLOOR_IDS.indexOf(field);
+  const a = (i / Math.max(1, FLOOR_IDS.length)) * Math.PI * 2;
+  return [
+    { x: 1120 + Math.cos(a) * 60, y: 510 + Math.sin(a) * 60, radius: 120 },
+    { x: 700 + Math.cos(a) * 140, y: 500 + Math.sin(a) * 140, radius: 60 },
+  ];
+}
 
 interface Dodge {
   vx: number;
@@ -96,6 +100,8 @@ export class TrainingGroundScene extends Phaser.Scene {
   private keybinds!: Keybinds;
   private gfx!: Phaser.GameObjects.Graphics;
   private rainGfx!: Phaser.GameObjects.Graphics;
+  /** 霧と夜の暗がり。自分の周りだけ見える */
+  private veilGfx!: Phaser.GameObjects.Graphics;
   private hud!: Hud;
   private breakdown!: BreakdownView;
   private walking = false;
@@ -163,6 +169,7 @@ export class TrainingGroundScene extends Phaser.Scene {
 
     this.gfx = this.add.graphics();
     this.rainGfx = this.add.graphics().setScrollFactor(0).setDepth(50);
+    this.veilGfx = this.add.graphics().setDepth(48);
     this.stickGfx = this.add.graphics().setScrollFactor(0).setDepth(60);
     this.combo = new ComboView();
     this.cameras.main.setBounds(0, 0, ARENA.width, ARENA.height);
@@ -424,7 +431,7 @@ export class TrainingGroundScene extends Phaser.Scene {
   private setFloor(field: FieldId, on: boolean): void {
     // 切り札で撒いた床は残す
     this.world.floors = this.world.floors.filter((f) => f.field !== field || f.until !== undefined);
-    if (on) for (const spot of FLOOR_SPOTS[field]) this.world.addFloor(field, spot.x, spot.y, spot.radius);
+    if (on) for (const spot of floorSpots(field)) this.world.addFloor(field, spot.x, spot.y, spot.radius);
   }
 
   update(time: number, delta: number): void {
@@ -652,10 +659,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     for (let y = 0; y <= ARENA.height; y += 80) g.lineBetween(0, y, ARENA.width, y);
     g.lineStyle(3, 0x3a2f28, 1).strokeRect(0, 0, ARENA.width, ARENA.height);
 
-    for (const patch of world.floors) {
-      g.fillStyle(FIELDS[patch.field].color, 0.85).fillCircle(patch.x, patch.y, patch.radius);
-      g.lineStyle(2, 0x56492a, 0.6).strokeCircle(patch.x, patch.y, patch.radius);
-    }
+    for (const patch of world.floors) this.drawFloor(patch);
 
     // 振りかぶりの予兆。満ちたときに当たる
     for (const t of this.telegraphs) {
@@ -761,7 +765,7 @@ export class TrainingGroundScene extends Phaser.Scene {
       }
     }
 
-    this.drawRain();
+    this.drawWeather();
   }
 
   private drawStick(): void {
@@ -775,6 +779,33 @@ export class TrainingGroundScene extends Phaser.Scene {
     const len = Math.hypot(dx, dy);
     const k = len > STICK.full ? STICK.full / len : 1;
     g.fillStyle(0xc9b79c, 0.45).fillCircle(stick.startX + dx * k, stick.startY + dy * k, 18);
+  }
+
+  /** 床を描く。種類ごとに少し飾る */
+  private drawFloor(patch: FloorPatch): void {
+    const g = this.gfx;
+    const t = this.world.time;
+    const { x, y, radius: r } = patch;
+    if (patch.field === 'corpse') {
+      // 倒れた者の影
+      g.fillStyle(FIELDS.corpse.color, 0.9).fillEllipse(x, y, r * 2, r * 0.9);
+      g.lineStyle(2, 0x1a1210, 0.9).lineBetween(x - r * 0.8, y, x + r * 0.8, y);
+      return;
+    }
+    g.fillStyle(FIELDS[patch.field].color, 0.85).fillCircle(x, y, r);
+    g.lineStyle(2, 0x56492a, 0.6).strokeCircle(x, y, r);
+    if (patch.field === 'scorch') {
+      g.fillStyle(0xff7a2e, 0.7);
+      for (let i = 0; i < 6; i++) {
+        const a = i * 1.1 + t / 400;
+        if (Math.sin(t / 120 + i * 2) > 0) g.fillCircle(x + Math.cos(a) * r * 0.55, y + Math.sin(a) * r * 0.55, 2);
+      }
+    } else if (patch.field === 'iceFloor') {
+      g.lineStyle(1, 0xd8f0ff, 0.6);
+      for (let i = 0; i < 4; i++) g.lineBetween(x - r * 0.6 + i * r * 0.3, y - r * 0.4, x - r * 0.4 + i * r * 0.3, y + r * 0.3);
+    } else if (patch.field === 'ashPile') {
+      g.fillStyle(0x8a8680, 0.5).fillCircle(x - r * 0.2, y - r * 0.1, r * 0.35).fillCircle(x + r * 0.25, y + r * 0.15, r * 0.3);
+    }
   }
 
   /** 敵を図形で描く。予兆の間は縁を明るくする */
@@ -851,18 +882,64 @@ export class TrainingGroundScene extends Phaser.Scene {
     }
   }
 
-  private drawRain(): void {
+  /** 天候を描く。雨と砂嵐は画面に、霧と夜は自分の周りだけ見える暗がりにする */
+  private drawWeather(): void {
     const g = this.rainGfx;
+    const veil = this.veilGfx;
     g.clear();
-    if (this.world.weather !== 'rain') return;
+    veil.clear();
+    const weather = this.world.weather;
+    if (!weather) return;
     const { width, height } = this.cameras.main;
     const t = this.world.time;
-    g.lineStyle(1, 0x8fa8c0, 0.35);
-    for (let i = 0; i < 160; i++) {
-      const seed = (i * 9301 + 49297) % 233280;
-      const x = ((seed / 233280) * (width + 200) + t * 0.15) % (width + 200) - 100;
-      const y = ((i * 37.7 + t * 0.9) % (height + 40)) - 20;
-      g.lineBetween(x, y, x - 4, y + 14);
+    // 引いた画面でも端まで覆えるよう、広めに塗る
+    const tint = (color: number, alpha: number) => g.fillStyle(color, alpha).fillRect(-width, -height, width * 3, height * 3);
+    const streaks = (count: number, color: number, alpha: number, vx: number, vy: number, len: number) => {
+      g.lineStyle(1, color, alpha);
+      for (let i = 0; i < count; i++) {
+        const seed = ((i * 9301 + 49297) % 233280) / 233280;
+        const x = ((seed * (width + 200) + t * vx) % (width + 200) + width + 200) % (width + 200) - 100;
+        const y = ((i * 37.7 + t * vy) % (height + 40) + height + 40) % (height + 40) - 20;
+        g.lineBetween(x, y, x - len * Math.sign(vx || 1) * 0.3, y + len * (vy > 0.5 ? 1 : 0.15));
+      }
+    };
+    switch (weather) {
+      case 'rain':
+        streaks(160, 0x8fa8c0, 0.35, 0.15, 0.9, 14);
+        break;
+      case 'sandstorm':
+        tint(0xb8a070, 0.12);
+        streaks(140, 0xd8c090, 0.4, 1.2, 0.08, 18);
+        break;
+      case 'miasma': {
+        tint(0x4a5a20, 0.14);
+        g.fillStyle(0x9aaa4a, 0.25);
+        for (let i = 0; i < 40; i++) {
+          const x = ((i * 131 + t * 0.02 * ((i % 3) + 1)) % (width + 40)) - 20;
+          const y = ((i * 71 + Math.sin(t / 900 + i) * 30) % height + height) % height;
+          g.fillCircle(x, y, 2 + (i % 3));
+        }
+        break;
+      }
+      case 'fog':
+      case 'night': {
+        // 自分の周りだけ明るい。外へ行くほど濃くなる輪を重ねる
+        const p = this.player;
+        const color = weather === 'fog' ? 0xc8ccd0 : 0x05050c;
+        const inner = weather === 'fog' ? 200 : 240;
+        const max = weather === 'fog' ? 0.72 : 0.8;
+        // 細い輪を重ねて、境目が見えないようにする
+        const steps = 24;
+        const band = 10;
+        for (let i = 0; i < steps; i++) {
+          veil.lineStyle(band, color, (max * (i + 1)) / (steps + 1)).strokeCircle(p.x, p.y, inner + i * band + band / 2);
+        }
+        const outer = inner + steps * band;
+        veil.lineStyle(6000, color, max).strokeCircle(p.x, p.y, outer + 3000);
+        break;
+      }
+      case 'calm':
+        break;
     }
   }
 
@@ -1094,6 +1171,10 @@ export class TrainingGroundScene extends Phaser.Scene {
       }
       case 'weatherCalled': {
         this.callout(this.player, `${FIELDS[event.field].name}を呼んだ`, '#8fb4d8');
+        break;
+      }
+      case 'floorChanged': {
+        this.floatText(event.x, event.y, `${FIELDS[event.to].name}になった`, '#c9b79c');
         break;
       }
       case 'missed': {

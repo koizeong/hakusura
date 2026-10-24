@@ -1,7 +1,7 @@
 import { DEFENSE, MAX_TRIGGER_DEPTH, STATUS_RULES } from './constants';
 import { computeDamage, type RuleBonus } from './damage';
 import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
-import { fieldDef, type FieldId } from './data/fields';
+import { FLOOR_RULES, fieldDef, type FieldId } from './data/fields';
 import { STATUS_IDS, statusDef, statusForElement, type StatusDef, type StatusId } from './data/statuses';
 import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction } from './data/skills';
 import { toWeaponSpec, type WeaponRef, type WeaponSpec } from './data/weapons';
@@ -236,6 +236,8 @@ export type CombatEvent =
   /** 盾が砕けた。readyAt に張り直す */
   | { type: 'shieldBroke'; unitId: string; name: string; readyAt: number }
   | { type: 'shieldReady'; unitId: string; name: string }
+  /** 床が別の床に変わった */
+  | { type: 'floorChanged'; id: number; from: FieldId; to: FieldId; x: number; y: number }
   /** 盲目で攻撃が外れた */
   | { type: 'missed'; unitId: string; targetId: string }
   /** 加護が攻撃を無効にした */
@@ -273,6 +275,8 @@ export interface FloorPatch {
   radius: number;
   /** この時刻に消える。なければ消えない */
   until?: number;
+  /** 敷いた者。床で溜まった状態とそのダメージは、この者の手柄になる */
+  ownerId?: string;
 }
 
 interface Source {
@@ -433,10 +437,26 @@ export class CombatWorld {
     return unit;
   }
 
-  addFloor(field: FieldId, x: number, y: number, radius: number, until?: number): FloorPatch {
-    const patch: FloorPatch = { id: this.nextId++, field, x, y, radius, until };
+  addFloor(field: FieldId, x: number, y: number, radius: number, until?: number, ownerId?: string): FloorPatch {
+    const patch: FloorPatch = { id: this.nextId++, field, x, y, radius, until, ownerId };
     this.floors.push(patch);
+    // 消える床が増えすぎたら、古い順に消す
+    const temporary = this.floors.filter((f) => f.until !== undefined);
+    if (temporary.length > FLOOR_RULES.maxTemporary) {
+      const drop = new Set(temporary.slice(0, temporary.length - FLOOR_RULES.maxTemporary));
+      this.floors = this.floors.filter((f) => !drop.has(f));
+    }
     return patch;
+  }
+
+  /** その者が立っている床 */
+  floorsUnder(unit: { x: number; y: number }): FloorPatch[] {
+    return this.floors.filter((f) => Math.hypot(unit.x - f.x, unit.y - f.y) <= f.radius);
+  }
+
+  /** 天候が弾の届く距離に掛ける倍率 */
+  private projectileRangeScale(): number {
+    return this.weather ? (fieldDef(this.weather).projectileRange ?? 1) : 1;
   }
 
   isActive(unit: Unit, status: StatusId): boolean {
@@ -508,7 +528,7 @@ export class CombatWorld {
       unit.trailAcc += dist;
       if (unit.trailAcc >= trail.every) {
         unit.trailAcc = 0;
-        this.addFloor(trail.field, x, y, trail.radius, this.time + trail.duration);
+        this.addFloor(trail.field, x, y, trail.radius, this.time + trail.duration, unit.id);
       }
     }
     for (const status of STATUS_IDS) {
@@ -716,7 +736,7 @@ export class CombatWorld {
             vy: Math.sin(a) * action.speed,
             radius: action.radius,
             traveled: 0,
-            range: action.range,
+            range: action.range * this.projectileRangeScale(),
           });
         }
         break;
@@ -739,7 +759,7 @@ export class CombatWorld {
             vy: Math.sin(a) * action.speed,
             radius: action.radius,
             traveled: 0,
-            range: action.range,
+            range: action.range * this.projectileRangeScale(),
             charge,
           });
         }
@@ -774,7 +794,7 @@ export class CombatWorld {
       }
       case 'floor': {
         const at = target ?? { x: unit.x + Math.cos(angle) * 200, y: unit.y + Math.sin(angle) * 200 };
-        this.addFloor(action.field, at.x, at.y, action.radius, this.time + action.duration);
+        this.addFloor(action.field, at.x, at.y, action.radius, this.time + action.duration, unit.id);
         break;
       }
     }
@@ -822,7 +842,9 @@ export class CombatWorld {
     if (!def) return undefined;
     const reach = actionReach(def.action);
     if (reach === undefined) return undefined;
-    return def.action.type === 'melee' ? reach * this.statOf(unit, 'meleeRange', def.tags) : reach;
+    if (def.action.type === 'melee') return reach * this.statOf(unit, 'meleeRange', def.tags);
+    // 砂嵐や霧の中では、弾が遠くへ届かない
+    return def.action.type === 'projectile' || def.action.type === 'barrage' ? reach * this.projectileRangeScale() : reach;
   }
 
   private inReach(unit: Unit, target: Unit, reach: number): boolean {
@@ -928,14 +950,12 @@ export class CombatWorld {
     }
 
     for (const unit of this.units.values()) {
-      if (this.weather) {
-        const applies = fieldDef(this.weather).applies;
-        this.addBuildup(unit, applies.status, applies.perSec * sec, { skill: '', via: [], depth: 0 });
-      }
-      for (const patch of this.floors) {
-        if (Math.hypot(unit.x - patch.x, unit.y - patch.y) > patch.radius) continue;
+      const weatherApplies = this.weather ? fieldDef(this.weather).applies : undefined;
+      if (weatherApplies) this.addBuildup(unit, weatherApplies.status, weatherApplies.perSec * sec, { skill: '', via: [], depth: 0 });
+      for (const patch of this.floorsUnder(unit)) {
         const applies = fieldDef(patch.field).applies;
-        this.addBuildup(unit, applies.status, applies.perSec * sec, { skill: '', via: [], depth: 0 });
+        const owner = patch.ownerId ? this.units.get(patch.ownerId) : undefined;
+        if (applies) this.addBuildup(unit, applies.status, applies.perSec * sec, { attacker: owner, skill: owner ? fieldDef(patch.field).name : '', via: [], depth: 0 });
       }
 
       const fighting = this.time - unit.lastHurtAt < STATUS_RULES.combatWindow || this.time - unit.lastAttackAt < STATUS_RULES.combatWindow;
@@ -1097,6 +1117,7 @@ export class CombatWorld {
   private onStatusExpired(unit: Unit, status: StatusId): void {
     const def = statusDef(status);
     const st = unit.statuses[status];
+    if (def.leavesFloor?.on === 'end') this.leaveFloor(unit, status, def.leavesFloor);
     if (def.storesDamage && st.stored > 0) {
       const element = def.element ?? 'curse';
       this.enqueue({
@@ -1119,6 +1140,24 @@ export class CombatWorld {
       const killer = st.activatorId ? this.units.get(st.activatorId) : undefined;
       if (unit.mortal) this.kill(unit, killer);
       else this.fall(unit);
+    }
+  }
+
+  /** 状態が足元に床を残す(出血の血だまり、解けた氷の水たまりなど) */
+  private leaveFloor(unit: Unit, status: StatusId, floor: NonNullable<StatusDef['leavesFloor']>): void {
+    this.addFloor(floor.field as FieldId, unit.x, unit.y, floor.radius, this.time + floor.duration, unit.statuses[status].activatorId);
+  }
+
+  /** 床の上の者に発動した状態で、床が変わる(水たまりが凍る、油が燃え跡になるなど) */
+  private transformFloors(target: Unit, status: StatusId): void {
+    for (const patch of this.floorsUnder(target)) {
+      const into = fieldDef(patch.field).transforms?.find((t) => t.status === status)?.into as FieldId | undefined;
+      if (!into) continue;
+      const from = patch.field;
+      patch.field = into;
+      // 変わった床は、変わったときから数え直す
+      if (patch.until !== undefined) patch.until = this.time + FLOOR_RULES.transformedDuration;
+      this.events.push({ type: 'floorChanged', id: patch.id, from, to: into, x: patch.x, y: patch.y });
     }
   }
 
@@ -1202,9 +1241,11 @@ export class CombatWorld {
         this.addBuildup(other, bind, statusDef(bind).max, { attacker: killer, skill: statusDef(doomed).name, via: [statusDef(doomed).name], depth: 1 });
       }
     }
+    // 倒れた者は死体を残す。灰になって崩れた者は残らない
+    if (!this.isActive(unit, 'ashen')) this.addFloor('corpse', unit.x, unit.y, FLOOR_RULES.corpse.radius, this.time + FLOOR_RULES.corpse.duration, killer?.id);
     const onDeath = unit.kind ? enemyDef(unit.kind).onDeath : undefined;
     if (!onDeath) return;
-    if (onDeath.floor) this.addFloor(onDeath.floor.field, unit.x, unit.y, onDeath.floor.radius, this.time + onDeath.floor.duration);
+    if (onDeath.floor) this.addFloor(onDeath.floor.field, unit.x, unit.y, onDeath.floor.radius, this.time + onDeath.floor.duration, killer?.id);
     if (onDeath.burst) {
       const b = onDeath.burst;
       // 破裂は敵味方の区別なく当たる。倒した者の手柄にする
@@ -1379,6 +1420,9 @@ export class CombatWorld {
       ...unit.artifacts.flatMap((id) => artifactDef(id).modifiers ?? []),
       ...(unit.grip ? GRIPS[unit.grip].modifiers : []),
       ...unit.shields.flatMap((s) => shieldDef(s.type).modifiers ?? []),
+      // 天候と、立っている床の補正(夜の闇、凍った床の滑りなど)
+      ...(this.weather ? (fieldDef(this.weather).modifiers ?? []) : []),
+      ...this.floorsUnder(unit).flatMap((f) => fieldDef(f.field).modifiers ?? []),
       // 発動中の状態の補正(露出・憤怒・鈍重など)と、蓄積だけで鈍る灰化
       ...STATUS_IDS.flatMap((s) => (this.isActive(unit, s) ? (statusDef(s).modifiers ?? []) : [])),
       ...STATUS_IDS.flatMap((s): Modifier[] => {
@@ -1796,6 +1840,8 @@ export class CombatWorld {
     st.moveAcc = 0;
     this.events.push({ type: 'statusActivated', unitId: unit.id, status, source: name });
     if (def.incapacitates) this.interrupt(unit);
+    this.transformFloors(unit, status);
+    if (def.leavesFloor?.on === 'activate') this.leaveFloor(unit, status, def.leavesFloor);
 
     for (const effect of def.onActivate ?? []) {
       if (effect.type === 'burst') {

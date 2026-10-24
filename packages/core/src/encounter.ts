@@ -30,6 +30,7 @@ export class Encounter {
   ) {
     this.def = encounterDef(id);
     this.startedAt = world.time;
+    if (this.def.weather) world.weather = this.def.weather;
   }
 
   get elapsed(): number {

@@ -1,4 +1,4 @@
-import { ACTIVE_SKILLS, SKILL_CATEGORIES, STATUSES, STATUS_IDS, type ActiveSkillId, type CombatWorld, type Unit } from '@hakusura/core';
+import { ACTIVE_SKILLS, FIELDS, SKILL_CATEGORIES, STATUSES, STATUS_IDS, type ActiveSkillId, type CombatWorld, type Unit } from '@hakusura/core';
 import { ACTIVE_SLOT_ACTIONS, bindingLabel, type Keybinds } from '../input/keybinds';
 import { h } from './dom';
 import type { BattleMode } from './TrainingPanel';
@@ -206,8 +206,12 @@ export class Hud {
       parts.push(s.ready ? `<b class="shield">盾</b>` : `<span class="shield-down">盾 ${Math.ceil((s.readyAt - world.time) / 1000)}秒</span>`);
     }
     if (world.weatherCall) {
-      parts.push(`<b class="weather">雨 ${((world.weatherCall.until - world.time) / 1000).toFixed(1)}秒</b>`);
+      parts.push(`<b class="weather">${FIELDS[world.weatherCall.field].name} ${((world.weatherCall.until - world.time) / 1000).toFixed(1)}秒</b>`);
+    } else if (world.weather) {
+      parts.push(`<b class="weather">${FIELDS[world.weather].name}</b>`);
     }
+    // 立っている床
+    for (const name of new Set(world.floorsUnder(player).map((f) => FIELDS[f.field].name))) parts.push(`<span class="floor">${name}の上</span>`);
     const html = parts.join('');
     if (html !== this.lastStatusHtml) {
       this.lastStatusHtml = html;

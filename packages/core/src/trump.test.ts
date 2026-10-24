@@ -9,7 +9,7 @@ const run = (w: CombatWorld, ms: number) => {
 
 describe('切り札', () => {
   it('trump のタグを持つスキルを選べる', () => {
-    expect(TRUMP_SKILL_IDS).toEqual(['rainBell', 'oilFlask', 'blessedPrayer', 'frenzyDraught', 'thunderPrayer']);
+    expect(TRUMP_SKILL_IDS).toEqual(['rainBell', 'oilFlask', 'fogHorn', 'lampSnuff', 'waterFlask', 'blessedPrayer', 'frenzyDraught', 'thunderPrayer']);
   });
 
   it('油壺の投擲は狙った敵の足元に油溜まりを撒き、時間で消える', () => {

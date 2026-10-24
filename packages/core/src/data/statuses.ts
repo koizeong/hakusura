@@ -58,6 +58,8 @@ export interface StatusDef {
   gainOnHurt?: number;
   /** 戦っている間(5秒以内に攻撃したか受けた)、毎秒蓄積する */
   gainInCombatPerSec?: number;
+  /** 発動した(activate)か切れた(end)ときに、足元へ床(FIELDS の名前)を残す */
+  leavesFloor?: { field: string; radius: number; duration: number; on: 'activate' | 'end' };
   color: number;
 }
 
@@ -72,6 +74,7 @@ export const STATUSES = {
     duration: 6000,
     moveDamage: { per: 40, power: 6 },
     onActivate: [{ type: 'burst', power: 30, radius: 0 }],
+    leavesFloor: { field: 'bloodPool', radius: 45, duration: 8000, on: 'activate' },
     color: 0xb02a30,
   },
   burn: {
@@ -83,6 +86,7 @@ export const STATUSES = {
     duration: 4000,
     dot: { interval: 500, power: 8 },
     onActivate: [{ type: 'burst', power: 20, radius: 70 }],
+    leavesFloor: { field: 'scorch', radius: 50, duration: 3000, on: 'end' },
     color: 0xff7a2e,
   },
   shock: {
@@ -146,7 +150,7 @@ export const STATUSES = {
     decayPerSec: 6,
     duration: 8000,
     reversesHealing: true,
-    dot: { interval: 1000, power: 4 },
+    dot: { interval: 1000, power: 6 },
     color: 0x8a9a3a,
   },
   bind: {
@@ -167,8 +171,9 @@ export const STATUSES = {
     decayPerSec: 12,
     duration: 2500,
     incapacitates: true,
-    // 凍りつく瞬間に、身が軋む
+    // 凍りつく瞬間に、身が軋む。解けると水たまりが残る
     onActivate: [{ type: 'burst', power: 25, radius: 0 }],
+    leavesFloor: { field: 'puddle', radius: 55, duration: 10000, on: 'end' },
     color: 0xa8e0f0,
   },
   blind: {
@@ -191,6 +196,7 @@ export const STATUSES = {
     slowByBuildup: 0.5,
     // 満タンで崩れる。崩れた後しばらくは、灰が積もらない
     onActivate: [{ type: 'burst', power: 45, radius: 0 }],
+    leavesFloor: { field: 'ashPile', radius: 55, duration: 10000, on: 'activate' },
     color: 0x9a9088,
   },
   thirst: {

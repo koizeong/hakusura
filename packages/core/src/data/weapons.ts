@@ -234,7 +234,7 @@ export const WEAPON_TYPES = {
     range: 620,
     speed: 430,
     radius: 11,
-    explode: { radius: 70, ratio: 0.45 },
+    explode: { radius: 70, ratio: 0.35 },
     needs: { int: 12 },
     tags: ['staff', 'magic'],
   },

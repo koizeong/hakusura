@@ -71,6 +71,32 @@ export const INTERACTIONS: readonly Rule[] = [
     when: [{ type: 'targetHas', status: 'fear' }, { type: 'fromBehind' }, { type: 'hitHasTag', tag: 'attack' }],
     add: 0.5,
   },
+  // 霧の中では、背後からの奇襲が効く
+  {
+    label: '霧からの奇襲',
+    on: 'damage',
+    when: [{ type: 'weather', weather: 'fog' }, { type: 'fromBehind' }, { type: 'hitHasTag', tag: 'attack' }],
+    add: 0.3,
+  },
+  // 風がないと炎上は長く燃え、感電は遠くまで飛ばない
+  {
+    label: '無風で燻る',
+    on: 'statusActivate',
+    when: [
+      { type: 'statusIs', status: 'burn' },
+      { type: 'weather', weather: 'calm' },
+    ],
+    scale: { duration: 1.5 },
+  },
+  {
+    label: '無風で届かない',
+    on: 'statusActivate',
+    when: [
+      { type: 'statusIs', status: 'shock' },
+      { type: 'weather', weather: 'calm' },
+    ],
+    scale: { radius: 0.6 },
+  },
   // 火は氷を解かす
   {
     label: '火で解ける',

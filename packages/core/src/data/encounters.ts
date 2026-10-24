@@ -1,4 +1,5 @@
 import type { EnemyId } from './enemies';
+import type { FieldId } from './fields';
 
 /** 1回の戦闘。duration の間、決まった時刻に敵の群れが現れる。一戦はおよそ5分 */
 export interface EncounterDef {
@@ -6,6 +7,8 @@ export interface EncounterDef {
   description: string;
   /** 戦う時間(ミリ秒)。過ぎれば生き延びたことになる */
   duration: number;
+  /** 戦う間の天候 */
+  weather?: FieldId;
   waves: readonly { at: number; spawn: readonly { enemy: EnemyId; count: number }[] }[];
 }
 
@@ -14,8 +17,9 @@ const SEC = 1000;
 export const ENCOUNTERS = {
   ashNight: {
     name: '灰の街道の夜',
-    description: '五分、夜明けまで持ちこたえる。屍喰いの群れに、煤吹き・錆鎧・油袋・鐘守が混じって来る',
+    description: '五分、夜明けまで持ちこたえる。屍喰いの群れに、煤吹き・錆鎧・油袋・鐘守が混じって来る。夜は闇と呪いが強まる',
     duration: 300 * SEC,
+    weather: 'night',
     waves: [
       { at: 0, spawn: [{ enemy: 'ghoul', count: 4 }] },
       { at: 25 * SEC, spawn: [{ enemy: 'ghoul', count: 3 }, { enemy: 'sootSpitter', count: 1 }] },
