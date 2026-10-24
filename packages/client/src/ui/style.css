@@ -1299,3 +1299,45 @@ button.discard {
 .injured {
   color: #c25a4a !important;
 }
+
+/* 技の型(変化つきの技) */
+.variant-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+  padding: 2px 4px 8px 28px;
+  border-bottom: 1px solid #241f1b;
+  font-size: 13px;
+  color: #c9b79c;
+}
+
+.variant-pick select {
+  max-width: 100%;
+  min-height: 36px;
+}
+
+.variant-pick small {
+  color: #9fb7c9;
+  font-size: 12px;
+}
+
+.technique-stash .skill-row {
+  grid-template-columns: 1fr auto;
+  cursor: default;
+}
+
+.technique-stash .skill-row small {
+  grid-column: 1;
+}
+
+.technique-stash .skill-row button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-height: 40px;
+}
+
+.technique-stash > button {
+  margin-top: 8px;
+  min-height: 44px;
+}

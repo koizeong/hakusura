@@ -157,7 +157,12 @@ export function variantCost(v: SkillVariant): number {
 
 /** 「重い雨垂れの薙ぎ払い」のような名前。代償は名前に出さない */
 export function variantName(v: SkillVariant, baseName?: string): string {
-  const prefixes = v.variations.filter((id) => variationDef(id).cost >= 0).map((id) => variationDef(id).prefix);
+  // 「重い雨垂れの」のように、数値の変化を先に、振る舞いの変化を技の名前の近くに置く
+  const behaves = (id: VariationId) => (variationDef(id).rules || variationDef(id).intervalWhen ? 1 : 0);
+  const prefixes = v.variations
+    .filter((id) => variationDef(id).cost >= 0)
+    .sort((a, b) => behaves(a) - behaves(b))
+    .map((id) => variationDef(id).prefix);
   return `${prefixes.join('')}${baseName ?? v.base}`;
 }
 

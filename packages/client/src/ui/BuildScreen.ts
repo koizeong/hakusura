@@ -73,6 +73,12 @@ import {
   type ExpeditionId,
   type ExpeditionReport,
   type PassiveId,
+  VARIANT_BASES,
+  rollVariant,
+  variantCost,
+  variantName,
+  variationDef,
+  type SkillVariant,
 } from '@hakusura/core';
 import { h, signedPercent } from './dom';
 import { createTacticsEditor } from './TacticsEditor';
@@ -556,7 +562,7 @@ export class BuildScreen {
         if (def.needs) detail = `要 ${needsText(def.needs)}・${detail}`;
         const known = isLearned(this.host.state.learned, id);
         if (!known) detail = '未修得。遠征で見つかる';
-        return h(
+        const row = h(
           'label',
           { class: `skill-row${usable && known ? '' : ' unusable'}` },
           h('input', {
@@ -565,9 +571,10 @@ export class BuildScreen {
             checked: build.actives.includes(id),
             onchange: (e: Event) => toggle(build.actives, id, (e.target as HTMLInputElement).checked),
           }),
-          h('span', {}, def.name),
+          h('span', {}, build.variants?.[id] ? variantName(build.variants[id], def.name) : def.name),
           h('small', {}, detail),
         );
+        return known && isTechnique(def) ? h('div', {}, row, this.variantPicker(id)) : row;
       }),
       h('h3', {}, 'パッシブ'),
       ...PASSIVE_IDS.map((id) => {
@@ -585,7 +592,86 @@ export class BuildScreen {
           h('small', {}, known ? PASSIVES[id].description : '未修得。遠征で見つかる'),
         );
       }),
+      this.renderTechniqueStash(),
     );
+  }
+
+  /** 技の型を選ぶ。持っている変化つきの技があるときだけ出す */
+  private variantPicker(id: ActiveSkillId): HTMLElement | string {
+    const build = this.build;
+    const owned = this.host.state.techniques.filter((v) => v.base === id);
+    const current = build.variants?.[id];
+    // ビルドコードから読み込んだ型は、蓄えになくても選べるままにする
+    const options = current && !owned.some((v) => v.id === current.id) ? [current, ...owned] : owned;
+    if (options.length === 0) return '';
+    const base = activeSkillDef(id).name;
+    return h(
+      'div',
+      { class: 'variant-pick' },
+      h(
+        'label',
+        {},
+        '型 ',
+        h(
+          'select',
+          {
+            onchange: (e: Event) => {
+              const v = options.find((o) => o.id === (e.target as HTMLSelectElement).value);
+              build.variants = { ...(build.variants ?? {}) };
+              if (v) build.variants[id] = v;
+              else delete build.variants[id];
+              this.changed();
+            },
+          },
+          h('option', { value: '' }, `${base}(変化なし)`),
+          ...options.map((v) => h('option', { value: v.id, selected: v.id === current?.id }, variantName(v, base))),
+        ),
+      ),
+      current ? h('small', {}, variantText(current)) : '',
+    );
+  }
+
+  /** 拾った変化つきの技の蓄え。全キャラで共有する */
+  private renderTechniqueStash(): HTMLElement {
+    const { state } = this.host;
+    const inUse = (v: SkillVariant) => state.characters.filter((c) => Object.values(c.build.variants ?? {}).some((u) => u?.id === v.id));
+    return h(
+      'section',
+      { class: 'technique-stash' },
+      h('h3', {}, `変化つきの技(${state.techniques.length})`),
+      h('p', { class: 'note' }, '遠征で見つかる。技の型として差し替えると、その技の振る舞いが変わる。全キャラで共有する'),
+      ...state.techniques.map((v) => {
+        const users = inUse(v);
+        return h(
+          'div',
+          { class: 'skill-row' },
+          h('span', {}, variantName(v, activeSkillDef(v.base).name)),
+          h('small', {}, `${variantText(v)}・重さ${variantCost(v)}${users.length > 0 ? `・${users.map((c) => c.name).join('・')}が使用中` : ''}`),
+          h('button', { onclick: () => this.discardVariant(v) }, '捨てる'),
+        );
+      }),
+      h('button', { onclick: () => this.lootVariant() }, '変化つきの技を1つ拾う(試し)'),
+    );
+  }
+
+  private lootVariant(): void {
+    const { state } = this.host;
+    const known = VARIANT_BASES.filter((id) => state.learned.actives.includes(id));
+    const base = known[Math.floor(this.host.random() * known.length)];
+    if (!base) return;
+    state.techniques.unshift(rollVariant(() => this.host.random(), base));
+    this.changed();
+  }
+
+  private discardVariant(v: SkillVariant): void {
+    const { state } = this.host;
+    state.techniques = state.techniques.filter((t) => t.id !== v.id);
+    // 着けていたキャラからも外す
+    for (const c of state.characters) {
+      const vs = c.build.variants;
+      if (vs?.[v.base]?.id === v.id) delete vs[v.base];
+    }
+    this.changed();
   }
 
   // ---- 作戦 ----
@@ -767,6 +853,7 @@ export class BuildScreen {
     const report = finishExpedition(c, this.host.state.learned, Date.now());
     if (!report) return;
     this.host.state.stash.unshift(...report.items);
+    this.host.state.techniques.unshift(...report.variants);
     this.lastReport = { name: c.name, level: c.level, report };
     this.changed();
   }
@@ -783,6 +870,9 @@ export class BuildScreen {
         `経験値 ${r.report.exp}(×${r.report.yield.toFixed(2)})${r.report.levelsGained > 0 ? `・Lv${r.level}に上がった(振れる点数 +${r.report.levelsGained})` : ''}`,
       ),
       r.report.skills.length > 0 ? h('p', { class: 'found' }, `覚えた:${r.report.skills.map(skillName).join('・')}`) : '',
+      ...r.report.variants.map((v) =>
+        h('p', { class: 'found' }, `変化つきの技:${variantName(v, activeSkillDef(v.base).name)}(${variantText(v)})`),
+      ),
       r.report.injuredFor > 0
         ? h('p', { class: 'injured' }, `深い傷を負って戻った。${Math.ceil(r.report.injuredFor / 60000)}分は戦えず、遠征にも出せない`)
         : '',
@@ -836,6 +926,8 @@ export class BuildScreen {
             const { state } = this.host;
             const known = new Set(state.stash.map((i) => i.id));
             for (const item of Object.values(result.build.equipment)) if (item && !known.has(item.id)) state.stash.unshift(item);
+            // 変化つきの技も蓄えに入れる
+            for (const v of Object.values(result.build.variants ?? {})) if (v && !state.techniques.some((t) => t.id === v.id)) state.techniques.unshift(v);
             // 能力値はキャラのもの。読み込むのは装備・スキル・作戦・切り札だけ
             this.character.build = { ...result.build, attributes: this.build.attributes };
             this.codeMessage = '読み込んだ';
@@ -906,4 +998,9 @@ function environmentText(d: ExpeditionDef): string {
     parts.push(`敵は${ELEMENTS[e].name}に${v > 0 ? '強い' : '弱い'}`);
   }
   return parts.length > 0 ? parts.join('・') : 'なし';
+}
+
+/** 変化の中身を言葉にする */
+function variantText(v: SkillVariant): string {
+  return v.variations.map((id) => variationDef(id).text).join('・');
 }

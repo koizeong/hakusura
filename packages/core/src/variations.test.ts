@@ -32,7 +32,7 @@ function useNow(w: CombatWorld, p: { cooldowns: object; busyUntil: number }, ski
 describe('技の変化', () => {
   it('変化つきの技は名前に変化が付き、代償は名前に出ない', () => {
     expect(variantName(variant('sweep', 'wetting'), '薙ぎ払い')).toBe('雨垂れの薙ぎ払い');
-    expect(variantName(variant('sweep', 'heavy', 'wetting', 'dull'), '薙ぎ払い')).toBe('重い雨垂れの薙ぎ払い');
+    expect(variantName(variant('sweep', 'wetting', 'heavy', 'dull'), '薙ぎ払い')).toBe('重い雨垂れの薙ぎ払い');
     expect(resolveSkill('sweep', 'ironSword', undefined, variant('sweep', 'wetting'))!.name).toBe('鉄の剣の雨垂れの薙ぎ払い');
   });
 

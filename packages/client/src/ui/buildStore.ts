@@ -6,6 +6,8 @@ import {
   STARTING_SKILLS,
   canFight,
   generateItem,
+  rollVariant,
+  type SkillVariant,
   levelForPoints,
   newCharacter,
   spentPoints,
@@ -23,6 +25,8 @@ export interface BuildState {
   current: number;
   stash: Item[];
   learned: Learned;
+  /** 拾った変化つきの技。全キャラで共有し、ビルドで技の型として差し替える */
+  techniques: SkillVariant[];
 }
 
 /** 作れるキャラの数 */
@@ -114,7 +118,9 @@ function initialState(random: () => number): BuildState {
   };
   // 最初のキャラは、振り分けに足りるレベルまで育った古参として始める
   const first = migrate(characterName(0), build, Date.now());
-  return { characters: [first], current: 0, stash: [...starterWeapons, ...weaponSamples, ...artifacts, ...loot], learned: startingLearned() };
+  // 変化つきの技も、試せるよう少し持たせておく
+  const techniques = (['slash', 'sweep', 'shoot'] as const).map((base) => rollVariant(random, base));
+  return { characters: [first], current: 0, stash: [...starterWeapons, ...weaponSamples, ...artifacts, ...loot], learned: startingLearned(), techniques };
 }
 
 export function loadBuildState(random: () => number): BuildState {
@@ -123,6 +129,7 @@ export function loadBuildState(random: () => number): BuildState {
     if (saved && Array.isArray(saved.characters) && saved.characters.length > 0 && Array.isArray(saved.stash)) {
       saved.current = Math.min(Math.max(0, saved.current | 0), saved.characters.length - 1);
       saved.learned ??= startingLearned();
+      saved.techniques ??= [];
       // 戦える者を選んでおく(遠征や負傷の間は戦えない)
       if (!canFight(saved.characters[saved.current]!, Date.now())) {
         const other = saved.characters.findIndex((c) => canFight(c, Date.now()));
@@ -133,11 +140,11 @@ export function loadBuildState(random: () => number): BuildState {
     const now = Date.now();
     const oldChars = JSON.parse(localStorage.getItem(OLD_CHARACTERS_KEY) ?? 'null') as { characters: { name: string; build: Build }[]; stash: Item[] } | null;
     if (oldChars && Array.isArray(oldChars.characters) && oldChars.characters.length > 0 && Array.isArray(oldChars.stash)) {
-      return { characters: oldChars.characters.map((c) => migrate(c.name, c.build, now)), current: 0, stash: oldChars.stash, learned: startingLearned() };
+      return { characters: oldChars.characters.map((c) => migrate(c.name, c.build, now)), current: 0, stash: oldChars.stash, learned: startingLearned(), techniques: [] };
     }
     const old = JSON.parse(localStorage.getItem(OLD_BUILDS_KEY) ?? 'null') as { presets: { name: string; build: Build }[]; stash: Item[] } | null;
     if (old && Array.isArray(old.presets) && old.presets.length > 0 && Array.isArray(old.stash)) {
-      return { characters: old.presets.map((p, i) => migrate(p.name || characterName(i), p.build, now)), current: 0, stash: old.stash, learned: startingLearned() };
+      return { characters: old.presets.map((p, i) => migrate(p.name || characterName(i), p.build, now)), current: 0, stash: old.stash, learned: startingLearned(), techniques: [] };
     }
   } catch {
     // 読めなければ最初の支度にする
