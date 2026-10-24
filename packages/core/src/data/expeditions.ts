@@ -5,6 +5,7 @@ import type { FieldId } from './fields';
 import type { WeaponTypeId } from './weapons';
 import type { ActiveSkillId } from './skills';
 import type { PassiveId } from './passives';
+import type { VariationId } from './variations';
 
 /**
  * 遠征の行き先。長く危ない所ほど多く持ち帰る。
@@ -32,6 +33,9 @@ export interface ExpeditionDef {
   /** まだ覚えていないスキルを1つ見つける確率と、その地で見つかりやすいスキル */
   skillChance: number;
   preferSkills?: readonly (ActiveSkillId | PassiveId)[];
+  /** 変化つきの技を1つ持ち帰る確率と、その地で付きやすい変化 */
+  variantChance: number;
+  preferVariations?: readonly VariationId[];
 }
 
 const MIN = 60 * 1000;
@@ -47,6 +51,8 @@ export const EXPEDITIONS = {
     environment: {},
     conditionChance: 0.1,
     skillChance: 0.1,
+    preferSkills: ['quickShot', 'lunge'],
+    variantChance: 0.1,
   },
   ashRoad: {
     name: '灰の街道',
@@ -60,7 +66,9 @@ export const EXPEDITIONS = {
     preferConditions: ['bleedingSprint', 'bleedBack', 'runningBlade', 'untouched'],
     conditionChance: 0.25,
     skillChance: 0.3,
-    preferSkills: ['gouge', 'thrust', 'whetstone', 'bloodRush', 'bloodletter', 'fleetFoot'],
+    preferSkills: ['gouge', 'thrust', 'flurry', 'bloodCut', 'whetstone', 'bloodRush', 'bloodletter', 'fleetFoot'],
+    variantChance: 0.3,
+    preferVariations: ['bloodHound', 'vengeful', 'quick'],
   },
   rustMine: {
     name: '錆の廃坑',
@@ -76,7 +84,9 @@ export const EXPEDITIONS = {
     preferConditions: ['oilWalker', 'twinStrikeOnBurning', 'twoHandedReach', 'mirroredBlades'],
     conditionChance: 0.3,
     skillChance: 0.5,
-    preferSkills: ['scorch', 'cleave', 'oilFlask', 'oilSoaked', 'pyromaniac', 'emberHeart', 'heavyHand'],
+    preferSkills: ['scorch', 'cleave', 'breaker', 'quake', 'oilFlask', 'oilSoaked', 'pyromaniac', 'emberHeart', 'heavyHand'],
+    variantChance: 0.5,
+    preferVariations: ['smoldering', 'stunning', 'heavy', 'wide'],
   },
   drownedChapel: {
     name: '沈んだ聖堂',
@@ -92,7 +102,9 @@ export const EXPEDITIONS = {
     preferConditions: ['rainSoaked', 'manyAilments', 'cleanBody', 'crowdCleaver'],
     conditionChance: 0.6,
     skillChance: 0.9,
-    preferSkills: ['discharge', 'volley', 'aimedShot', 'stormOil', 'thunderPrayer', 'stormCaller', 'stormFinger'],
+    preferSkills: ['discharge', 'volley', 'aimedShot', 'pierceShot', 'scatterShot', 'stormOil', 'thunderPrayer', 'stormCaller', 'stormFinger'],
+    variantChance: 0.8,
+    preferVariations: ['wetting', 'rainSwift', 'thirdThunder', 'echoing'],
   },
 } as const satisfies Record<string, ExpeditionDef>;
 

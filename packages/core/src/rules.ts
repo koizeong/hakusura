@@ -35,11 +35,13 @@ export type Predicate =
   /** 自分がそのタグを持つ(両手持ち・二刀流など) */
   | { type: 'selfHasTag'; tag: string }
   /** 自分が一度も被弾していない(倒れるか、勘定をやり直すと戻る) */
-  | { type: 'selfUnhurt' };
+  | { type: 'selfUnhurt' }
+  /** そのスキルを使った回数が n の倍数のとき(3回目ごと、など) */
+  | { type: 'useEvery'; n: number };
 
 export type Action =
-  /** 同じ攻撃をもう一度当てる */
-  | { type: 'repeatHit' }
+  /** 同じ攻撃をもう一度当てる。power があれば、その割合の威力で */
+  | { type: 'repeatHit'; power?: number }
   | { type: 'applyBuildup'; status: StatusId; amount: number; to?: 'target' | 'attacker' }
   /** 対象に新しいヒットを落とす */
   | { type: 'strike'; element: ElementId; power: number; buildup: number; tags?: readonly string[] }
@@ -82,6 +84,7 @@ export type Rule = RuleBase &
       }
     | /** 攻撃を受けた後。対象は攻撃してきた者 */ { on: 'hurt'; do: readonly Action[] }
     | /** 1回の攻撃で min 体以上に当てたとき。対象は自分 */ { on: 'multiHit'; min: number; do: readonly Action[] }
+    | /** 近攻撃・周りに放つ技が、誰にも当たらなかったとき。対象は自分(技に付くルールだけ) */ { on: 'miss'; do: readonly Action[] }
     | /** スキルの直撃を受ける直前。chance の確率でジャスト回避・ジャストガードしたことにする */ {
         on: 'incoming';
         chance: number;
@@ -121,6 +124,7 @@ export interface PredicateContext {
   targetOnFloor?(field: FieldId): boolean;
   attackerTags?: readonly string[];
   attackerUnhurt?: boolean;
+  useIndex?: number;
 }
 
 export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean {
@@ -159,6 +163,8 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return ctx.attackerTags?.includes(p.tag) ?? false;
     case 'selfUnhurt':
       return ctx.attackerUnhurt ?? false;
+    case 'useEvery':
+      return ctx.useIndex !== undefined && ctx.useIndex % p.n === 0;
   }
 }
 

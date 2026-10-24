@@ -1,4 +1,5 @@
-import { ACTIVE_SKILLS, TRUMP_SKILL_IDS, activeSkillDef, isTechnique, techniqueFits, type ActiveSkillId } from './data/skills';
+import { ACTIVE_SKILLS, TRUMP_SKILL_IDS, activeSkillDef, isTechnique, techniqueFits, type ActiveSkillDef, type ActiveSkillId } from './data/skills';
+import { variantProblem, type SkillVariant } from './data/variations';
 import { PASSIVES, type PassiveId } from './data/passives';
 import { CONDITIONS } from './data/conditions';
 import { ARTIFACTS } from './data/artifacts';
@@ -29,6 +30,8 @@ export interface Build {
   tactics: Tactic[];
   /** 能力値。キャラが持ち、振り直しはできない。なければ全て基礎値 */
   attributes?: Attributes;
+  /** 技の型。拾った変化つきの技で、元の技を差し替える */
+  variants?: Partial<Record<ActiveSkillId, SkillVariant>>;
 }
 
 /**
@@ -151,6 +154,7 @@ export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   unit.conditions = items.flatMap((i) => (i.condition ? [i.condition] : []));
   unit.trump = build.trump;
   unit.attributes = { ...(build.attributes ?? baseAttributes()) };
+  unit.variants = { ...(build.variants ?? {}) };
   // 武器の数で持ち方が決まる。二刀流で左右の補正値の合計が同じなら、そのタグも付く
   const weapons = (['weapon1', 'weapon2'] as const).map((s) => build.equipment[s]).filter((i): i is Item => !!i && !i.artifact);
   unit.weapons = weapons.flatMap((i) => (i.weaponType ? [i.weaponType] : []));
@@ -236,6 +240,15 @@ function validateBuild(raw: unknown): string | null {
   if (b.attributes !== undefined) {
     const a = b.attributes as Record<string, unknown>;
     if (!a || typeof a !== 'object' || !ATTRIBUTE_IDS.every((id) => typeof a[id] === 'number' && Number.isFinite(a[id]))) return '能力値が壊れている';
+  }
+  if (b.variants !== undefined) {
+    if (!b.variants || typeof b.variants !== 'object') return '技の型が壊れている';
+    for (const [id, v] of Object.entries(b.variants as Record<string, SkillVariant>)) {
+      const def = (ACTIVE_SKILLS as Record<string, ActiveSkillDef>)[id];
+      if (!def || !isTechnique(def) || !v || v.base !== id || typeof v.id !== 'string') return '技の型が壊れている';
+      const problem = variantProblem(v, def.technique);
+      if (problem) return `技の型:${problem}`;
+    }
   }
   for (const t of b.tactics as Tactic[]) {
     if (!(t?.skill in ACTIVE_SKILLS) || !(t?.condition in TACTIC_CONDITIONS)) return '作戦に知らない部品がある';

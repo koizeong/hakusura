@@ -3,7 +3,10 @@ import { applyBuild, addExp, type Build, type Character } from './build';
 import { dealtBy, summarize } from './breakdown';
 import { generateItem, type Item } from './data/equipment';
 import { EXPEDITION_INJURY, EXPEDITION_YIELD, expeditionDef, type ExpeditionDef, type ExpeditionId } from './data/expeditions';
-import { ACTIVE_SKILLS, ACTIVE_SKILL_IDS, TRUMP_SKILL_IDS, type ActiveSkillId } from './data/skills';
+import { ACTIVE_SKILLS, ACTIVE_SKILL_IDS, TRUMP_SKILL_IDS, activeSkillDef, isTechnique, techniqueFits, type ActiveSkillId } from './data/skills';
+import { VARIANT_RULES, generateVariant, type SkillVariant, type VariationId } from './data/variations';
+import { WEAPON_TYPE_IDS, weaponDef, type WeaponTypeId } from './data/weapons';
+import { ATTRIBUTE_IDS, baseAttributes } from './data/attributes';
 import { PASSIVE_IDS, type PassiveId } from './data/passives';
 
 /** 覚えたスキル。アカウント全体で共有し、遠征で増える */
@@ -111,6 +114,8 @@ export interface ExpeditionReport {
   levelsGained: number;
   items: Item[];
   skills: (ActiveSkillId | PassiveId)[];
+  /** 見つけた変化つきの技 */
+  variants: SkillVariant[];
   /** 負傷して戻ったなら、治るまでの時間(ミリ秒) */
   injuredFor: number;
 }
@@ -160,6 +165,19 @@ export function finishExpedition(c: Character, learned: Learned, now: number = e
     skills.push(found.id);
   }
 
+  // 変化つきの技を見つける。元の技を覚えていなければ、一緒に覚える
+  const variants: SkillVariant[] = [];
+  if (rand() < Math.min(1, def.variantChance * y)) {
+    const local = VARIANT_BASES.filter((id) => (def.preferSkills as readonly string[] | undefined)?.includes(id));
+    const from = local.length > 0 && rand() < 0.5 ? local : VARIANT_BASES;
+    const base = from[Math.floor(rand() * from.length)]!;
+    variants.push(rollVariant(rand, base, def.preferVariations));
+    if (!learned.actives.includes(base)) {
+      learned.actives.push(base);
+      skills.push(base);
+    }
+  }
+
   // 弱いまま危ない所へ行くと、負傷して戻ることがある
   let injuredFor = 0;
   if (rand() < injuryChance(power, ex.destination)) {
@@ -168,7 +186,59 @@ export function finishExpedition(c: Character, learned: Learned, now: number = e
   }
 
   c.expedition = undefined;
-  return { destination: ex.destination, power, yield: y, exp, levelsGained, items, skills, injuredFor };
+  return { destination: ex.destination, power, yield: y, exp, levelsGained, items, skills, variants, injuredFor };
+}
+
+/** 変化が付く技(敵のものでない技) */
+export const VARIANT_BASES = FINDABLE_ACTIVES.filter((id) => isTechnique(activeSkillDef(id)));
+
+/** 技を試す武器。素手より、その技に合う最初の武器を使う */
+function trialWeapon(base: ActiveSkillId): WeaponTypeId {
+  const def = activeSkillDef(base);
+  const fits = WEAPON_TYPE_IDS.filter((w) => isTechnique(def) && techniqueFits(def, w));
+  return fits.find((w) => w !== 'fists') ?? fits[0] ?? 'fists';
+}
+
+export function trialBuild(base: ActiveSkillId, variant?: SkillVariant): Build {
+  const weapon = trialWeapon(base);
+  // 能力値の足りなさで測り違えないよう、武器と技の必要な分だけは持たせる
+  const needs = [activeSkillDef(base).needs, weaponDef(weapon).needs];
+  const attributes = baseAttributes();
+  for (const id of ATTRIBUTE_IDS) attributes[id] = Math.max(attributes[id], ...needs.map((n) => n?.[id] ?? 0));
+  return {
+    attributes,
+    actives: [base],
+    passives: [],
+    equipment: { weapon1: { id: 'trial', name: '試し', kind: 'weapon', affixes: [], weaponType: weapon } },
+    tactics: [{ skill: base, condition: 'always', enabled: true }],
+    ...(variant ? { variants: { [base]: variant } } : {}),
+  };
+}
+
+/**
+ * 変化で元の技より何倍強くなったか。晴れと雨の両方で測り、強く出た方を返す。
+ * 雨乞うのように環境で効く変化も、その環境での伸びで見る
+ */
+export function variantPowerRatio(v: SkillVariant, seconds = 30): number {
+  const envs: ExpeditionDef['environment'][] = [{}, { weather: 'rain' }];
+  return Math.max(
+    ...envs.map((env) => {
+      const before = measureBuildPower(trialBuild(v.base), seconds, 1, env);
+      const after = measureBuildPower(trialBuild(v.base, v), seconds, 1, env);
+      return before > 0 ? after / before : 1;
+    }),
+  );
+}
+
+/** 変化つきの技を作る。早回しで測って強すぎるもの(外れ値)は作り直す */
+export function rollVariant(random: () => number, base: ActiveSkillId, prefer: readonly VariationId[] = []): SkillVariant {
+  const def = activeSkillDef(base);
+  if (!isTechnique(def)) throw new Error(`${def.name} は技ではない`);
+  let v = generateVariant(random, base, def.technique, prefer);
+  for (let i = 0; i < 5 && variantPowerRatio(v) > VARIANT_RULES.maxPowerRatio; i++) {
+    v = generateVariant(random, base, def.technique, prefer);
+  }
+  return v;
 }
 
 /** 迎えた時刻を渡されなければ、戻るはずだった時刻に迎えたことにする */

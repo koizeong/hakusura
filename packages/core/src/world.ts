@@ -5,6 +5,7 @@ import { fieldDef, type FieldId } from './data/fields';
 import { STATUS_IDS, statusDef, statusForElement, type StatusId } from './data/statuses';
 import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction } from './data/skills';
 import type { WeaponTypeId } from './data/weapons';
+import type { SkillVariant } from './data/variations';
 import { attributeModifiers, type Attributes } from './data/attributes';
 import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import { matchCombos, type ComboId } from './data/combos';
@@ -113,6 +114,10 @@ export interface Unit {
   cooldownSpans: Partial<Record<ActiveSkillId, number>>;
   /** 能力値。なければ(敵など)、能力値の足りなさで威力は落ちない */
   attributes?: Attributes;
+  /** 技の型として使う変化つきの技 */
+  variants: Partial<Record<ActiveSkillId, SkillVariant>>;
+  /** 技を使った回数 */
+  skillUses: Partial<Record<ActiveSkillId, number>>;
 }
 
 export interface Buff {
@@ -159,6 +164,10 @@ export interface Hit {
   via: readonly string[];
   /** 攻撃の前に歩いた距離(駆ける刃などで使う) */
   charge?: number;
+  /** このヒットだけに効くルール(技と変化から) */
+  rules?: readonly Rule[];
+  /** 技を何回目に使ったか */
+  useIndex?: number;
 }
 
 export interface DamageRecord {
@@ -224,6 +233,8 @@ export interface Projectile {
   traveled: number;
   range: number;
   charge?: number;
+  /** 貫く弾が当てた相手 */
+  struck?: string[];
 }
 
 export interface FloorPatch {
@@ -246,7 +257,7 @@ interface Source {
   amount?: number;
 }
 
-type RuleKind = 'interaction' | 'reaction' | 'passive' | 'condition' | 'artifact';
+type RuleKind = 'interaction' | 'reaction' | 'passive' | 'condition' | 'artifact' | 'skill';
 
 interface PendingAction {
   unitId: string;
@@ -354,6 +365,8 @@ export class CombatWorld {
       weapons: spec.weapons ? [...spec.weapons] : [],
       hand: 0,
       cooldownSpans: {},
+      variants: {},
+      skillUses: {},
       attributes: spec.attributes ? { ...spec.attributes } : undefined,
     };
     this.units.set(unit.id, unit);
@@ -512,8 +525,13 @@ export class CombatWorld {
   useSkill(unitId: string, skillId: ActiveSkillId, aim: Point, targetId?: string): boolean {
     const unit = this.units.get(unitId);
     if (!unit || !this.canUseSkill(unitId, skillId)) return false;
-    const def = this.skillFor(unit, skillId)!;
-    const span = def.cooldown * this.statOf(unit, 'cooldown', [...def.tags, def.category, skillId]);
+    const uses = (unit.skillUses[skillId] ?? 0) + 1;
+    unit.skillUses[skillId] = uses;
+    const def: ResolvedSkill = { ...this.skillFor(unit, skillId)!, useIndex: uses };
+    // 雨乞うのように、条件を満たしている間だけ間隔が変わる
+    const ctx = this.context(unit, unit, {});
+    const when = (def.intervalWhen ?? []).reduce((m, w) => (w.when.every((p) => evaluatePredicate(p, ctx)) ? m * w.mult : m), 1);
+    const span = def.cooldown * when * this.statOf(unit, 'cooldown', [...def.tags, def.category, skillId]);
     unit.cooldowns[skillId] = this.time + span;
     unit.cooldownSpans[skillId] = span;
     unit.windupUntil = this.time + def.windup;
@@ -539,7 +557,7 @@ export class CombatWorld {
     const hands: WeaponTypeId[] = unit.weapons.length > 0 ? unit.weapons : ['fists'];
     const fits = hands.filter((w) => techniqueFits(def, w));
     if (fits.length === 0) return undefined;
-    return resolveSkill(skillId, fits[unit.hand % fits.length], unit.attributes);
+    return resolveSkill(skillId, fits[unit.hand % fits.length], unit.attributes, unit.variants[skillId]);
   }
 
   private executeSkill(pending: PendingAction): void {
@@ -586,6 +604,7 @@ export class CombatWorld {
           if (reaches(other, other) || justDodging) this.queueAttack(unit, other, def, charge);
         }
         this.onMultiHit(unit, landed, def.name);
+        if (landed === 0) this.onMiss(unit, def);
         if (action.clearsProjectiles) {
           this.projectiles = this.projectiles.filter((p) => {
             const owner = this.units.get(p.ownerId);
@@ -671,6 +690,7 @@ export class CombatWorld {
           this.queueAttack(unit, other, def, charge);
         }
         this.onMultiHit(unit, landed, def.name);
+        if (landed === 0) this.onMiss(unit, def);
         this.processHits();
         break;
       }
@@ -884,10 +904,15 @@ export class CombatWorld {
       p.x += p.vx * sec;
       p.y += p.vy * sec;
       p.traveled += Math.hypot(p.vx, p.vy) * sec;
-      const target = owner && this.opponentsOf(owner).find((u) => Math.hypot(u.x - p.x, u.y - p.y) <= u.radius + p.radius);
+      const target =
+        owner && this.opponentsOf(owner).find((u) => !p.struck?.includes(u.id) && Math.hypot(u.x - p.x, u.y - p.y) <= u.radius + p.radius);
+      const pierce = p.resolved.action.type === 'projectile' ? (p.resolved.action.pierce ?? 0) : 0;
       if (owner && target) {
         this.queueAttack(owner, target, p.resolved, p.charge);
-        this.events.push({ type: 'projectileEnd', projectileId: p.id, x: p.x, y: p.y, hit: true });
+        // 貫く弾は、同じ相手に二度当たらないよう覚えて飛び続ける
+        p.struck = [...(p.struck ?? []), target.id];
+        if (p.struck.length > pierce) this.events.push({ type: 'projectileEnd', projectileId: p.id, x: p.x, y: p.y, hit: true });
+        else alive.push(p);
       } else if (!owner || p.traveled >= p.range) {
         this.events.push({ type: 'projectileEnd', projectileId: p.id, x: p.x, y: p.y, hit: false });
       } else {
@@ -908,24 +933,40 @@ export class CombatWorld {
     }
   }
 
+  /** 近攻撃・周りに放つ技が誰にも当たらなかったとき。技に付くルールだけが動く */
+  private onMiss(unit: Unit, def: ResolvedSkill): void {
+    const ctx = this.context(unit, unit, { useIndex: def.useIndex });
+    for (const rule of def.rules ?? []) {
+      if (rule.on !== 'miss' || !ruleMatches(rule, ctx)) continue;
+      for (const action of rule.do) this.runAction(action, rule.label, unit, { attacker: unit, skill: def.name, via: [], depth: 0 });
+    }
+  }
+
   private queueAttack(attacker: Unit, target: Unit, def: ResolvedSkill, charge?: number): void {
     const skillId = def.id;
     const action = def.action;
     if (action.type !== 'melee' && action.type !== 'projectile' && action.type !== 'barrage' && action.type !== 'nova') return;
     const element = skillElement(def);
-    this.enqueue({
-      attackerId: attacker.id,
-      targetId: target.id,
-      element,
-      power: action.power,
-      buildup: action.buildup,
-      tags: hitTags(element, [...def.tags, def.category, 'weapon', skillId]),
-      skill: def.name,
-      source: def.name,
-      depth: 0,
-      via: [],
-      charge,
-    });
+    // 連撃のように、1回で何度も当たる技がある
+    const hits = action.type === 'melee' || action.type === 'nova' ? Math.max(1, action.hits ?? 1) : 1;
+    for (let i = 0; i < hits; i++) {
+      this.enqueue({
+        attackerId: attacker.id,
+        targetId: target.id,
+        element,
+        power: action.power,
+        buildup: action.buildup,
+        // 2回目からは multi を付ける。1回の技につき1度だけ効かせたいルールが見分ける
+        tags: hitTags(element, [...def.tags, def.category, 'weapon', skillId, ...(i > 0 ? ['multi'] : [])]),
+        skill: def.name,
+        source: def.name,
+        depth: 0,
+        via: [],
+        charge,
+        rules: def.rules,
+        useIndex: def.useIndex,
+      });
+    }
     if (attacker.imbue && attacker.imbue.until > this.time) {
       const imbue = resolveSkill(attacker.imbue.skill, undefined, attacker.attributes);
       if (imbue && imbue.action.type === 'imbue') {
@@ -1051,12 +1092,13 @@ export class CombatWorld {
     const attacker = hit.attackerId ? this.units.get(hit.attackerId) : undefined;
     const defended = this.defend(target, attacker, hit);
     if (defended === 'avoided') return;
-    const rules = this.rulesFor(attacker);
+    const rules: OwnedRule[] = [...this.rulesFor(attacker), ...(hit.rules ?? []).map((rule) => ({ rule, kind: 'skill' as const }))];
 
     const damageCtx = this.context(target, attacker, {
       hitTags: hit.tags,
       hitElement: hit.element,
       attackerLastElement: attacker?.lastElement,
+      useIndex: hit.useIndex,
     });
     const bonuses: RuleBonus[] = [];
     const qualifiers: string[] = [];
@@ -1132,7 +1174,7 @@ export class CombatWorld {
       }
     }
 
-    const hitCtx = this.context(target, attacker, { hitTags: hit.tags, hitElement: hit.element });
+    const hitCtx = this.context(target, attacker, { hitTags: hit.tags, hitElement: hit.element, useIndex: hit.useIndex });
     for (const { rule } of rules) {
       if (rule.on !== 'hit' || !ruleMatches(rule, hitCtx)) continue;
       for (const action of rule.do) this.runAction(action, rule.label, target, source);
@@ -1205,7 +1247,16 @@ export class CombatWorld {
     const via = [...src.via, label];
     switch (action.type) {
       case 'repeatHit':
-        if (src.hit) this.enqueue({ ...src.hit, tags: new Set([...src.hit.tags, 'repeat']), depth: src.depth + 1, via });
+        if (src.hit) {
+          this.enqueue({
+            ...src.hit,
+            power: src.hit.power * (action.power ?? 1),
+            buildup: src.hit.buildup * (action.power ?? 1),
+            tags: new Set([...src.hit.tags, 'repeat']),
+            depth: src.depth + 1,
+            via,
+          });
+        }
         break;
       case 'applyBuildup': {
         const unit = action.to === 'attacker' ? src.attacker : target;

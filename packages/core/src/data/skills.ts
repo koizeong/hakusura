@@ -2,6 +2,8 @@ import type { ElementId } from './elements';
 import type { FieldId } from './fields';
 import { weaponDef, type WeaponKind, type WeaponTypeId } from './weapons';
 import { missingPoints, shortfallPenalty, type AttributeNeeds, type Attributes } from './attributes';
+import type { Predicate, Rule } from '../rules';
+import { VARIATIONS, applyVariations, variantName, type SkillVariant, type VariationDef } from './variations';
 
 /** スキルの6分類。分類もタグとしてヒットに乗る */
 export const SKILL_CATEGORIES = {
@@ -15,14 +17,27 @@ export const SKILL_CATEGORIES = {
 export type SkillCategory = keyof typeof SKILL_CATEGORIES;
 
 export type SkillAction =
-  /** 狙った方向の扇形 arc 度、range ピクセルに当たる。clearsProjectiles なら範囲内の敵の弾をかき消す */
-  | { type: 'melee'; range: number; arc: number; power: number; buildup: number; clearsProjectiles?: boolean }
+  /**
+   * 狙った方向の扇形 arc 度、range ピクセルに当たる。clearsProjectiles なら範囲内の敵の弾をかき消す。
+   * hits があれば、1回振るごとに hits 回当たる
+   */
+  | { type: 'melee'; range: number; arc: number; power: number; buildup: number; clearsProjectiles?: boolean; hits?: number }
   /** 自分の周り radius の相手全てに当たる */
-  | { type: 'nova'; radius: number; power: number; buildup: number }
+  | { type: 'nova'; radius: number; power: number; buildup: number; hits?: number }
   /** 狙った相手の足元に、一定時間だけ床の状態を敷く */
   | { type: 'floor'; field: FieldId; radius: number; duration: number }
-  /** count 発を spread 度ずつずらして撃つ */
-  | { type: 'projectile'; speed: number; range: number; radius: number; power: number; buildup: number; count?: number; spread?: number }
+  /** count 発を spread 度ずつずらして撃つ。pierce があれば、その数だけ相手を貫いて飛び続ける */
+  | {
+      type: 'projectile';
+      speed: number;
+      range: number;
+      radius: number;
+      power: number;
+      buildup: number;
+      count?: number;
+      spread?: number;
+      pierce?: number;
+    }
   /** 一定時間、武器の攻撃に属性の追撃を乗せる */
   | { type: 'imbue'; ratio: number; buildup: number; duration: number }
   /**
@@ -82,11 +97,19 @@ export interface Technique {
   buildup?: number;
   /** swing の扇の角度(度)。なければ武器の角度 */
   arc?: number;
+  /** 扇の角度に掛ける倍率(変化から) */
+  arcScale?: number;
   /** shot の弾の数とずらす角度 */
   count?: number;
   spread?: number;
   /** nova の半径 */
   radius?: number;
+  /** 1回で何回当たるか(swing と nova) */
+  hits?: number;
+  /** 弾が貫く数(shot) */
+  pierce?: number;
+  /** この技で当てたときだけ効くルール */
+  rules?: readonly Rule[];
 }
 
 export interface TechniqueDef extends SkillBase {
@@ -186,6 +209,88 @@ export const ACTIVE_SKILLS = {
     needs: { int: 16 },
     tags: ['attack'],
     technique: { requires: { element: 'lightning' }, shape: 'nova', power: 0.9, interval: 2.2, buildup: 1.5, radius: 150 },
+  },
+  flurry: {
+    name: '連撃',
+    category: 'melee',
+    description: '細かく3回斬る。1回ごとの威力は4割',
+    needs: { dex: 12 },
+    tags: ['attack', 'dual'],
+    technique: { requires: { kind: 'melee' }, shape: 'swing', power: 0.4, interval: 1.1, hits: 3, buildup: 0.5, arc: 100 },
+  },
+  lunge: {
+    name: '踏み込み',
+    category: 'melee',
+    description: '踏み込んで斬る。射程1.4倍、扇は70度',
+    needs: { str: 10, dex: 10 },
+    tags: ['attack'],
+    technique: { requires: { kind: 'melee' }, shape: 'swing', power: 1.15, interval: 1.2, range: 1.4, arc: 70 },
+  },
+  breaker: {
+    name: '崩し',
+    category: 'melee',
+    description: '体勢を崩す。威力は低いが、当てると昏倒が溜まる',
+    needs: { str: 14 },
+    tags: ['attack'],
+    technique: {
+      requires: { kind: 'melee' },
+      shape: 'swing',
+      power: 0.6,
+      interval: 1.3,
+      rules: [{ label: '崩し', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }], do: [{ type: 'applyBuildup', status: 'stun', amount: 35 }] }],
+    },
+  },
+  bloodCut: {
+    name: '血の一閃',
+    category: 'melee',
+    description: '斬の武器で、自分の血も払って斬る。威力1.8倍、当てると自分に出血が溜まる',
+    needs: { dex: 12 },
+    tags: ['attack'],
+    technique: {
+      requires: { kind: 'melee', element: 'slash' },
+      shape: 'swing',
+      power: 1.8,
+      interval: 1.4,
+      rules: [{ label: '血の一閃', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }], do: [{ type: 'applyBuildup', status: 'bleed', amount: 30, to: 'attacker' }] }],
+    },
+  },
+  quake: {
+    name: '地鳴り',
+    category: 'melee',
+    description: '重い武器で地を叩き、周りを揺らす。当てると昏倒が溜まる',
+    needs: { str: 18 },
+    tags: ['attack'],
+    technique: {
+      requires: { kind: 'melee' },
+      shape: 'nova',
+      power: 0.9,
+      interval: 1.9,
+      windup: 1.5,
+      radius: 130,
+      rules: [{ label: '地鳴り', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }], do: [{ type: 'applyBuildup', status: 'stun', amount: 25 }] }],
+    },
+  },
+  scatterShot: {
+    name: '散弾',
+    category: 'ranged',
+    description: '近くへ5発をばら撒く。射程は半分、1発ごとの威力は3割',
+    tags: ['attack'],
+    technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 0.3, interval: 1.2, range: 0.5, count: 5, spread: 9 },
+  },
+  pierceShot: {
+    name: '貫き撃ち',
+    category: 'ranged',
+    description: '弾が3体まで貫いて飛ぶ',
+    needs: { dex: 14 },
+    tags: ['attack'],
+    technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 0.85, interval: 1.4, pierce: 3 },
+  },
+  quickShot: {
+    name: '牽制射',
+    category: 'ranged',
+    description: '素早く撃つ。威力は5割、間隔は半分',
+    tags: ['attack'],
+    technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 0.5, interval: 0.5, windup: 0.6 },
   },
   emberOil: {
     name: '燠火の塗油',
@@ -322,14 +427,20 @@ export interface ResolvedSkill {
   weapon?: WeaponTypeId;
   /** 能力値が足りない点数(武器と技の合計)。0 なら足りている */
   missing: number;
+  /** この技で当てたときだけ効くルール(技と変化から) */
+  rules?: readonly Rule[];
+  /** 条件を満たしているとき、間隔に掛ける倍率(変化から) */
+  intervalWhen?: readonly { when: readonly Predicate[]; mult: number }[];
+  /** 何回目に使ったか。使うたびに付く */
+  useIndex?: number;
 }
 
 /**
  * 実際に出す中身を作る。attrs を渡すと、武器と技の必要な能力値に足りない分だけ
  * 威力が落ち、間隔が延びる。渡さなければ(敵やテスト)落ちない
  */
-export function resolveSkill(id: ActiveSkillId, weapon?: WeaponTypeId, attrs?: Attributes): ResolvedSkill | undefined {
-  const raw = resolveRaw(id, weapon);
+export function resolveSkill(id: ActiveSkillId, weapon?: WeaponTypeId, attrs?: Attributes, variant?: SkillVariant): ResolvedSkill | undefined {
+  const raw = resolveRaw(id, weapon, variant && variant.base === id ? variant : undefined);
   if (!raw || !attrs) return raw;
   const def = activeSkillDef(id);
   const missing = missingPoints(def.needs, attrs) + (raw.weapon ? missingPoints(weaponDef(raw.weapon).needs, attrs) : 0);
@@ -341,7 +452,7 @@ export function resolveSkill(id: ActiveSkillId, weapon?: WeaponTypeId, attrs?: A
   return { ...raw, action, cooldown: raw.cooldown * penalty.interval, missing };
 }
 
-function resolveRaw(id: ActiveSkillId, weapon?: WeaponTypeId): ResolvedSkill | undefined {
+function resolveRaw(id: ActiveSkillId, weapon?: WeaponTypeId, variant?: SkillVariant): ResolvedSkill | undefined {
   const def = activeSkillDef(id);
   if (!isTechnique(def)) {
     return {
@@ -359,22 +470,28 @@ function resolveRaw(id: ActiveSkillId, weapon?: WeaponTypeId): ResolvedSkill | u
   }
   if (!weapon || !techniqueFits(def, weapon)) return undefined;
   const w = weaponDef(weapon);
-  const t = def.technique;
+  // 変化があれば、技の倍率に重ねる
+  const t = variant ? applyVariations(def.technique, variant.variations) : def.technique;
   const power = w.power * t.power;
   const buildup = w.buildup * (t.buildup ?? 1);
   const range = w.range * (t.range ?? 1);
   let action: SkillAction;
   if (t.shape === 'swing' && w.kind === 'melee') {
-    action = { type: 'melee', range, arc: t.arc ?? w.arc, power, buildup, clearsProjectiles: true };
+    action = { type: 'melee', range, arc: Math.min(360, (t.arc ?? w.arc) * (t.arcScale ?? 1)), power, buildup, clearsProjectiles: true, hits: t.hits };
   } else if (t.shape === 'shot' && w.kind === 'ranged') {
-    action = { type: 'projectile', speed: w.speed, range, radius: w.radius, power, buildup, count: t.count, spread: t.spread };
+    action = { type: 'projectile', speed: w.speed, range, radius: w.radius, power, buildup, count: t.count, spread: t.spread, pierce: t.pierce };
   } else {
-    action = { type: 'nova', radius: t.radius ?? 150, power, buildup };
+    action = { type: 'nova', radius: (t.radius ?? 150) * (t.range ?? 1), power, buildup, hits: t.hits };
   }
+  const variations = variant ? variant.variations.map((v) => VARIATIONS[v]) : [];
+  const rules = [...(t.rules ?? []), ...variations.flatMap((v) => (v as VariationDef).rules ?? [])];
+  const intervalWhen = variations.flatMap((v) => ((v as VariationDef).intervalWhen ? [(v as VariationDef).intervalWhen!] : []));
   return {
     id,
-    // 内訳で武器の違いが見えるよう、「鉄の剣の薙ぎ払い」のように呼ぶ
-    name: `${w.name}の${def.name}`,
+    // 内訳で武器の違いが見えるよう、「鉄の剣の雨垂れの薙ぎ払い」のように呼ぶ
+    name: `${w.name}の${variant ? variantName(variant, def.name) : def.name}`,
+    rules: rules.length > 0 ? rules : undefined,
+    intervalWhen: intervalWhen.length > 0 ? intervalWhen : undefined,
     category: w.kind === 'melee' ? 'melee' : 'ranged',
     element: w.element,
     tags: [...def.tags, ...w.tags, weapon, ...(w.kind === 'ranged' ? ['projectile'] : [])],
