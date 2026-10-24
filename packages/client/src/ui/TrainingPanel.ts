@@ -5,8 +5,14 @@ import {
   FIELD_IDS,
   STATUSES,
   STATUS_IDS,
+  ENCOUNTERS,
+  ENCOUNTER_IDS,
+  ENEMIES,
+  ENEMY_IDS,
   type CombatWorld,
   type ElementId,
+  type EncounterId,
+  type EnemyId,
   type FieldId,
   type Unit,
 } from '@hakusura/core';
@@ -30,6 +36,9 @@ export interface TrainingHost {
   setEnemyAttack(attack: EnemyAttack): void;
   setFloor(field: FieldId, on: boolean): void;
   resetMeasure(): void;
+  spawnEnemy(kind: EnemyId): void;
+  clearEnemies(): void;
+  startEncounter(id: EncounterId): void;
 }
 
 const RESIST_STEPS = [-1, -0.5, 0, 0.25, 0.5, 0.75, 1];
@@ -124,9 +133,48 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
     ),
   );
 
+  // 敵を1体ずつ呼んで試す。選ぶと、その敵が問うことを見せる
+  let enemyKind: EnemyId = ENEMY_IDS[0]!;
+  const concept = h('small', { class: 'concept' }, ENEMIES[enemyKind].concept);
+  const enemies = h(
+    'div',
+    { class: 'enemy-call' },
+    h(
+      'div',
+      { class: 'row' },
+      h(
+        'select',
+        {
+          onchange: blurAfter((e) => {
+            enemyKind = (e.target as HTMLSelectElement).value as EnemyId;
+            concept.textContent = ENEMIES[enemyKind].concept;
+          }),
+        },
+        ...ENEMY_IDS.map((id) => h('option', { value: id }, ENEMIES[id].name)),
+      ),
+      h('button', { onclick: blurAfter(() => host.spawnEnemy(enemyKind)) }, '呼ぶ'),
+      h('button', { onclick: blurAfter(() => host.clearEnemies()) }, '払う'),
+    ),
+    concept,
+  );
+  const battles = h(
+    'div',
+    { class: 'battles' },
+    ...ENCOUNTER_IDS.map((id) =>
+      h(
+        'div',
+        {},
+        h('button', { class: 'start-battle', onclick: blurAfter(() => host.startEncounter(id)) }, `${ENCOUNTERS[id].name}に挑む(${ENCOUNTERS[id].duration / 60000}分)`),
+        h('small', {}, ENCOUNTERS[id].description),
+      ),
+    ),
+  );
+
   const body = h(
     'div',
     { class: 'panel-body' },
+    section('一戦', battles),
+    section('敵を呼ぶ', enemies),
     section('戦い方', mode),
     section('天候', weather),
     section('床', floors),

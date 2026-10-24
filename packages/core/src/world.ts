@@ -6,6 +6,7 @@ import { STATUS_IDS, statusDef, statusForElement, type StatusId } from './data/s
 import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction } from './data/skills';
 import type { WeaponTypeId } from './data/weapons';
 import type { SkillVariant } from './data/variations';
+import { enemyDef, type EnemyId } from './data/enemies';
 import { attributeModifiers, type Attributes } from './data/attributes';
 import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import { matchCombos, type ComboId } from './data/combos';
@@ -118,6 +119,12 @@ export interface Unit {
   variants: Partial<Record<ActiveSkillId, SkillVariant>>;
   /** 技を使った回数 */
   skillUses: Partial<Record<ActiveSkillId, number>>;
+  /** 敵の種類。あれば ENEMIES の動き方で自分で歩く */
+  kind?: EnemyId;
+  /** 倒れたら消える。なければ(案山子と自分)起き上がる */
+  mortal: boolean;
+  /** 倒れて起き上がった回数 */
+  falls: number;
 }
 
 export interface Buff {
@@ -145,6 +152,8 @@ export interface UnitSpec {
   trump?: ActiveSkillId;
   weapons?: WeaponTypeId[];
   attributes?: Attributes;
+  mortal?: boolean;
+  kind?: EnemyId;
 }
 
 export interface Hit {
@@ -216,7 +225,9 @@ export type CombatEvent =
   /** cleared なら近攻撃でかき消された */
   | { type: 'projectileEnd'; projectileId: number; x: number; y: number; hit: boolean; cleared?: boolean }
   | { type: 'nova'; unitId: string; x: number; y: number; radius: number; element: ElementId }
-  | { type: 'fell'; unitId: string };
+  | { type: 'fell'; unitId: string }
+  /** 倒れて消えた(mortal な者) */
+  | { type: 'died'; unitId: string; name: string; kind?: EnemyId; team: Team; x: number; y: number };
 
 export interface Projectile {
   id: number;
@@ -277,6 +288,8 @@ export interface WorldOptions {
   maxTriggerDepth?: number;
   /** 乱数の種 */
   seed?: number;
+  /** 場の広さ。敵はこの中を歩く */
+  bounds?: { width: number; height: number };
 }
 
 /**
@@ -293,6 +306,9 @@ export class CombatWorld {
   projectiles: Projectile[] = [];
   log: DamageRecord[] = [];
   readonly maxTriggerDepth: number;
+  readonly bounds?: { width: number; height: number };
+  /** 倒れて消えた者の記録 */
+  deaths: { unitId: string; kind?: EnemyId; team: Team; time: number }[] = [];
 
   private events: CombatEvent[] = [];
   private queue: Hit[] = [];
@@ -303,6 +319,28 @@ export class CombatWorld {
   constructor(options: WorldOptions = {}) {
     this.maxTriggerDepth = options.maxTriggerDepth ?? MAX_TRIGGER_DEPTH;
     this.seed = options.seed ?? 1;
+    this.bounds = options.bounds;
+  }
+
+  /** 敵を1体置く。数値と動き方は ENEMIES から */
+  spawnEnemy(kind: EnemyId, id: string, x: number, y: number, team: Team = 'enemy'): Unit {
+    const def = enemyDef(kind);
+    const unit = this.addUnit({
+      id,
+      name: def.name,
+      team,
+      x,
+      y,
+      radius: def.radius,
+      maxHp: def.maxHp,
+      resist: def.resist,
+      ai: [...def.skills],
+      mortal: true,
+      kind,
+    });
+    // 現れてすぐ一斉に撃たないよう、最初の間を少しずらす
+    for (const skill of def.skills) unit.cooldowns[skill] = this.time + 600 + this.random() * 1400;
+    return unit;
   }
 
   /** 0以上1未満の乱数。種が同じなら同じ並びになる(シミュレーターで再現できるように) */
@@ -367,6 +405,9 @@ export class CombatWorld {
       cooldownSpans: {},
       variants: {},
       skillUses: {},
+      kind: spec.kind,
+      mortal: spec.mortal ?? false,
+      falls: 0,
       attributes: spec.attributes ? { ...spec.attributes } : undefined,
     };
     this.units.set(unit.id, unit);
@@ -821,7 +862,15 @@ export class CombatWorld {
       if (!unit.ai?.enabled) continue;
       for (const skill of unit.ai.skills) {
         if (!this.canUseSkill(unit.id, skill)) continue;
-        const reach = this.reachOf(unit, skill) ?? 0;
+        const reach = this.reachOf(unit, skill);
+        if (reach === undefined) {
+          // 天候のように届かせる必要のないものは、相手が近くにいて、まだその天候でないときに使う
+          const def = this.skillFor(unit, skill);
+          if (def?.action.type === 'weather' && this.weather === def.action.field) continue;
+          const near = this.opponentsOf(unit).find((u) => Math.hypot(u.x - unit.x, u.y - unit.y) < 700);
+          if (near && this.useSkill(unit.id, skill, near)) break;
+          continue;
+        }
         const target = this.opponentsOf(unit)
           .map((u) => ({ u, d: Math.hypot(u.x - unit.x, u.y - unit.y) - u.radius }))
           .filter(({ d }) => d <= reach * 0.9)
@@ -886,8 +935,128 @@ export class CombatWorld {
     for (const unit of this.units.values()) unit.buffs = unit.buffs.filter((b) => b.until > this.time && b.charges > 0);
 
     this.updateAi();
+    this.moveEnemies(dt);
     this.updateProjectiles(dt);
     this.processHits();
+  }
+
+  // ---- 敵の動き ----
+
+  /** 敵の種類ごとの動き方で歩かせる。振りかぶり・硬直・昏倒の間は止まる */
+  private moveEnemies(dt: number): void {
+    const sec = dt / 1000;
+    for (const unit of this.units.values()) {
+      if (!unit.kind || unit.hp <= 0 || this.isBusy(unit) || this.isIncapacitated(unit)) continue;
+      const def = enemyDef(unit.kind);
+      const target = this.tacticTarget(unit);
+      if (!target) continue;
+      const dx = target.x - unit.x;
+      const dy = target.y - unit.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const ux = dx / dist;
+      const uy = dy / dist;
+      let mx = 0;
+      let my = 0;
+      if (def.behavior === 'chase' || def.behavior === 'swarm') {
+        // 最初の技が届く所まで寄る
+        const reach = this.reachOf(unit, def.skills[0]!) ?? 60;
+        if (dist - target.radius > reach * 0.7) {
+          mx = ux;
+          my = uy;
+          if (def.behavior === 'swarm') {
+            // 群れは名前ごとに決まった側から回り込み、囲むように散る
+            const side = (hashOf(unit.id) % 2 === 0 ? 1 : -1) * Math.min(1, dist / 300);
+            mx += -uy * side * 0.6;
+            my += ux * side * 0.6;
+          }
+        }
+      } else {
+        const keep = def.keepAt ?? 300;
+        if (dist < keep * 0.75) {
+          mx = -ux;
+          my = -uy;
+        } else if (dist > keep * 1.1) {
+          mx = ux;
+          my = uy;
+        } else {
+          // 間合いの中では横へ歩いて、狙いを外させる
+          const side = Math.sin(this.time / 1400 + hashOf(unit.id)) > 0 ? 1 : -1;
+          mx = -uy * side * 0.5;
+          my = ux * side * 0.5;
+        }
+        if (def.behavior === 'support') {
+          // 一番近い仲間の、相手から見て陰へ寄る
+          const ally = [...this.units.values()]
+            .filter((u) => u !== unit && u.team === unit.team && u.kind && enemyDef(u.kind).behavior !== 'support')
+            .sort((a, b) => Math.hypot(a.x - unit.x, a.y - unit.y) - Math.hypot(b.x - unit.x, b.y - unit.y))[0];
+          if (ally) {
+            const ax = ally.x - target.x;
+            const ay = ally.y - target.y;
+            const ad = Math.hypot(ax, ay) || 1;
+            const gx = ally.x + (ax / ad) * 90 - unit.x;
+            const gy = ally.y + (ay / ad) * 90 - unit.y;
+            const gd = Math.hypot(gx, gy);
+            if (gd > 30) {
+              mx += (gx / gd) * 0.7;
+              my += (gy / gd) * 0.7;
+            }
+          }
+        }
+      }
+      // 仲間と重ならないよう押し合う
+      for (const other of this.units.values()) {
+        if (other === unit || other.team !== unit.team) continue;
+        const ox = unit.x - other.x;
+        const oy = unit.y - other.y;
+        const od = Math.hypot(ox, oy);
+        const min = unit.radius + other.radius + 4;
+        if (od < min && od > 0.01) {
+          mx += (ox / od) * ((min - od) / min) * 1.5;
+          my += (oy / od) * ((min - od) / min) * 1.5;
+        }
+      }
+      const len = Math.hypot(mx, my);
+      if (len < 0.01) continue;
+      const step = (def.speed * this.statOf(unit, 'moveSpeed') * sec) / Math.max(1, len);
+      let nx = unit.x + mx * step;
+      let ny = unit.y + my * step;
+      if (this.bounds) {
+        nx = Math.min(this.bounds.width - unit.radius, Math.max(unit.radius, nx));
+        ny = Math.min(this.bounds.height - unit.radius, Math.max(unit.radius, ny));
+      }
+      this.moveUnit(unit.id, nx, ny);
+    }
+  }
+
+  /** 倒れて消える。倒れたときの効果(油溜まり・破裂)はここで起きる */
+  private kill(unit: Unit, killer: Unit | undefined): void {
+    if (!this.units.has(unit.id)) return;
+    this.units.delete(unit.id);
+    this.pending = this.pending.filter((p) => p.unitId !== unit.id);
+    this.deaths.push({ unitId: unit.id, kind: unit.kind, team: unit.team, time: this.time });
+    this.events.push({ type: 'died', unitId: unit.id, name: unit.name, kind: unit.kind, team: unit.team, x: unit.x, y: unit.y });
+    const onDeath = unit.kind ? enemyDef(unit.kind).onDeath : undefined;
+    if (!onDeath) return;
+    if (onDeath.floor) this.addFloor(onDeath.floor.field, unit.x, unit.y, onDeath.floor.radius, this.time + onDeath.floor.duration);
+    if (onDeath.burst) {
+      const b = onDeath.burst;
+      // 破裂は敵味方の区別なく当たる。倒した者の手柄にする
+      for (const other of this.units.values()) {
+        if (Math.hypot(other.x - unit.x, other.y - unit.y) > b.radius + other.radius) continue;
+        this.enqueue({
+          attackerId: killer?.id,
+          targetId: other.id,
+          element: b.element,
+          power: b.power,
+          buildup: b.buildup,
+          tags: hitTags(b.element, ['burst', 'deathBurst']),
+          skill: `${unit.name}の破裂`,
+          source: `${unit.name}の破裂`,
+          depth: 1,
+          via: [],
+        });
+      }
+    }
   }
 
   // ---- ヒットの解決 ----
@@ -1148,10 +1317,15 @@ export class CombatWorld {
     };
     this.log.push(record);
     this.events.push({ type: 'damage', record, x: target.x, y: target.y });
+    if (target.hp <= 0 && target.mortal) {
+      this.kill(target, attacker);
+      return;
+    }
     if (target.hp <= 0) {
-      // 試作では倒れても起き上がる
+      // 自分と案山子は、倒れても起き上がる
       target.hp = target.maxHp;
       target.lastHurtAt = -Infinity;
+      target.falls += 1;
       this.events.push({ type: 'fell', unitId: target.id });
     }
     if (attacker && hit.tags.has('weapon')) attacker.lastElement = hit.element;
@@ -1433,4 +1607,11 @@ function normalizeAngle(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2;
   while (a < -Math.PI) a += Math.PI * 2;
   return a;
+}
+
+/** 名前から決まる小さな数。群れの散り方などを個体ごとにずらす */
+function hashOf(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return Math.abs(h);
 }

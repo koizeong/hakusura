@@ -22,7 +22,12 @@ import {
   type CombatEvent,
   type FieldId,
   type Unit,
+  ENEMIES,
+  Encounter,
+  type EncounterId,
+  type EnemyId,
 } from '@hakusura/core';
+import { EncounterView } from '../ui/EncounterView';
 import { InputController } from '../input/InputController';
 import { ACTIVE_SLOT_ACTIONS, loadKeybinds, type Keybinds } from '../input/keybinds';
 import { BreakdownView } from '../ui/BreakdownView';
@@ -117,13 +122,17 @@ export class TrainingGroundScene extends Phaser.Scene {
   private buildScreen!: BuildScreen;
   private nextGrowthCheck = 0;
   private lastReturned = 0;
+  /** 一戦の最中なら、その進み具合 */
+  private encounter: Encounter | null = null;
+  private encounterView!: EncounterView;
+  private enemySerial = 0;
 
   constructor() {
     super('TrainingGround');
   }
 
   create(): void {
-    this.world = new CombatWorld();
+    this.world = new CombatWorld({ seed: Math.floor(Math.random() * 1e9), bounds: ARENA });
     this.player = this.world.addUnit({
       id: 'player',
       name: '巡礼者',
@@ -202,6 +211,9 @@ export class TrainingGroundScene extends Phaser.Scene {
       setFloor: (field: FieldId, on: boolean) => this.setFloor(field, on),
       setEnemyAttack: (attack: EnemyAttack) => this.setEnemyAttack(attack),
       resetMeasure: () => this.world.resetLog(),
+      spawnEnemy: (kind: EnemyId) => this.spawnEnemy(kind),
+      clearEnemies: () => this.clearEnemies(),
+      startEncounter: (id: EncounterId) => this.startEncounter(id),
     };
     const panel = createTrainingPanel(host);
     // キー設定が変わったら枠の表示も変える
@@ -227,7 +239,8 @@ export class TrainingGroundScene extends Phaser.Scene {
         this.onBuildChange();
       },
     });
-    ui.replaceChildren(panel, this.hud.el, this.combo.el, this.breakdown.el, this.buildScreen.el);
+    this.encounterView = new EncounterView(() => this.endEncounter());
+    ui.replaceChildren(panel, this.hud.el, this.combo.el, this.breakdown.el, this.encounterView.el, this.buildScreen.el);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => ui.replaceChildren());
   }
 
@@ -238,6 +251,65 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.lockTarget = null;
     this.moveTo = null;
     this.hud.setMode(mode);
+  }
+
+  // ---- 敵と一戦 ----
+
+  /** 場にいる敵。案山子も含む */
+  private enemies(): Unit[] {
+    return [...this.world.units.values()].filter((u) => u.team !== this.player.team);
+  }
+
+  /** 試しに敵を1体呼ぶ。少し離れた所に現れる */
+  private spawnEnemy(kind: EnemyId): void {
+    const a = Math.random() * Math.PI * 2;
+    const x = Phaser.Math.Clamp(this.player.x + Math.cos(a) * 380, 60, ARENA.width - 60);
+    const y = Phaser.Math.Clamp(this.player.y + Math.sin(a) * 380, 60, ARENA.height - 60);
+    this.world.spawnEnemy(kind, `${kind}-t${++this.enemySerial}`, x, y);
+  }
+
+  /** 呼んだ敵を消す。案山子は残す */
+  private clearEnemies(): void {
+    for (const u of this.enemies()) if (u.kind) this.world.units.delete(u.id);
+    this.world.projectiles = [];
+  }
+
+  /** 一戦を始める。案山子を片付け、場をまっさらにして群れを待つ */
+  private startEncounter(id: EncounterId): void {
+    if (this.encounter) return;
+    this.clearEnemies();
+    for (const s of this.scarecrows) this.world.units.delete(s.id);
+    this.world.floors = [];
+    this.world.weather = null;
+    this.world.weatherCall = null;
+    this.world.resetLog();
+    const p = this.player;
+    p.hp = p.maxHp;
+    p.falls = 0;
+    p.cooldowns = {};
+    for (const st of Object.values(p.statuses)) (st.buildup = 0), (st.activeUntil = 0);
+    this.world.moveUnit(p.id, ARENA.width / 2, ARENA.height / 2);
+    this.lockTarget = null;
+    p.focusId = undefined;
+    this.encounter = new Encounter(this.world, id, p);
+    this.callout(p, this.encounter.def.name, '#c9b79c');
+  }
+
+  /** 一戦をやめるか終えて、試し斬り場に戻す */
+  private endEncounter(): void {
+    if (!this.encounter) return;
+    this.encounter = null;
+    this.encounterView.hide();
+    this.clearEnemies();
+    this.world.floors = [];
+    this.world.weather = null;
+    this.world.weatherCall = null;
+    for (const s of this.scarecrows) {
+      s.hp = s.maxHp;
+      this.world.units.set(s.id, s);
+    }
+    this.player.hp = this.player.maxHp;
+    this.world.resetLog();
   }
 
   /** 狭い画面では引いて、場を広く見せる */
@@ -341,7 +413,7 @@ export class TrainingGroundScene extends Phaser.Scene {
   /** 敵をタップすると狙いを定め、地面をタップするとそこへ歩く */
   private onTap(pointer: Phaser.Input.Pointer): void {
     const at = pointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
-    const enemy = this.scarecrows.find((s) => Math.hypot(s.x - at.x, s.y - 10 - at.y) <= s.radius + 22);
+    const enemy = this.enemies().find((s) => Math.hypot(s.x - at.x, s.y - (s.kind ? 0 : 10) - at.y) <= s.radius + 22);
     if (enemy) {
       const same = this.player.focusId === enemy.id;
       this.player.focusId = same ? undefined : enemy.id;
@@ -363,8 +435,8 @@ export class TrainingGroundScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     this.tickGrowth(time);
-    // 支度の間は戦いを止める
-    if (this.buildScreen.visible) return;
+    // 支度の間と、一戦の知らせを見ている間は戦いを止める
+    if (this.buildScreen.visible || this.encounter?.result) return;
     const dt = Math.min(delta, 50) * (time < this.slowUntil ? SLOWMO.scale : 1) * this.speed;
     const world = this.world;
     const input = this.input2;
@@ -379,6 +451,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     // 案山子を歩かせる。出血は動くと効く。振りかぶり中と昏倒中は止まる
     if (this.walking) {
       for (const s of this.scarecrows) {
+        if (!world.units.has(s.id)) continue;
         if (world.isBusy(s) || world.isIncapacitated(s)) continue;
         const home = this.homes.get(s.id)!;
         world.moveUnit(s.id, home.x + Math.sin(world.time / 900 + home.phase) * 50, home.y + Math.cos(world.time / 1300 + home.phase) * 30);
@@ -386,7 +459,17 @@ export class TrainingGroundScene extends Phaser.Scene {
     }
 
     // 早送りでも当たり判定が抜けないよう、細かく刻んで進める
-    for (let left = dt; left > 0; left -= 25) world.update(Math.min(25, left));
+    for (let left = dt; left > 0; left -= 25) {
+      this.encounter?.update();
+      if (this.encounter?.result) break;
+      world.update(Math.min(25, left));
+    }
+    if (this.encounter) {
+      const e = this.encounter;
+      if (e.result) {
+        this.encounterView.showResult(e, summarize(dealtBy(world.log, player.id), world.time), player.falls, () => this.endEncounter());
+      } else this.encounterView.update(e);
+    }
     for (const event of world.drainEvents()) this.showEvent(event);
     this.telegraphs = this.telegraphs.filter((t) => t.at > world.time);
 
@@ -536,7 +619,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     const r = player.radius;
     let nx = player.x + dx;
     let ny = player.y + dy;
-    for (const s of this.scarecrows) {
+    for (const s of this.enemies()) {
       const ox = nx - s.x;
       const oy = ny - s.y;
       const d = Math.hypot(ox, oy);
@@ -625,8 +708,15 @@ export class TrainingGroundScene extends Phaser.Scene {
       }
     }
 
+    // 敵。種類ごとの図形と、減った体力
+    for (const s of this.enemies()) {
+      if (!s.kind) continue;
+      this.drawEnemy(s);
+    }
+
     // 案山子
     for (const s of this.scarecrows) {
+      if (!world.units.has(s.id)) continue;
       g.fillStyle(0x4a3b2c).fillRect(s.x - 3, s.y - 26, 6, 46);
       g.fillRect(s.x - 20, s.y - 14, 40, 5);
       g.fillStyle(0x8a7454).fillCircle(s.x, s.y - 28, 9);
@@ -700,6 +790,61 @@ export class TrainingGroundScene extends Phaser.Scene {
     const len = Math.hypot(dx, dy);
     const k = len > STICK.full ? STICK.full / len : 1;
     g.fillStyle(0xc9b79c, 0.45).fillCircle(stick.startX + dx * k, stick.startY + dy * k, 18);
+  }
+
+  /** 敵を図形で描く。予兆の間は縁を明るくする */
+  private drawEnemy(u: Unit): void {
+    const g = this.gfx;
+    const world = this.world;
+    const def = ENEMIES[u.kind!];
+    const r = u.radius;
+    const winding = u.windupUntil > world.time;
+    g.fillStyle(def.look.color, 1);
+    g.lineStyle(2, winding ? 0xe0503a : 0x1a1410, 1);
+    switch (def.look.shape) {
+      case 'triangle': {
+        const a = u.facing;
+        const pts = [0, 2.4, -2.4].map((o) => ({ x: u.x + Math.cos(a + o) * r * 1.25, y: u.y + Math.sin(a + o) * r * 1.25 }));
+        g.fillTriangle(pts[0]!.x, pts[0]!.y, pts[1]!.x, pts[1]!.y, pts[2]!.x, pts[2]!.y);
+        g.strokeTriangle(pts[0]!.x, pts[0]!.y, pts[1]!.x, pts[1]!.y, pts[2]!.x, pts[2]!.y);
+        break;
+      }
+      case 'square':
+        g.fillRect(u.x - r, u.y - r, r * 2, r * 2).strokeRect(u.x - r, u.y - r, r * 2, r * 2);
+        g.fillStyle(0x2a201a, 1).fillRect(u.x - r * 0.6, u.y - r * 0.25, r * 1.2, r * 0.3);
+        break;
+      case 'diamond': {
+        const pts = [
+          { x: u.x, y: u.y - r * 1.3 },
+          { x: u.x + r, y: u.y },
+          { x: u.x, y: u.y + r * 1.3 },
+          { x: u.x - r, y: u.y },
+        ];
+        g.fillPoints(pts, true).strokePoints(pts, true);
+        break;
+      }
+      case 'bell':
+        g.fillCircle(u.x, u.y - r * 0.2, r).strokeCircle(u.x, u.y - r * 0.2, r);
+        g.fillRect(u.x - r * 1.2, u.y + r * 0.5, r * 2.4, r * 0.45);
+        g.fillStyle(0x2a2a30, 1).fillCircle(u.x, u.y + r * 1.15, r * 0.3);
+        break;
+      default:
+        // 油袋は膨らんだり萎んだりする
+        g.fillCircle(u.x, u.y, r * (1 + Math.sin(world.time / 300 + u.x) * 0.06)).strokeCircle(u.x, u.y, r);
+        g.fillStyle(0x2a2010, 0.8).fillCircle(u.x - r * 0.3, u.y - r * 0.2, r * 0.25);
+    }
+    // 体力。減ってから見せる
+    if (u.hp < u.maxHp) {
+      const w = Math.max(28, r * 2.2);
+      g.fillStyle(0x000000, 0.7).fillRect(u.x - w / 2, u.y - r - 12, w, 4);
+      g.fillStyle(0xa83228, 1).fillRect(u.x - w / 2, u.y - r - 12, (w * Math.max(0, u.hp)) / u.maxHp, 4);
+    }
+    this.drawStatuses(u, u.y + r + 6);
+    if (world.isIncapacitated(u)) {
+      const a = world.time / 150;
+      g.fillStyle(0xd8c25a, 0.9);
+      for (let i = 0; i < 3; i++) g.fillCircle(u.x + Math.cos(a + i * 2.1) * 14, u.y - r - 18 + Math.sin(a + i * 2.1) * 4, 2.5);
+    }
   }
 
   /** 状態の蓄積を細い棒、発動中を太い棒で出す */
@@ -863,6 +1008,15 @@ export class TrainingGroundScene extends Phaser.Scene {
         const fx = this.add.graphics().setDepth(29);
         fx.fillStyle(0xffffff, 0.6).fillCircle(event.x, event.y, 8);
         this.tweens.add({ targets: fx, alpha: 0, scale: 1.6, duration: 150, onComplete: () => fx.destroy() });
+        break;
+      }
+      case 'died': {
+        if (this.lockTarget?.id === event.unitId) this.lockTarget = null;
+        const fx = this.add.graphics().setDepth(29);
+        const color = event.kind ? ENEMIES[event.kind].look.color : 0x8a7454;
+        fx.fillStyle(color, 0.7).fillCircle(event.x, event.y, 18);
+        this.tweens.add({ targets: fx, alpha: 0, scale: 2.2, duration: 400, onComplete: () => fx.destroy() });
+        if (event.kind === 'oilBloat') this.cameras.main.shake(140, 0.005);
         break;
       }
       case 'fell': {

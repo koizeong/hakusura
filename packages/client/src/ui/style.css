@@ -1341,3 +1341,122 @@ button.discard {
   margin-top: 8px;
   min-height: 44px;
 }
+
+/* 敵を呼ぶ・一戦 */
+.enemy-call .row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.enemy-call select {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+}
+
+.enemy-call button,
+.battles button {
+  min-height: 36px;
+}
+
+.enemy-call .concept,
+.battles small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.battles .start-battle {
+  width: 100%;
+  border-color: #8a4a2f;
+}
+
+.encounter-bar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  max-width: calc(100% - 560px);
+  padding: 6px 12px;
+  background: var(--panel);
+  border: 1px solid #3a2f28;
+  font-size: 14px;
+  color: #e8dcc8;
+}
+
+.encounter-bar button {
+  min-height: 32px;
+  flex-shrink: 0;
+}
+
+.encounter-result {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100% - 24px));
+  padding: 20px;
+  background: var(--panel);
+  border: 1px solid #5a4a3a;
+  text-align: center;
+  color: #e8dcc8;
+  z-index: 20;
+}
+
+.encounter-result h2 {
+  margin: 0 0 8px;
+  font-size: 26px;
+  letter-spacing: 0.2em;
+  color: #d8c8a8;
+}
+
+.encounter-result dl {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px 16px;
+  justify-content: center;
+  margin: 12px 0;
+}
+
+.encounter-result dt {
+  color: var(--dim);
+}
+
+.encounter-result dd {
+  margin: 0;
+  text-align: left;
+}
+
+.encounter-result .kills {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  justify-content: center;
+  font-size: 13px;
+  color: #c9b79c;
+}
+
+.encounter-result button {
+  min-height: 44px;
+  padding: 8px 20px;
+}
+
+@media (max-width: 760px) {
+  .encounter-bar {
+    top: 52px;
+    left: 8px;
+    right: 8px;
+    transform: none;
+    max-width: none;
+    font-size: 12px;
+    padding: 4px 8px;
+    justify-content: space-between;
+  }
+}

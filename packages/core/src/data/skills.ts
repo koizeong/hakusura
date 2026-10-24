@@ -384,6 +384,81 @@ export const ACTIVE_SKILLS = {
     cooldown: 5600,
     action: { type: 'barrage', pattern: 'fan', count: 3, spread: 36, speed: 210, radius: 6, range: 650, power: 12, buildup: 30 },
   },
+  /** 屍喰いの噛みつき。短く速い。出血を刻む */
+  ghoulBite: {
+    name: '噛みつき',
+    category: 'melee',
+    element: 'slash',
+    tags: ['attack', 'enemy'],
+    windup: 450,
+    recovery: 450,
+    cooldown: 1500,
+    action: { type: 'melee', range: 46, arc: 90, power: 8, buildup: 30 },
+  },
+  /** 煤吹きの吐き出し。遅い火の粉を3つ扇に吐く */
+  sootSpit: {
+    name: '煤の吐き出し',
+    category: 'ranged',
+    element: 'fire',
+    tags: ['attack', 'enemy', 'projectile'],
+    windup: 750,
+    recovery: 350,
+    cooldown: 3400,
+    action: { type: 'barrage', pattern: 'fan', count: 3, spread: 28, speed: 190, radius: 7, range: 620, power: 11, buildup: 35 },
+  },
+  /** 錆鎧の叩きつけ。予兆が長く、当たると重い */
+  rustSlam: {
+    name: '錆鉄の叩きつけ',
+    category: 'melee',
+    element: 'slash',
+    tags: ['attack', 'enemy'],
+    windup: 1300,
+    recovery: 1000,
+    cooldown: 4200,
+    action: { type: 'melee', range: 135, arc: 150, power: 60, buildup: 25 },
+  },
+  /** 油袋の吐き戻し。狙った相手の足元に油溜まりを撒く */
+  oilSpew: {
+    name: '油の吐き戻し',
+    category: 'ranged',
+    tags: ['enemy'],
+    windup: 700,
+    recovery: 500,
+    cooldown: 5500,
+    action: { type: 'floor', field: 'oilPool', radius: 75, duration: 9000 },
+  },
+  /** 油袋の体当たり。近いと押し付けてくる */
+  bloatShove: {
+    name: '膨れた体当たり',
+    category: 'melee',
+    element: 'slash',
+    tags: ['attack', 'enemy'],
+    windup: 600,
+    recovery: 600,
+    cooldown: 2400,
+    action: { type: 'melee', range: 60, arc: 120, power: 14, buildup: 0 },
+  },
+  /** 鐘守の鐘。雨を呼ぶ。雨は火を消し、雷を倍にする */
+  bellToll: {
+    name: '弔いの鐘',
+    category: 'imbue',
+    tags: ['enemy'],
+    windup: 1400,
+    recovery: 600,
+    cooldown: 22000,
+    action: { type: 'weather', field: 'rain', duration: 14000 },
+  },
+  /** 鐘守の鐘の音。雷を帯びた輪がゆっくり広がる。濡れていると痛い */
+  bellRing: {
+    name: '鐘の残響',
+    category: 'ranged',
+    element: 'lightning',
+    tags: ['attack', 'enemy', 'projectile'],
+    windup: 800,
+    recovery: 400,
+    cooldown: 4600,
+    action: { type: 'barrage', pattern: 'ring', count: 10, spin: 18, speed: 130, radius: 6, range: 560, power: 9, buildup: 28 },
+  },
 } as const satisfies Record<string, ActiveSkillDef>;
 
 export type ActiveSkillId = keyof typeof ACTIVE_SKILLS;
