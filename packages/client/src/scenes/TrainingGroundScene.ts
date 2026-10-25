@@ -33,6 +33,7 @@ import {
   type EnemyId,
 } from '@hakusura/core';
 import { EncounterView } from '../ui/EncounterView';
+import { createPilgrimTexture, frameIndex, preloadPilgrim, type Anim, type Dir } from '../art';
 import { InputController } from '../input/InputController';
 import { ACTIVE_SLOT_ACTIONS, loadKeybinds, type Keybinds } from '../input/keybinds';
 import { BreakdownView } from '../ui/BreakdownView';
@@ -51,6 +52,11 @@ const MOVE_SPEED = 230;
 const AUTO_MOVE_SPEED = 330;
 /** 自分の見た目の大きさ。当たり判定(unit.radius)はこれより小さい */
 const PLAYER_LOOK = 15;
+/**
+ * 自キャラのドット絵を何倍で見せるか。当たり判定が胴に来るよう、絵の胴の高さ(32コマの18段目)を立ち位置に合わせる。
+ * feet は立ち位置から足元までの距離。足元の輪(付与・盾)はここに描く
+ */
+const PLAYER_ART = { scale: 2.25, originY: 18 / 32, feet: (29 - 18) * 2.25 } as const;
 /** 浮きスティック。押した所から引いた向きへ動く(画面のピクセル) */
 const STICK = { deadzone: 10, full: 56, tapMs: 260 };
 const DODGE = { speed: 900, duration: 170, cooldown: 650 };
@@ -136,9 +142,17 @@ export class TrainingGroundScene extends Phaser.Scene {
   private enemySerial = 0;
   /** 最後に被弾した時刻(画面の時刻)。当たった瞬間に白く光らせる */
   private hurtAt = new Map<string, number>();
+  /** 自キャラの絵と、絵の上に重ねる印(当たり判定・弾など) */
+  private playerSprite!: Phaser.GameObjects.Sprite;
+  private overGfx!: Phaser.GameObjects.Graphics;
+  private lastPlayerPos = { x: 0, y: 0 };
 
   constructor() {
     super('TrainingGround');
+  }
+
+  preload(): void {
+    preloadPilgrim(this);
   }
 
   create(): void {
@@ -175,6 +189,9 @@ export class TrainingGroundScene extends Phaser.Scene {
     });
 
     this.gfx = this.add.graphics();
+    createPilgrimTexture(this);
+    this.playerSprite = this.add.sprite(this.player.x, this.player.y, 'pilgrim', 0).setScale(PLAYER_ART.scale).setOrigin(0.5, PLAYER_ART.originY).setDepth(1);
+    this.overGfx = this.add.graphics().setDepth(2);
     this.rainGfx = this.add.graphics().setScrollFactor(0).setDepth(50);
     this.veils = { fog: this.makeVeil('veil-fog', [200, 204, 208], 0.72, 200), night: this.makeVeil('veil-night', [5, 5, 12], 0.8, 240) };
     this.stickGfx = this.add.graphics().setScrollFactor(0).setDepth(60);
@@ -738,33 +755,31 @@ export class TrainingGroundScene extends Phaser.Scene {
 
     // 自分
     const p = this.player;
-    const invulnerable = p.invulnerableUntil > world.time;
-    const hurt = this.hurtFlash(p.id);
-    g.fillStyle(hurt > 0 ? 0xe04030 : 0xcbbfa8, invulnerable ? 0.35 : 1).fillCircle(p.x, p.y, PLAYER_LOOK);
-    g.lineStyle(2, 0x6b2b22, invulnerable ? 0.35 : 1).strokeCircle(p.x, p.y, PLAYER_LOOK);
-    if (hurt > 0) g.lineStyle(3, 0xff6050, hurt).strokeCircle(p.x, p.y, PLAYER_LOOK + 4 + (1 - hurt) * 10);
-    // 本当の当たり判定
-    g.fillStyle(0x7a1f22, 1).fillCircle(p.x, p.y, p.radius * 0.6);
-    g.lineStyle(1, 0xf2e6c8, 0.9).strokeCircle(p.x, p.y, p.radius);
+    this.updatePlayerSprite();
+    // 絵の上に重ねる印。弾も自分の絵に隠れないよう、ここに描く
+    const o = this.overGfx;
+    o.clear();
+    // 本当の当たり判定。胴の上に小さく
+    o.fillStyle(0xe8dcc8, 0.75).fillCircle(p.x, p.y, 2.5);
+    o.lineStyle(1, 0xf2e6c8, 0.25).strokeCircle(p.x, p.y, p.radius);
+    // 付与と盾は、足元の輪で見せる(絵の下に描く)
+    const fy = p.y + PLAYER_ART.feet;
     if (p.imbue && p.imbue.until > world.time) {
-      g.lineStyle(2, ELEMENTS[skillElement(activeSkillDef(p.imbue.skill))].color, 0.7 + Math.sin(world.time / 80) * 0.3).strokeCircle(p.x, p.y, PLAYER_LOOK + 5);
+      g.lineStyle(3, ELEMENTS[skillElement(activeSkillDef(p.imbue.skill))].color, 0.55 + Math.sin(world.time / 80) * 0.25).strokeEllipse(p.x, fy, 46, 16);
     }
-    // 盾が張られている間は、薄い殻を描く
     if (p.shields.some((s) => s.ready)) {
-      g.lineStyle(2, 0xc9d8e8, 0.55 + Math.sin(world.time / 260) * 0.15).strokeCircle(p.x, p.y, PLAYER_LOOK + 3);
+      g.lineStyle(2, 0xc9d8e8, 0.5 + Math.sin(world.time / 260) * 0.15).strokeEllipse(p.x, fy, 56, 20);
     }
     if (p.guardSince !== null) {
       const fresh = p.guardIsFresh && world.time - p.guardSince <= DEFENSE.justGuardWindow;
-      g.lineStyle(fresh ? 5 : 4, fresh ? 0xf2e6c8 : 0x8a7e6a, 0.95);
+      o.lineStyle(fresh ? 5 : 4, fresh ? 0xf2e6c8 : 0x8a7e6a, 0.95);
       const arc = Phaser.Math.DegToRad(DEFENSE.guardArc);
-      g.beginPath().arc(p.x, p.y, PLAYER_LOOK + 9, this.facing - arc, this.facing + arc).strokePath();
+      o.beginPath().arc(p.x, p.y, PLAYER_LOOK + 11, this.facing - arc, this.facing + arc).strokePath();
     }
-    const ax = p.x + Math.cos(this.facing) * (PLAYER_LOOK + 14);
-    const ay = p.y + Math.sin(this.facing) * (PLAYER_LOOK + 14);
-    g.lineStyle(3, 0x9c8f78).lineBetween(p.x + Math.cos(this.facing) * PLAYER_LOOK, p.y + Math.sin(this.facing) * PLAYER_LOOK, ax, ay);
-    this.drawStatuses(p, p.y + PLAYER_LOOK + 8);
+    this.drawStatuses(p, fy + 8);
 
     for (const proj of world.projectiles) {
+      const g = o;
       const color = ELEMENTS[proj.element].color;
       if (world.units.get(proj.ownerId)?.team === this.player.team) {
         g.fillStyle(color, 0.3).fillCircle(proj.x, proj.y, proj.radius * 2.2);
@@ -791,6 +806,46 @@ export class TrainingGroundScene extends Phaser.Scene {
     const len = Math.hypot(dx, dy);
     const k = len > STICK.full ? STICK.full / len : 1;
     g.fillStyle(0xc9b79c, 0.45).fillCircle(stick.startX + dx * k, stick.startY + dy * k, 18);
+  }
+
+  /**
+   * 自キャラの絵のコマを選ぶ。向きは狙う向きから、動きは歩き・振りかぶり・被弾から決める。
+   * 左向きは横向きの絵を裏返す
+   */
+  private updatePlayerSprite(): void {
+    const p = this.player;
+    const world = this.world;
+    const sprite = this.playerSprite;
+    const moved = Math.hypot(p.x - this.lastPlayerPos.x, p.y - this.lastPlayerPos.y);
+    this.lastPlayerPos = { x: p.x, y: p.y };
+    sprite.setPosition(p.x, p.y);
+
+    const deg = Phaser.Math.RadToDeg(this.facing);
+    const dir: Dir = deg > -135 && deg < -45 ? 'up' : deg >= 45 && deg <= 135 ? 'down' : 'side';
+    sprite.setFlipX(dir === 'side' && Math.abs(deg) > 90);
+
+    const now = this.time.now;
+    const hurt = this.hurtFlash(p.id);
+    let anim: Anim = 'idle';
+    let i = Math.floor(now / 520) % 2;
+    if (hurt > 0) {
+      anim = 'hurt';
+      i = 0;
+    } else if (p.windupUntil > world.time) {
+      anim = 'attack';
+      i = 0;
+    } else if (p.busyUntil > world.time) {
+      anim = 'attack';
+      // 振り下ろした直後は伸びきった形を少し見せる
+      i = world.time - p.windupUntil < 160 ? 1 : 2;
+    } else if (moved > 0.4) {
+      anim = 'walk';
+      i = Math.floor(now / 120) % 4;
+    }
+    sprite.setFrame(frameIndex(dir, anim, i));
+    sprite.setAlpha(p.invulnerableUntil > world.time ? 0.45 : 1);
+    if (hurt > 0) sprite.setTint(0xff7060);
+    else sprite.clearTint();
   }
 
   /** 被弾の光の強さ(0〜1)。当たった瞬間が1で、すぐ消える */
