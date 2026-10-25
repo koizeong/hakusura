@@ -166,7 +166,7 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
       h(
         'div',
         {},
-        h('button', { class: 'start-battle', onclick: blurAfter(() => host.startEncounter(id)) }, `${ENCOUNTERS[id].name}に挑む(${ENCOUNTERS[id].duration / 60000}分)`),
+        h('button', { class: 'start-battle', onclick: blurAfter(() => host.startEncounter(id)) }, `${ENCOUNTERS[id].name}に挑む(${minutesText(ENCOUNTERS[id].duration)})`),
         h('small', {}, ENCOUNTERS[id].description),
       ),
     ),
@@ -225,6 +225,13 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
       note ? h('small', {}, note) : null,
     );
   }
+}
+
+/** 「3分半」のように言う */
+function minutesText(ms: number): string {
+  const m = Math.floor(ms / 60000);
+  const s = Math.round((ms % 60000) / 1000);
+  return s === 0 ? `${m}分` : s === 30 ? `${m}分半` : `${m}分${s}秒`;
 }
 
 function section(title: string, body: HTMLElement): HTMLElement {
