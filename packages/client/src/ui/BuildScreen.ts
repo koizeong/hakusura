@@ -97,6 +97,7 @@ import {
   variationDef,
   type SkillVariant,
 } from '@hakusura/core';
+import { itemIconUrl } from '../art/items';
 import { h, signedPercent } from './dom';
 import { createTacticsEditor } from './TacticsEditor';
 import { CHARACTER_LIMIT, characterName, currentBuild, currentCharacter, newCharacterId, type BuildState } from './buildStore';
@@ -1002,7 +1003,14 @@ function itemCard(attrs: Attributes, item: Item, ...actions: HTMLElement[]): HTM
   return h(
     'div',
     { class: `item-card${artifact ? ' artifact' : ''}` },
-    h('div', { class: 'item-head' }, h('b', {}, item.name), h('small', {}, kindName), artifact ? '' : h('small', { class: 'total' }, `合計 ${signedPercent(total / 100)}`)),
+    h(
+      'div',
+      { class: 'item-head' },
+      h('img', { class: 'item-icon', src: itemIconUrl(item), alt: '' }),
+      h('b', {}, item.name),
+      h('small', {}, kindName),
+      artifact ? '' : h('small', { class: 'total' }, `合計 ${signedPercent(total / 100)}`),
+    ),
     artifact ? h('p', { class: 'artifact-text' }, artifact.text) : '',
     weapon ? h('div', { class: 'weapon-stats' }, weaponSummary(weapon)) : '',
     weapon?.tempers?.length ? h('div', { class: 'weapon-stats temper' }, weapon.tempers.map((t) => `${WEAPON_TEMPERS[t].prefix}:${WEAPON_TEMPERS[t].text}`).join('・')) : '',

@@ -1,5 +1,6 @@
 import { ACTIVE_SKILLS, FERVOR, FIELDS, SKILL_CATEGORIES, STATUSES, STATUS_IDS, type ActiveSkillId, type CombatWorld, type Unit } from '@hakusura/core';
 import { ACTIVE_SLOT_ACTIONS, bindingLabel, type Keybinds } from '../input/keybinds';
+import { statusIconUrl } from '../art/icons';
 import { h } from './dom';
 import type { BattleMode } from './TrainingPanel';
 
@@ -208,8 +209,9 @@ export class Hud {
     const parts: string[] = [];
     for (const id of STATUS_IDS) {
       const st = player.statuses[id];
-      if (world.isActive(player, id)) parts.push(`<b style="color:#${STATUSES[id].color.toString(16).padStart(6, '0')}">${STATUSES[id].name}</b>`);
-      else if (st.buildup > 1) parts.push(`<span>${STATUSES[id].name} ${Math.round((st.buildup / STATUSES[id].max) * 100)}%</span>`);
+      const icon = `<img class="st-icon" src="${statusIconUrl(id)}" alt="">`;
+      if (world.isActive(player, id)) parts.push(`<b style="color:#${STATUSES[id].color.toString(16).padStart(6, '0')}">${icon}${STATUSES[id].name}</b>`);
+      else if (st.buildup > 1) parts.push(`<span>${icon}${STATUSES[id].name} ${Math.round((st.buildup / STATUSES[id].max) * 100)}%</span>`);
     }
     for (const buff of player.buffs) {
       if (buff.until > world.time && buff.charges > 0) parts.push(`<b class="buff">${buff.label}</b>`);

@@ -283,6 +283,15 @@ input {
   font-weight: normal;
 }
 
+/* 状態の印。ドット絵なので、にじませずに倍で出す */
+.st-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 2px;
+  vertical-align: -3px;
+  image-rendering: pixelated;
+}
+
 .own-statuses .imbue {
   color: #ff7a2e;
 }
@@ -966,6 +975,15 @@ canvas {
   gap: 8px;
   align-items: baseline;
   flex-wrap: wrap;
+}
+
+.item-icon {
+  width: 32px;
+  height: 32px;
+  align-self: center;
+  image-rendering: pixelated;
+  background: #0e0c0a;
+  border: 1px solid #2a241e;
 }
 
 .item-head small {

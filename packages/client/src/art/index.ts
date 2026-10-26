@@ -103,3 +103,14 @@ export function projectileTexture(scene: Phaser.Scene, element: ElementId, hosti
   if (scene.textures.exists(key)) return key;
   return paintTexture(scene, key, drawProjectile(element, hostile));
 }
+
+export * from './icons';
+import { drawStatusIcon } from './icons';
+import type { StatusId } from '@hakusura/core';
+
+/** 状態の印の絵を用意して名前を返す */
+export function statusIconTexture(scene: Phaser.Scene, id: StatusId): string {
+  const key = `status:${id}`;
+  if (scene.textures.exists(key)) return key;
+  return paintTexture(scene, key, drawStatusIcon(id));
+}

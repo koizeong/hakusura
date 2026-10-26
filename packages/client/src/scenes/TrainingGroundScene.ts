@@ -23,6 +23,7 @@ import {
   type FieldId,
   type Unit,
   type StatusDef,
+  type StatusId,
   FLOOR_IDS,
   weaponDef,
   FORMS,
@@ -33,7 +34,7 @@ import {
   type EnemyId,
 } from '@hakusura/core';
 import { EncounterView } from '../ui/EncounterView';
-import { GRIP, SHIELD_SIZE, WEAPON_SIZE, createPilgrimTexture, enemyArtOrigin, enemyArtSize, enemyTexture, floorAlpha, floorTexture, frameIndex, groundTexture, PROJECTILE_CORE, PROJECTILE_CORE_RADIUS, PROJECTILE_SIZE, projectileTexture, preloadPilgrim, shieldTexture, weaponTexture, type Anim, type Dir } from '../art';
+import { GRIP, SHIELD_SIZE, WEAPON_SIZE, createPilgrimTexture, enemyArtOrigin, enemyArtSize, enemyTexture, floorAlpha, floorTexture, frameIndex, groundTexture, PROJECTILE_CORE, PROJECTILE_CORE_RADIUS, PROJECTILE_SIZE, projectileTexture, statusIconTexture, preloadPilgrim, shieldTexture, weaponTexture, type Anim, type Dir } from '../art';
 import { InputController } from '../input/InputController';
 import { ACTIVE_SLOT_ACTIONS, loadKeybinds, type Keybinds } from '../input/keybinds';
 import { BreakdownView } from '../ui/BreakdownView';
@@ -160,6 +161,9 @@ export class TrainingGroundScene extends Phaser.Scene {
   private lastUnitPos = new Map<string, { x: number; y: number }>();
   private seenSprites = new Set<string>();
   /** 床の溜まりごとの絵。床が変われば絵を替え、消えれば片付ける */
+  /** 状態の印の絵。毎回の描画で頭から使い、余りは隠す */
+  private iconPool: Phaser.GameObjects.Image[] = [];
+  private iconsUsed = 0;
   private projectileImages = new Map<number, Phaser.GameObjects.Image>();
   private floorImages = new Map<number, { img: Phaser.GameObjects.Image; key: string }>();
   /** 手に持つ武器と盾の絵。武器は狙う向きへ回し、近攻撃では扇に沿って振る */
@@ -744,6 +748,7 @@ export class TrainingGroundScene extends Phaser.Scene {
 
     // 敵と案山子。絵の上に重ねる印のため、先に重ねの層を消しておく
     this.overGfx.clear();
+    this.iconsUsed = 0;
     for (const s of this.enemies()) this.drawUnitSprite(s, s.kind ?? 'scarecrow');
     this.sweepSprites();
 
@@ -784,6 +789,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.drawStatuses(p, fy + 8);
 
     this.drawProjectiles();
+    for (let i = this.iconsUsed; i < this.iconPool.length; i++) this.iconPool[i]!.setVisible(false);
 
     this.drawWeather();
   }
@@ -1051,6 +1057,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     const g = this.overGfx;
     const width = 40;
     let y = top;
+    const icons: StatusId[] = [];
     for (const id of STATUS_IDS) {
       const st = unit.statuses[id];
       const def: StatusDef = STATUSES[id];
@@ -1061,8 +1068,24 @@ export class TrainingGroundScene extends Phaser.Scene {
       g.fillStyle(0x000000, 0.6).fillRect(unit.x - width / 2, y, width, active ? 5 : 3);
       const ratio = active ? 1 : st.buildup / def.max;
       g.fillStyle(def.color, active ? 1 : 0.7).fillRect(unit.x - width / 2, y, width * ratio, active ? 5 : 3);
+      if (active) icons.push(id);
       y += active ? 7 : 5;
     }
+    // 発動中の状態は、棒の下に印を横に並べる
+    const step = 13;
+    icons.forEach((id, i) => this.placeIcon(statusIconTexture(this, id), unit.x + (i - (icons.length - 1) / 2) * step, y + 6));
+  }
+
+  /** 状態の印を1つ置く。絵は使い回す */
+  private placeIcon(key: string, x: number, y: number): void {
+    let img = this.iconPool[this.iconsUsed];
+    if (!img) {
+      img = this.add.image(0, 0, key).setScale(1.25).setDepth(2.6);
+      this.iconPool.push(img);
+    }
+    this.iconsUsed++;
+    if (img.texture.key !== key) img.setTexture(key);
+    img.setPosition(x, y).setVisible(true);
   }
 
   /**
@@ -1101,13 +1124,25 @@ export class TrainingGroundScene extends Phaser.Scene {
     const t = this.world.time;
     // 引いた画面でも端まで覆えるよう、広めに塗る
     const tint = (color: number, alpha: number) => g.fillStyle(color, alpha).fillRect(-width, -height, width * 3, height * 3);
+    // 雨と砂の粒。ドット絵に合わせ、升の大きさに揃えた点の連なりで描く
+    const px = PLAYER_ART.scale;
+    const snap = (v: number) => Math.round(v / px) * px;
     const streaks = (count: number, color: number, alpha: number, vx: number, vy: number, len: number) => {
-      g.lineStyle(1, color, alpha);
+      g.fillStyle(color, alpha);
+      const falling = vy > 0.5;
+      const cells = Math.max(2, Math.round(len / px));
       for (let i = 0; i < count; i++) {
         const seed = ((i * 9301 + 49297) % 233280) / 233280;
-        const x = ((seed * (width + 200) + t * vx) % (width + 200) + width + 200) % (width + 200) - 100;
-        const y = ((i * 37.7 + t * vy) % (height + 40) + height + 40) % (height + 40) - 20;
-        g.lineBetween(x, y, x - len * Math.sign(vx || 1) * 0.3, y + len * (vy > 0.5 ? 1 : 0.15));
+        // 横と縦で別の散らし方にして、粒が筋に並ばないようにする
+        const x = snap((((seed * (width + 200) + t * vx) % (width + 200)) + width + 200) % (width + 200) - 100);
+        const seedY = ((i * 7919 + 104729) % 6151) / 6151;
+        const y = snap((((seedY * (height + 40) + t * vy) % (height + 40)) + height + 40) % (height + 40) - 20);
+        if (falling) {
+          // 少し斜めに落ちる滴。下へ行くほど1升ずつ左へずれる
+          for (let k = 0; k < cells; k++) g.fillRect(x - Math.floor(k / 3) * px, y + k * px, px, px);
+        } else {
+          g.fillRect(x, y, cells * px, px);
+        }
       }
     };
     switch (weather) {
