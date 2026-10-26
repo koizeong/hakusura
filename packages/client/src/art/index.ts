@@ -73,3 +73,33 @@ export function enemyTexture(scene: Phaser.Scene, id: EnemyId | 'scarecrow'): st
   tex.setFilter(Phaser.Textures.FilterMode.NEAREST);
   return key;
 }
+
+export * from './ground';
+import { FLOOR_RADIUS_STEP, buildGround, drawFloor } from './ground';
+import type { FieldId } from '@hakusura/core';
+
+/** 戦場の地面を 'ground' の名前で用意する。width×height は升の数 */
+export function groundTexture(scene: Phaser.Scene, width: number, height: number): string {
+  const key = 'ground';
+  if (!scene.textures.exists(key)) scene.textures.addCanvas(key, buildGround(width, height))!.setFilter(Phaser.Textures.FilterMode.NEAREST);
+  return key;
+}
+
+/** 床の絵を用意して名前を返す。半径(升)は刻みに丸め、刻みごとに3通りの形を使い回す */
+export function floorTexture(scene: Phaser.Scene, field: FieldId, radius: number, variant: number): string {
+  const r = Math.max(FLOOR_RADIUS_STEP, Math.round(radius / FLOOR_RADIUS_STEP) * FLOOR_RADIUS_STEP);
+  const v = variant % 3;
+  const key = field === 'corpse' ? 'floor:corpse' : `floor:${field}:${r}:${v}`;
+  if (scene.textures.exists(key)) return key;
+  return paintTexture(scene, key, drawFloor(field, r, v + 1));
+}
+
+export * from './projectiles';
+import { drawProjectile } from './projectiles';
+
+/** 弾の絵を用意して名前を返す。敵の弾は別の絵 */
+export function projectileTexture(scene: Phaser.Scene, element: ElementId, hostile: boolean): string {
+  const key = `proj:${element}:${hostile ? 'foe' : 'ally'}`;
+  if (scene.textures.exists(key)) return key;
+  return paintTexture(scene, key, drawProjectile(element, hostile));
+}

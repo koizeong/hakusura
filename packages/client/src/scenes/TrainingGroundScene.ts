@@ -23,7 +23,6 @@ import {
   type FieldId,
   type Unit,
   type StatusDef,
-  type FloorPatch,
   FLOOR_IDS,
   weaponDef,
   FORMS,
@@ -34,7 +33,7 @@ import {
   type EnemyId,
 } from '@hakusura/core';
 import { EncounterView } from '../ui/EncounterView';
-import { GRIP, SHIELD_SIZE, WEAPON_SIZE, createPilgrimTexture, enemyArtOrigin, enemyArtSize, enemyTexture, frameIndex, preloadPilgrim, shieldTexture, weaponTexture, type Anim, type Dir } from '../art';
+import { GRIP, SHIELD_SIZE, WEAPON_SIZE, createPilgrimTexture, enemyArtOrigin, enemyArtSize, enemyTexture, floorAlpha, floorTexture, frameIndex, groundTexture, PROJECTILE_CORE, PROJECTILE_CORE_RADIUS, PROJECTILE_SIZE, projectileTexture, preloadPilgrim, shieldTexture, weaponTexture, type Anim, type Dir } from '../art';
 import { InputController } from '../input/InputController';
 import { ACTIVE_SLOT_ACTIONS, loadKeybinds, type Keybinds } from '../input/keybinds';
 import { BreakdownView } from '../ui/BreakdownView';
@@ -160,6 +159,9 @@ export class TrainingGroundScene extends Phaser.Scene {
   private unitSprites = new Map<string, Phaser.GameObjects.Sprite>();
   private lastUnitPos = new Map<string, { x: number; y: number }>();
   private seenSprites = new Set<string>();
+  /** 床の溜まりごとの絵。床が変われば絵を替え、消えれば片付ける */
+  private projectileImages = new Map<number, Phaser.GameObjects.Image>();
+  private floorImages = new Map<number, { img: Phaser.GameObjects.Image; key: string }>();
   /** 手に持つ武器と盾の絵。武器は狙う向きへ回し、近攻撃では扇に沿って振る */
   private held: { img: Phaser.GameObjects.Image; side: 1 | -1; kind: 'melee' | 'ranged' | 'shield' }[] = [];
   /** 直近の近攻撃の振り。いつ、どの向きへ、どれだけの扇で */
@@ -208,6 +210,10 @@ export class TrainingGroundScene extends Phaser.Scene {
       this.homes.set(unit.id, { ...spot, phase: i * 1.3 });
     });
 
+    // 地面は升の大きさで1枚に描き、拡大して敷く
+    const gw = Math.ceil(ARENA.width / PLAYER_ART.scale);
+    const gh = Math.ceil(ARENA.height / PLAYER_ART.scale);
+    this.add.image(0, 0, groundTexture(this, gw, gh)).setOrigin(0).setScale(PLAYER_ART.scale).setDepth(-2);
     this.gfx = this.add.graphics();
     createPilgrimTexture(this);
     this.playerSprite = this.add.sprite(this.player.x, this.player.y, 'pilgrim', 0).setScale(PLAYER_ART.scale).setOrigin(0.5, PLAYER_ART.originY).setDepth(1);
@@ -699,14 +705,10 @@ export class TrainingGroundScene extends Phaser.Scene {
     const world = this.world;
     g.clear();
 
-    // 地面
-    g.fillStyle(0x1c1a18).fillRect(0, 0, ARENA.width, ARENA.height);
-    g.lineStyle(1, 0x26231f, 1);
-    for (let x = 0; x <= ARENA.width; x += 80) g.lineBetween(x, 0, x, ARENA.height);
-    for (let y = 0; y <= ARENA.height; y += 80) g.lineBetween(0, y, ARENA.width, y);
+    // 地面の絵は敷いてあるので、縁だけ引く
     g.lineStyle(3, 0x3a2f28, 1).strokeRect(0, 0, ARENA.width, ARENA.height);
 
-    for (const patch of world.floors) this.drawFloor(patch);
+    this.drawFloors();
 
     // 振りかぶりの予兆。満ちたときに当たる
     for (const t of this.telegraphs) {
@@ -781,19 +783,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     }
     this.drawStatuses(p, fy + 8);
 
-    for (const proj of world.projectiles) {
-      const g = o;
-      const color = ELEMENTS[proj.element].color;
-      if (world.units.get(proj.ownerId)?.team === this.player.team) {
-        g.fillStyle(color, 0.3).fillCircle(proj.x, proj.y, proj.radius * 2.2);
-        g.fillStyle(color).fillCircle(proj.x, proj.y, proj.radius);
-      } else {
-        // 敵の弾は縁取りを赤くして、暗い地面でも見分けやすくする
-        g.fillStyle(color, 0.25).fillCircle(proj.x, proj.y, proj.radius * 1.9);
-        g.lineStyle(2, 0xc23a2c, 0.95).strokeCircle(proj.x, proj.y, proj.radius + 1);
-        g.fillStyle(0xfff2e0, 1).fillCircle(proj.x, proj.y, proj.radius * 0.55);
-      }
-    }
+    this.drawProjectiles();
 
     this.drawWeather();
   }
@@ -921,30 +911,81 @@ export class TrainingGroundScene extends Phaser.Scene {
     return Math.max(0, 1 - (this.time.now - at) / 140);
   }
 
-  /** 床を描く。種類ごとに少し飾る */
-  private drawFloor(patch: FloorPatch): void {
+  /**
+   * 弾をドット絵で描き、飛ぶ向きへ回す。当たりの半径に合わせて拡大し、周りに淡い光を敷く。
+   * 敵の弾は赤い縁と白い芯の丸で、暗い地面と弾幕の中でも見分けやすくする
+   */
+  private drawProjectiles(): void {
+    const o = this.overGfx;
+    const seen = new Set<number>();
+    for (const proj of this.world.projectiles) {
+      seen.add(proj.id);
+      const hostile = this.world.units.get(proj.ownerId)?.team !== this.player.team;
+      const color = ELEMENTS[proj.element].color;
+      o.fillStyle(color, hostile ? 0.22 : 0.28).fillCircle(proj.x, proj.y, proj.radius * (hostile ? 1.9 : 2.2));
+      const key = projectileTexture(this, proj.element, hostile);
+      let img = this.projectileImages.get(proj.id);
+      if (!img || img.texture.key !== key) {
+        img?.destroy();
+        img = this.add
+          .image(proj.x, proj.y, key)
+          .setOrigin(PROJECTILE_CORE.x / PROJECTILE_SIZE.w, PROJECTILE_CORE.y / PROJECTILE_SIZE.h)
+          .setDepth(2.5);
+        this.projectileImages.set(proj.id, img);
+      }
+      const scale = Math.max(PLAYER_ART.scale * 0.8, proj.radius / PROJECTILE_CORE_RADIUS);
+      img.setPosition(proj.x, proj.y).setScale(scale).setRotation(Math.atan2(proj.vy, proj.vx));
+    }
+    for (const [id, img] of this.projectileImages) {
+      if (seen.has(id)) continue;
+      img.destroy();
+      this.projectileImages.delete(id);
+    }
+  }
+
+  /**
+   * 床をドット絵で敷く。溜まりごとに絵を1枚持ち、床が変われば(水たまりが凍るなど)絵を替える。
+   * 燃え跡の燻りだけは、揺らめくので毎回点で描く
+   */
+  private drawFloors(): void {
     const g = this.gfx;
     const t = this.world.time;
-    const { x, y, radius: r } = patch;
-    if (patch.field === 'corpse') {
-      // 倒れた者の影
-      g.fillStyle(FIELDS.corpse.color, 0.9).fillEllipse(x, y, r * 2, r * 0.9);
-      g.lineStyle(2, 0x1a1210, 0.9).lineBetween(x - r * 0.8, y, x + r * 0.8, y);
-      return;
-    }
-    g.fillStyle(FIELDS[patch.field].color, 0.85).fillCircle(x, y, r);
-    g.lineStyle(2, 0x56492a, 0.6).strokeCircle(x, y, r);
-    if (patch.field === 'scorch') {
-      g.fillStyle(0xff7a2e, 0.7);
-      for (let i = 0; i < 6; i++) {
-        const a = i * 1.1 + t / 400;
-        if (Math.sin(t / 120 + i * 2) > 0) g.fillCircle(x + Math.cos(a) * r * 0.55, y + Math.sin(a) * r * 0.55, 2);
+    const seen = new Set<number>();
+    for (const patch of this.world.floors) {
+      seen.add(patch.id);
+      const { x, y, radius: r } = patch;
+      const artRadius = r / PLAYER_ART.scale;
+      const key = floorTexture(this, patch.field, artRadius, patch.id);
+      let entry = this.floorImages.get(patch.id);
+      if (!entry || entry.key !== key) {
+        entry?.img.destroy();
+        const img = this.add.image(x, y, key).setDepth(-1 + (patch.field === 'corpse' ? 0.5 : 0) + (patch.id % 1000) / 1e5);
+        entry = { img, key };
+        this.floorImages.set(patch.id, entry);
       }
-    } else if (patch.field === 'iceFloor') {
-      g.lineStyle(1, 0xd8f0ff, 0.6);
-      for (let i = 0; i < 4; i++) g.lineBetween(x - r * 0.6 + i * r * 0.3, y - r * 0.4, x - r * 0.4 + i * r * 0.3, y + r * 0.3);
-    } else if (patch.field === 'ashPile') {
-      g.fillStyle(0x8a8680, 0.5).fillCircle(x - r * 0.2, y - r * 0.1, r * 0.35).fillCircle(x + r * 0.25, y + r * 0.15, r * 0.3);
+      const img = entry.img;
+      img.setPosition(x, y).setAlpha(floorAlpha(patch.field));
+      if (patch.field === 'corpse') {
+        img.setScale(PLAYER_ART.scale).setFlipX(patch.id % 2 === 1);
+      } else {
+        // 刻みに丸めた絵を、本当の半径に合うよう伸ばす
+        const shown = (img.width - 3) / 2;
+        img.setScale(r / shown);
+      }
+      // 消える間際は薄れていく
+      if (patch.until !== undefined) img.setAlpha(img.alpha * Phaser.Math.Clamp((patch.until - t) / 1500, 0, 1));
+      if (patch.field === 'scorch') {
+        g.fillStyle(0xff7a2e, 0.75);
+        for (let i = 0; i < 6; i++) {
+          const a = i * 1.1 + patch.id;
+          if (Math.sin(t / 140 + i * 2 + patch.id) > 0.3) g.fillRect(Math.round(x + Math.cos(a) * r * 0.5), Math.round(y + Math.sin(a) * r * 0.5), 2.25, 2.25);
+        }
+      }
+    }
+    for (const [id, entry] of this.floorImages) {
+      if (seen.has(id)) continue;
+      entry.img.destroy();
+      this.floorImages.delete(id);
     }
   }
 
