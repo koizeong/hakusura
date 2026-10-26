@@ -1502,7 +1502,102 @@ button.discard {
   padding: 8px 20px;
 }
 
+/* 大物の体力。画面の上に大きく */
+.boss-bar {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(640px, calc(100% - 560px));
+  min-width: 280px;
+  pointer-events: none;
+  text-shadow: 0 0 4px #000;
+}
+
+.boss-name {
+  font-size: 16px;
+  letter-spacing: 0.25em;
+  color: #e8dcc8;
+  margin-bottom: 3px;
+}
+
+.boss-bar.enraged .boss-name {
+  color: #ff7a5a;
+}
+
+.boss-track {
+  position: relative;
+  height: 12px;
+  background: #0e0c0a;
+  border: 1px solid #5a4a3a;
+}
+
+.boss-fill,
+.boss-lag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+}
+
+.boss-fill {
+  background: linear-gradient(#b03a2c, #7a1e18);
+}
+
+.boss-lag {
+  background: #d8b878;
+  opacity: 0.6;
+}
+
+.spoils {
+  margin-top: 12px;
+  text-align: left;
+}
+
+.spoils h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  color: #d8c8a8;
+}
+
+.spoils ul {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+
+.spoils-items {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  font-size: 13px;
+}
+
+.spoils-items li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.spoils-lines {
+  font-size: 13px;
+  color: #c9d1b0;
+}
+
+.spoils-note {
+  font-size: 11px;
+  color: var(--dim);
+}
+
 @media (max-width: 760px) {
+  /* スマホではコンボの表示と重ならないよう、下の体力の上に置く */
+  .boss-bar {
+    top: auto;
+    bottom: 176px;
+    width: calc(100% - 24px);
+    min-width: 0;
+  }
+
   .encounter-bar {
     top: 52px;
     left: 8px;

@@ -31,8 +31,22 @@ export type SkillAction =
   | { type: 'selfCare'; heal?: number; status?: StatusId }
   /** 敵を呼ぶ(ENEMIES の名前)。fromCorpse なら近くの死体を起こし、死体は消える。呼んだ者が max 体を超えない */
   | { type: 'summon'; enemy: string; count: number; max: number; radius: number; fromCorpse?: boolean }
-  /** 相手の背後か正面へ一瞬で移る */
-  | { type: 'blink'; where: 'behind' | 'front'; distance: number; range: number }
+  /**
+   * 相手の背後か正面へ一瞬で移る。at なら、振りかぶったときに狙った所へ降りる(見てから離れれば避けられる)。
+   * land があれば、降りた所の周り radius に当たり、飛んでいれば地に降りる
+   */
+  | {
+      type: 'blink';
+      where: 'behind' | 'front' | 'at';
+      distance: number;
+      range: number;
+      land?: { radius: number; power: number; buildup: number };
+    }
+  /**
+   * duration の間、空へ飛び上がる。飛んでいる間は近攻撃と周りに放つ技が届かず、床も踏まない。
+   * land があれば、飛ぶ時間が切れたとき一番近い相手へその技(急降下など)で降りる
+   */
+  | { type: 'takeOff'; duration: number; land?: string }
   /** radius 内の仲間を最大HPの ratio だけ癒す。腐敗していれば傷になる */
   | { type: 'healAllies'; ratio: number; radius: number }
   /** count 発を spread 度ずつずらして撃つ。pierce があれば、その数だけ相手を貫いて飛び続ける */
@@ -93,6 +107,10 @@ export interface FixedSkillDef extends SkillBase {
   action: SkillAction;
   /** このスキルで当てたときだけ効くルール(宣告の矢の死の宣告など) */
   rules?: readonly Rule[];
+  /** true なら飛んでいる間だけ、false なら地にいる間だけ使える */
+  aloft?: boolean;
+  /** 現れてから最初に使えるまで(ミリ秒)。なければすぐ(少しずらして)使う */
+  opening?: number;
 }
 
 /**
@@ -700,6 +718,91 @@ export const ACTIVE_SKILLS = {
     cooldown: 5000,
     action: { type: 'barrage', pattern: 'ring', count: 12, spin: 15, speed: 120, radius: 6, range: 520, power: 6, buildup: 15 },
     rules: [{ label: '沈黙', on: 'hit', when: [], do: [{ type: 'applyBuildup', status: 'silence', amount: 22 }] }],
+  },
+  /** 灰翼の飛竜の噛みつき。大きな顎で前を噛み裂く */
+  wyvernBite: {
+    name: '飛竜の顎',
+    category: 'melee',
+    element: 'slash',
+    tags: ['attack', 'enemy', 'boss'],
+    windup: 650,
+    recovery: 550,
+    cooldown: 2000,
+    aloft: false,
+    action: { type: 'melee', range: 125, arc: 80, power: 48, buildup: 40 },
+  },
+  /** 灰翼の飛竜の尾の薙ぎ。寄った者を周りごと払う */
+  tailSweep: {
+    name: '尾の薙ぎ払い',
+    category: 'melee',
+    element: 'blunt',
+    tags: ['attack', 'enemy', 'boss'],
+    windup: 900,
+    recovery: 700,
+    cooldown: 5200,
+    aloft: false,
+    action: { type: 'nova', radius: 175, power: 42, buildup: 35 },
+  },
+  /** 灰翼の飛竜の炎の息。長く溜めて、前へ太い炎を吐く。濡れていれば燃えない */
+  flameBreath: {
+    name: '灰炎の息',
+    category: 'ranged',
+    element: 'fire',
+    tags: ['attack', 'enemy', 'boss'],
+    windup: 1500,
+    recovery: 900,
+    cooldown: 7500,
+    opening: 6000,
+    aloft: false,
+    action: { type: 'melee', range: 400, arc: 46, power: 22, buildup: 45, hits: 3 },
+  },
+  /** 灰翼の飛竜の飛翔。空へ上がり、近攻撃の届かない所から火を降らせる */
+  wyvernTakeOff: {
+    name: '飛翔',
+    category: 'melee',
+    tags: ['enemy', 'boss'],
+    windup: 1000,
+    recovery: 300,
+    cooldown: 42000,
+    opening: 24000,
+    aloft: false,
+    action: { type: 'takeOff', duration: 11000, land: 'wyvernDive' },
+  },
+  /** 飛んでいる間の火の雨。回る輪で全方位に火を撒く */
+  fireRain: {
+    name: '火の雨',
+    category: 'ranged',
+    element: 'fire',
+    tags: ['attack', 'enemy', 'boss', 'projectile'],
+    windup: 650,
+    recovery: 250,
+    cooldown: 2300,
+    aloft: true,
+    action: { type: 'barrage', pattern: 'ring', count: 16, spin: 11, speed: 150, radius: 8, range: 700, power: 13, buildup: 28 },
+  },
+  /** 飛んでいる間の火の礫。狙った相手へ扇に撃つ */
+  emberVolley: {
+    name: '火の礫',
+    category: 'ranged',
+    element: 'fire',
+    tags: ['attack', 'enemy', 'boss', 'projectile'],
+    windup: 550,
+    recovery: 250,
+    cooldown: 1700,
+    aloft: true,
+    action: { type: 'barrage', pattern: 'fan', count: 5, spread: 48, speed: 240, radius: 7, range: 700, power: 11, buildup: 25 },
+  },
+  /** 飛竜の急降下。飛ぶ時間が切れると、狙った所へ落ちて降りた周りを砕く。地に降りる */
+  wyvernDive: {
+    name: '急降下',
+    category: 'melee',
+    element: 'blunt',
+    tags: ['attack', 'enemy', 'boss'],
+    windup: 1300,
+    recovery: 1200,
+    cooldown: 0,
+    aloft: true,
+    action: { type: 'blink', where: 'at', distance: 0, range: 900, land: { radius: 150, power: 70, buildup: 60 } },
   },
 } as const satisfies Record<string, ActiveSkillDef>;
 

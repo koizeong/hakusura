@@ -1,6 +1,13 @@
 import type { CombatWorld, Point, Unit } from './world';
 import { encounterDef, type EncounterDef, type EncounterId } from './data/encounters';
 import type { EnemyId } from './data/enemies';
+import { generateItem, type Item } from './data/equipment';
+import { FORM_IDS, type FormId } from './data/forms';
+import type { ActiveSkillId } from './data/skills';
+import type { PassiveId } from './data/passives';
+import type { SkillVariant } from './data/variations';
+import { addExp, type Character } from './build';
+import { VARIANT_BASES, learnedForms, rollVariant, unlearnedSkills, type Learned } from './expedition';
 
 /** 場を片付けてから、次の群れが来るまでの間 */
 export const ENCOUNTER_BREATH = 3000;
@@ -47,6 +54,12 @@ export class Encounter {
     return this.world.deaths.flatMap((d) => (d.time >= this.startedAt && d.team !== this.hero.team && d.kind ? [d.kind] : []));
   }
 
+  /** 大物の一戦なら、その大物(倒れていれば undefined) */
+  boss(): Unit | undefined {
+    if (!this.def.boss) return undefined;
+    return this.alive().find((u) => u.kind === this.def.boss);
+  }
+
   /** 場に残っている敵。この戦闘で呼んだ敵と、それが呼び出した敵 */
   alive(): Unit[] {
     return [...this.world.units.values()].filter((u) => u.mortal && u.team !== this.hero.team);
@@ -71,7 +84,9 @@ export class Encounter {
       }
       this.wave++;
     }
-    if (this.wave >= waves.length && this.alive().length === 0) this.finish('cleared');
+    // 大物の一戦は、大物を討てば終わる
+    const bossDown = !!this.def.boss && this.wave > 0 && !this.boss();
+    if (bossDown || (this.wave >= waves.length && this.alive().length === 0)) this.finish('cleared');
     else if (this.elapsed >= this.def.duration) this.finish('survived');
   }
 
@@ -105,4 +120,66 @@ export class Encounter {
     const p = { x: this.hero.x + Math.cos(a) * 420, y: this.hero.y + Math.sin(a) * 420 };
     return b ? { x: Math.min(b.width - 40, Math.max(40, p.x)), y: Math.min(b.height - 40, Math.max(40, p.y)) } : p;
   }
+}
+
+/** 一戦で持ち帰った物 */
+export interface EncounterSpoils {
+  /** 持ち帰った割合。討ち果たせば 1、時間切れなら reward.partial */
+  share: number;
+  exp: number;
+  levelsGained: number;
+  items: Item[];
+  skills: (ActiveSkillId | PassiveId)[];
+  forms: FormId[];
+  variants: SkillVariant[];
+}
+
+/**
+ * 一戦の持ち帰りを受け取る。経験値をキャラに足し、スキルと型は覚えたものに足す。
+ * 装備と変化つきの技は返すので、呼び出し側が拾い物の山に積む。持ち帰りのない一戦なら undefined
+ */
+export function claimEncounterReward(e: Encounter, c: Character, learned: Learned, random: () => number): EncounterSpoils | undefined {
+  const reward = e.def.reward;
+  if (!reward || !e.result) return undefined;
+  const share = e.result === 'cleared' ? 1 : reward.partial;
+  const exp = Math.round(reward.exp * share);
+  const levelsGained = addExp(c, exp);
+  const items: Item[] = [];
+  const count = Math.max(1, Math.round(reward.items * share));
+  for (let i = 0; i < count; i++) {
+    const kind = reward.itemKinds ? reward.itemKinds[Math.floor(random() * reward.itemKinds.length)] : undefined;
+    items.push(
+      generateItem(random, {
+        ...(kind ? { kind, ...(kind === 'weapon' ? { slot: 'weapon1' as const } : {}) } : {}),
+        preferElements: reward.preferElements,
+        preferAffixes: reward.preferAffixes,
+        conditionChance: reward.conditionChance,
+      }),
+    );
+  }
+  const skills: (ActiveSkillId | PassiveId)[] = [];
+  const pool = unlearnedSkills(learned);
+  if (pool.length > 0 && random() < reward.skillChance * share) {
+    const found = pool[Math.floor(random() * pool.length)]!;
+    if (found.kind === 'active') learned.actives.push(found.id as ActiveSkillId);
+    else learned.passives.push(found.id as PassiveId);
+    skills.push(found.id);
+  }
+  const forms: FormId[] = [];
+  const unknown = FORM_IDS.filter((id) => !learnedForms(learned).includes(id));
+  if (unknown.length > 0 && random() < reward.formChance * share) {
+    const found = unknown[Math.floor(random() * unknown.length)]!;
+    learned.forms = [...learnedForms(learned), found];
+    forms.push(found);
+  }
+  const variants: SkillVariant[] = [];
+  for (let i = 0; i < Math.floor(reward.variants * share); i++) {
+    const base = VARIANT_BASES[Math.floor(random() * VARIANT_BASES.length)]!;
+    variants.push(rollVariant(random, base));
+    if (!learned.actives.includes(base)) {
+      learned.actives.push(base);
+      skills.push(base);
+    }
+  }
+  return { share, exp, levelsGained, items, skills, forms, variants };
 }

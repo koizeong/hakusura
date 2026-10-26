@@ -4,7 +4,7 @@ import { PixelGrid } from './pixel';
 /**
  * 敵と案山子のドット絵。向きは正面(斜め上から見下ろす)の1つで、左を向くときは裏返す。
  * コマは 動き0・動き1・振りかぶり・被弾 の4つ。被弾は動き0を少しのけぞらせて作る。
- * 大きい敵は48×48、それ以外は32×32
+ * 大きい敵は48×48、大物(灰翼の飛竜)は80×80、それ以外は32×32
  */
 export const ENEMY_FRAMES = ['move0', 'move1', 'windup', 'hurt'] as const;
 export type EnemyFrame = (typeof ENEMY_FRAMES)[number];
@@ -91,7 +91,57 @@ function finish(g: PixelGrid, shadowW: number): void {
   }
 }
 
-const ART: Record<ArtId, { size: 32 | 48; draw: Painter; shadow: number }> = {
+/** 多角形を塗る(飛竜の翼の膜など) */
+function polygon(g: PixelGrid, points: readonly (readonly [number, number])[], color: string): void {
+  const ys = points.map((p) => p[1]);
+  for (let y = Math.floor(Math.min(...ys)); y <= Math.ceil(Math.max(...ys)); y++) {
+    const xs: number[] = [];
+    for (let i = 0; i < points.length; i++) {
+      const [x0, y0] = points[i]!;
+      const [x1, y1] = points[(i + 1) % points.length]!;
+      if ((y0 <= y && y1 > y) || (y1 <= y && y0 > y)) xs.push(x0 + ((y - y0) * (x1 - x0)) / (y1 - y0));
+    }
+    xs.sort((a, b) => a - b);
+    for (let i = 0; i + 1 < xs.length; i += 2) for (let x = Math.ceil(xs[i]!); x <= Math.floor(xs[i + 1]!); x++) g.set(x, y, color);
+  }
+}
+
+/** 灰翼の飛竜の色 */
+const W = {
+  scale: '#5a5048',
+  scaleLight: '#7a6e62',
+  scaleDark: '#3a322c',
+  belly: '#8a7a62',
+  bellyDark: '#6a5c48',
+  wing: '#4a2e2a',
+  wingLight: '#6a3e36',
+  wingBone: '#8a7a68',
+  horn: '#c8bca0',
+  ember: '#ff8a3e',
+  emberLight: '#ffd08a',
+  claw: '#1e1814',
+} as const;
+
+/** 片方の翼。side は 1 で右、-1 で左。up が真なら打ち上げ、偽なら打ち下ろし */
+function wyvernWing(g: PixelGrid, side: 1 | -1, up: boolean, cx: number): void {
+  const x = (dx: number) => cx + side * dx;
+  const shoulder = [x(10), 30] as const;
+  const wrist = up ? ([x(28), 8] as const) : ([x(30), 24] as const);
+  const tips = up
+    ? ([[x(38), 4], [x(39), 22], [x(33), 36], [x(22), 42]] as const)
+    : ([[x(39), 22], [x(38), 40], [x(31), 50], [x(20), 52]] as const);
+  // 膜。指の骨の間を塗り、縁を少し明るく
+  polygon(g, [shoulder, wrist, ...tips, [x(12), 44]], W.wing);
+  polygon(g, [shoulder, wrist, tips[0], [x(20), 30]], W.wingLight);
+  g.line(shoulder[0], shoulder[1], wrist[0], wrist[1], W.wingBone);
+  g.line(shoulder[0], shoulder[1] + 1, wrist[0], wrist[1] + 1, W.scaleDark);
+  for (const [tx, ty] of tips) g.line(wrist[0], wrist[1], tx, ty, W.wingBone);
+  // 翼の爪
+  g.set(wrist[0], wrist[1] - 1, W.horn);
+  g.set(wrist[0] - side, wrist[1] - 2, W.horn);
+}
+
+const ART: Record<ArtId, { size: 32 | 48 | 80; draw: Painter; shadow: number }> = {
   scarecrow: {
     size: 32,
     shadow: 6,
@@ -401,6 +451,64 @@ const ART: Record<ArtId, { size: 32 | 48; draw: Painter; shadow: number }> = {
       if (f === 2) g.ellipse(15.5, hands - 2, 1.5, 1.5, C.shadowEye);
     },
   },
+  wyvern: {
+    size: 80,
+    // 影は別に描く(飛べば体だけが浮く)
+    shadow: 0,
+    draw: (g, f) => {
+      // 灰翼の飛竜。広げた翼、長い首、尾。振りかぶりで首を引き、喉と口が熾火に光る
+      const cx = 39.5;
+      const bob = f === 1 ? 1 : 0;
+      wyvernWing(g, -1, f !== 1, cx);
+      wyvernWing(g, 1, f !== 1, cx);
+      // 尾。右へ巻いて棘の先
+      for (let i = 0; i <= 20; i++) {
+        const t = i / 20;
+        const tx = cx + Math.sin(t * 2.4) * 10;
+        const ty = 52 + t * 22;
+        g.ellipse(tx, ty, 3.5 - t * 2, 2, i % 4 === 0 ? W.scaleDark : W.scale);
+      }
+      polygon(g, [[cx + 6, 72], [cx + 13, 76], [cx + 6, 79], [cx + 3, 75]], W.scaleDark);
+      // 脚と爪
+      for (const side of [-1, 1] as const) {
+        g.rect(cx + side * 8 - 2, 50 + bob, 5, 7, W.scaleDark);
+        g.rect(cx + side * 8 - 3, 56 + bob, 7, 2, W.scale);
+        for (const dx of [-3, 0, 3]) g.set(cx + side * 8 + dx, 58 + bob, W.claw);
+      }
+      // 胴。腹は明るい板
+      g.ellipse(cx, 40 + bob, 12, 15, W.scale);
+      g.ellipse(cx - 4, 34 + bob, 5, 7, W.scaleLight);
+      g.ellipse(cx, 44 + bob, 6, 9, W.belly);
+      for (let y = 37; y <= 52; y += 3) g.line(cx - 4, y + bob, cx + 4, y + bob, W.bellyDark);
+      // 背の棘
+      for (const y of [28, 33, 38]) g.set(cx, y + bob - 6, W.horn);
+      // 首と頭。振りかぶりで首を引き上げる
+      const hy = f === 2 ? 10 : 15;
+      const throat = f === 2 ? W.ember : W.bellyDark;
+      polygon(g, [[cx - 5, 30 + bob], [cx + 5, 30 + bob], [cx + 3.5, hy + 4], [cx - 3.5, hy + 4]], W.scale);
+      g.line(cx, hy + 6, cx, 28 + bob, throat);
+      g.ellipse(cx, hy, 7, 5, W.scale);
+      g.ellipse(cx - 2, hy - 2, 3, 2, W.scaleLight);
+      // 角は後ろへ反る
+      g.line(cx - 4, hy - 3, cx - 9, hy - 9, W.horn);
+      g.line(cx + 4, hy - 3, cx + 9, hy - 9, W.horn);
+      g.line(cx - 6, hy - 1, cx - 10, hy - 4, W.horn);
+      g.line(cx + 6, hy - 1, cx + 10, hy - 4, W.horn);
+      // 目と顎
+      g.set(cx - 3, hy - 1, W.ember);
+      g.set(cx + 3, hy - 1, W.ember);
+      if (f === 2) {
+        g.rect(cx - 3, hy + 3, 7, 4, W.claw);
+        g.rect(cx - 2, hy + 4, 5, 2, W.ember);
+        g.set(cx, hy + 4, W.emberLight);
+        for (const dx of [-3, 3]) g.set(cx + dx, hy + 3, W.horn);
+      } else {
+        g.rect(cx - 3, hy + 3, 7, 2, W.scaleDark);
+        g.set(cx - 2, hy + 3, W.horn);
+        g.set(cx + 2, hy + 3, W.horn);
+      }
+    },
+  },
 };
 
 /** その敵の1コマ */
@@ -427,6 +535,7 @@ export function enemyArtSize(id: ArtId): number {
 
 /** 絵のどの高さを立ち位置(当たり判定の中心)に合わせるか。胴のあたり */
 export function enemyArtOrigin(id: ArtId): number {
+  if (id === 'wyvern') return 0.52;
   return id === 'scarecrow' ? 0.55 : ART[id].size === 48 ? 0.58 : 0.62;
 }
 

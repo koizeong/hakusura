@@ -1,5 +1,29 @@
+import type { ElementId } from './elements';
 import type { EnemyId } from './enemies';
+import type { AffixId, EquipKind } from './equipment';
 import type { FieldId } from './fields';
+
+/**
+ * 一戦を終えたときの持ち帰り。大物を討てば全て、時間切れ(大物が去った)なら partial の割合だけ。
+ * 装備の数・経験値はその割合で減り、スキル・型・変化つきの技は確率に割合が掛かる
+ */
+export interface EncounterReward {
+  exp: number;
+  items: number;
+  /** 装備に条件文が付く確率 */
+  conditionChance: number;
+  itemKinds?: readonly EquipKind[];
+  preferElements?: readonly ElementId[];
+  preferAffixes?: readonly AffixId[];
+  /** まだ覚えていないスキルを見つける確率 */
+  skillChance: number;
+  /** まだ知らない型の書を見つける確率 */
+  formChance: number;
+  /** 変化つきの技の数 */
+  variants: number;
+  /** 時間切れで終えたときに持ち帰る割合 */
+  partial: number;
+}
 
 /** 1回の戦闘。duration の間、決まった時刻に敵の群れが現れる。一戦はおよそ3分半 */
 export interface EncounterDef {
@@ -10,6 +34,9 @@ export interface EncounterDef {
   /** 戦う間の天候 */
   weather?: FieldId;
   waves: readonly { at: number; spawn: readonly { enemy: EnemyId; count: number }[] }[];
+  /** 大物の一戦。この敵を討てば終わり、時間まで討てなければ去っていく */
+  boss?: EnemyId;
+  reward?: EncounterReward;
 }
 
 const SEC = 1000;
@@ -68,6 +95,26 @@ export const ENCOUNTERS = {
       { at: 164 * SEC, spawn: [{ enemy: 'doomHerald', count: 2 }, { enemy: 'rustKnight', count: 1 }] },
       { at: 186 * SEC, spawn: [{ enemy: 'hushMonk', count: 1 }, { enemy: 'plagueCarrier', count: 1 }, { enemy: 'frostWitch', count: 1 }, { enemy: 'bloodZealot', count: 2 }] },
     ],
+  },
+  ashWyvern: {
+    name: '灰翼の巣',
+    description:
+      '灰の峰の巣で、灰翼の飛竜と一対一。三分半のうちに討てば多くを持ち帰る。飛べば近攻撃は届かず、炎は雨で鈍る。討てなければ飛竜は去り、得る物は僅か',
+    duration: 210 * SEC,
+    waves: [{ at: 0, spawn: [{ enemy: 'wyvern', count: 1 }] }],
+    boss: 'wyvern',
+    reward: {
+      exp: 1500,
+      items: 6,
+      conditionChance: 0.6,
+      itemKinds: ['weapon', 'armor', 'armor', 'accessory'],
+      preferElements: ['fire', 'ash', 'slash'],
+      preferAffixes: ['fireDamage', 'ashDamage', 'damageTaken', 'maxHp', 'rangedDamage'],
+      skillChance: 0.6,
+      formChance: 0.5,
+      variants: 1,
+      partial: 0.25,
+    },
   },
 } as const satisfies Record<string, EncounterDef>;
 

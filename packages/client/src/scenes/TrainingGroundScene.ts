@@ -22,6 +22,7 @@ import {
   type CombatEvent,
   type FieldId,
   type Unit,
+  type Point,
   type StatusDef,
   type StatusId,
   FLOOR_IDS,
@@ -29,7 +30,9 @@ import {
   FORMS,
   learnedForms,
   ENEMIES,
+  enemyDef,
   Encounter,
+  claimEncounterReward,
   type EncounterId,
   type EnemyId,
 } from '@hakusura/core';
@@ -133,7 +136,9 @@ export class TrainingGroundScene extends Phaser.Scene {
   private buffered: { skill: ActiveSkillId; until: number } | null = null;
   private slowUntil = 0;
   /** 振りかぶりの予兆。効果が出るか潰れるまで描く */
-  private telegraphs: { unitId: string; skill: ActiveSkillId; angle: number; start: number; at: number; action: SkillAction; element?: ElementId }[] = [];
+  private telegraphs: { unitId: string; skill: ActiveSkillId; angle: number; start: number; at: number; action: SkillAction; element?: ElementId; aim: Point }[] = [];
+  /** 飛ぶ者の今の浮き上がり(画面の高さ)。飛び上がりと降下をなめらかにする */
+  private lifts = new Map<string, number>();
   private numberStack = new Map<string, number>();
   private mode: BattleMode = 'auto';
   private speed = 1;
@@ -525,7 +530,14 @@ export class TrainingGroundScene extends Phaser.Scene {
     if (this.encounter) {
       const e = this.encounter;
       if (e.result) {
-        this.encounterView.showResult(e, summarize(dealtBy(world.log, player.id), world.time), player.falls, () => this.endEncounter());
+        // 大物の一戦なら持ち帰りを受け取り、拾い物の山と覚えたものに足して覚えておく
+        const spoils = claimEncounterReward(e, currentCharacter(this.buildState), this.buildState.learned, Math.random);
+        if (spoils) {
+          this.buildState.stash.unshift(...spoils.items);
+          this.buildState.techniques.unshift(...spoils.variants);
+          this.onBuildChange();
+        }
+        this.encounterView.showResult(e, summarize(dealtBy(world.log, player.id), world.time), player.falls, () => this.endEncounter(), spoils);
       } else this.encounterView.update(e);
     }
     for (const event of world.drainEvents()) this.showEvent(event);
@@ -729,6 +741,24 @@ export class TrainingGroundScene extends Phaser.Scene {
           g.lineStyle(1, 0xa83228, 0.5);
           for (const a of [t.angle - half, t.angle + half]) g.lineBetween(unit.x, unit.y, unit.x + Math.cos(a) * 160, unit.y + Math.sin(a) * 160);
         }
+        continue;
+      }
+      if (unit && unit.team !== this.player.team && action.type === 'nova') {
+        // 周りを払う技の予兆。満ちる輪
+        const progress = Phaser.Math.Clamp((world.time - t.start) / (t.at - t.start), 0, 1);
+        g.fillStyle(0xa83228, 0.1).fillCircle(unit.x, unit.y, action.radius);
+        g.fillStyle(0xa83228, 0.28).fillCircle(unit.x, unit.y, action.radius * progress);
+        g.lineStyle(2, 0xa83228, 0.8).strokeCircle(unit.x, unit.y, action.radius);
+        continue;
+      }
+      if (unit && action.type === 'blink' && action.land) {
+        // 急降下の予兆。降りる所に満ちる輪
+        const progress = Phaser.Math.Clamp((world.time - t.start) / (t.at - t.start), 0, 1);
+        const r = action.land.radius;
+        g.fillStyle(0xa83228, 0.12).fillCircle(t.aim.x, t.aim.y, r);
+        g.fillStyle(0xa83228, 0.3).fillCircle(t.aim.x, t.aim.y, r * progress);
+        g.lineStyle(3, 0xc23a2c, 0.9).strokeCircle(t.aim.x, t.aim.y, r);
+        g.lineBetween(t.aim.x - 14, t.aim.y - 14, t.aim.x + 14, t.aim.y + 14).lineBetween(t.aim.x - 14, t.aim.y + 14, t.aim.x + 14, t.aim.y - 14);
         continue;
       }
       if (!unit || action.type !== 'melee') continue;
@@ -1014,21 +1044,32 @@ export class TrainingGroundScene extends Phaser.Scene {
     const now = this.time.now;
     const flash = this.hurtFlash(u.id);
     const winding = u.windupUntil > world.time;
-    const phase = Math.floor((now + (u.x * 7) % 400) / (moving ? 200 : 520)) % 2;
-    sprite.setPosition(u.x, u.y).setDepth(1 + u.y / 1e5);
+    // 飛ぶ者は体だけが浮き、地面に影が残る。羽ばたきも速くなる
+    const flying = world.isAirborne(u);
+    const lift = Phaser.Math.Linear(this.lifts.get(u.id) ?? 0, flying ? 90 : 0, 0.08);
+    this.lifts.set(u.id, lift);
+    const phase = Math.floor((now + (u.x * 7) % 400) / (flying ? 140 : moving ? 200 : 520)) % 2;
+    sprite.setPosition(u.x, u.y - lift).setDepth(1 + (u.y + (flying ? 1000 : 0)) / 1e5);
+    const boss = !!u.kind && !!enemyDef(u.kind).boss;
+    if (boss) {
+      const feet = u.y + 50;
+      const shrink = 1 - lift / 200;
+      this.gfx.fillStyle(0x000000, 0.4 * shrink).fillEllipse(u.x, feet, 120 * shrink, 34 * shrink);
+    }
     sprite.setFrame(flash > 0 ? 3 : winding ? 2 : phase);
     if (art !== 'scarecrow') sprite.setFlipX(Math.cos(u.facing) < 0);
     if (flash > 0.4) sprite.setTintFill(0xffffff);
     else if (winding) sprite.setTint(0xff9a8a);
+    else if (u.enraged) sprite.setTint(0xffb0a0);
     else sprite.clearTint();
     // 影潜みは半ば透けている
     sprite.setAlpha(art === 'shadowStalker' ? 0.82 : 1);
 
     const size = enemyArtSize(art) * PLAYER_ART.scale;
-    const top = u.y - size * enemyArtOrigin(art) + (art === 'scarecrow' ? 8 : 10);
-    const bottom = u.y + size * (1 - enemyArtOrigin(art)) - 4;
-    // 体力。減ってから見せる
-    if (u.mortal && u.hp < u.maxHp) {
+    const top = u.y - lift - size * enemyArtOrigin(art) + (art === 'scarecrow' ? 8 : 10);
+    const bottom = u.y + size * (1 - enemyArtOrigin(art)) - 4 - (boss ? 30 : 0);
+    // 体力。減ってから見せる。大物は画面の上の棒で見せる
+    if (u.mortal && u.hp < u.maxHp && !boss) {
       const w = Math.max(28, u.radius * 2.2);
       o.fillStyle(0x000000, 0.7).fillRect(u.x - w / 2, top - 6, w, 4);
       o.fillStyle(0xa83228, 1).fillRect(u.x - w / 2, top - 6, (w * Math.max(0, u.hp)) / u.maxHp, 4);
@@ -1048,6 +1089,7 @@ export class TrainingGroundScene extends Phaser.Scene {
       sprite.destroy();
       this.unitSprites.delete(id);
       this.lastUnitPos.delete(id);
+      this.lifts.delete(id);
     }
     this.seenSprites.clear();
   }
@@ -1366,6 +1408,13 @@ export class TrainingGroundScene extends Phaser.Scene {
         fx.fillStyle(color, 0.7).fillCircle(event.x, event.y, 18);
         this.tweens.add({ targets: fx, alpha: 0, scale: 2.2, duration: 400, onComplete: () => fx.destroy() });
         if (event.kind === 'oilBloat') this.cameras.main.shake(140, 0.005);
+        if (event.kind && enemyDef(event.kind).boss) {
+          // 大物が倒れた。大きく揺らし、灰が舞う
+          this.cameras.main.shake(600, 0.016);
+          this.cameras.main.flash(400, 200, 160, 120);
+          fx.fillStyle(0xc8bca0, 0.5).fillCircle(event.x, event.y, 60);
+          this.callout(this.player, `${event.name}を討ち果たした`, '#e8d8a8');
+        }
         break;
       }
       case 'fell': {
@@ -1387,7 +1436,28 @@ export class TrainingGroundScene extends Phaser.Scene {
           at: event.at,
           action: event.action,
           element: event.element,
+          aim: event.aim,
         });
+        break;
+      }
+      case 'takeOff': {
+        const unit = this.world.units.get(event.unitId);
+        if (unit) this.callout(unit, '飛び上がった', '#e0a070');
+        this.cameras.main.shake(200, 0.004);
+        break;
+      }
+      case 'landed': {
+        // 降りた所に土煙
+        const fx = this.add.graphics().setDepth(29);
+        fx.fillStyle(0x8a7a62, 0.35).fillEllipse(event.x, event.y + 30, 220, 70);
+        this.tweens.add({ targets: fx, alpha: 0, scaleX: 1.4, duration: 600, onComplete: () => fx.destroy() });
+        this.cameras.main.shake(260, 0.012);
+        break;
+      }
+      case 'enraged': {
+        const unit = this.world.units.get(event.unitId);
+        if (unit) this.callout(unit, event.label, '#ff5a3a');
+        this.cameras.main.flash(260, 120, 30, 20);
         break;
       }
       case 'interrupted': {

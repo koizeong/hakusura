@@ -147,6 +147,12 @@ export interface Unit {
   innateRules: Rule[];
   /** 呼び出した者(屍術師が起こした屍喰いなど) */
   minions: string[];
+  /** この時刻まで空を飛んでいる。飛んでいる間は近攻撃と周りに放つ技が届かず、床も踏まない */
+  airborneUntil: number;
+  /** 体力が減って怒っている(大物の逆鱗) */
+  enraged: boolean;
+  /** 飛ぶ時間が切れたとき、降りるのに使う技 */
+  landWith?: ActiveSkillId;
 }
 
 export interface Buff {
@@ -235,7 +241,7 @@ export type CombatEvent =
   | { type: 'chain'; status: StatusId; from: Point; to: Point }
   | { type: 'swing'; unitId: string; x: number; y: number; angle: number; range: number; arc: number; element: ElementId }
   /** 振りかぶりの予兆。at に効果が出る */
-  | { type: 'windup'; unitId: string; skill: ActiveSkillId; angle: number; at: number; action: SkillAction; element?: ElementId }
+  | { type: 'windup'; unitId: string; skill: ActiveSkillId; angle: number; at: number; action: SkillAction; element?: ElementId; aim: Point }
   | { type: 'interrupted'; unitId: string }
   /** label があれば、パッシブによる自動の見切り・弾き */
   | { type: 'justDodge'; unitId: string; attackerId?: string; label?: string }
@@ -253,6 +259,11 @@ export type CombatEvent =
   | { type: 'shieldReady'; unitId: string; name: string }
   /** 影渡りや跳びかかりで一瞬で移った */
   | { type: 'blink'; unitId: string; from: Point; to: Point }
+  /** 空へ飛び上がった(until まで)か、地に降りた */
+  | { type: 'takeOff'; unitId: string; until: number }
+  | { type: 'landed'; unitId: string; x: number; y: number }
+  /** 大物が怒った */
+  | { type: 'enraged'; unitId: string; label: string }
   /** 呼び出された(死体起こし・産み落とし) */
   | { type: 'summoned'; unitId: string; by: string; x: number; y: number; skill: string }
   /** 型が決まった */
@@ -322,6 +333,8 @@ interface PendingAction {
   angle: number;
   /** 指定があれば、効果が出る瞬間にこの相手へ向き直す(ターゲット固定) */
   targetId?: string;
+  /** 振りかぶったときに狙った所(急降下の降りる所) */
+  aim: Point;
 }
 interface OwnedRule {
   rule: Rule;
@@ -383,8 +396,11 @@ export class CombatWorld {
       kind,
     });
     unit.innateRules = [...(def.rules ?? [])];
-    // 現れてすぐ一斉に撃たないよう、最初の間を少しずらす
-    for (const skill of def.skills) unit.cooldowns[skill] = this.time + 600 + this.random() * 1400;
+    // 現れてすぐ一斉に撃たないよう、最初の間を少しずらす。opening のある技は、その間だけ待つ
+    for (const skill of def.skills) {
+      const opening = (activeSkillDef(skill) as { opening?: number }).opening;
+      unit.cooldowns[skill] = this.time + (opening ?? 600 + this.random() * 1400);
+    }
     return unit;
   }
 
@@ -461,6 +477,8 @@ export class CombatWorld {
       recentCombos: [],
       innateRules: [],
       minions: [],
+      airborneUntil: 0,
+      enraged: false,
       attributes: spec.attributes ? { ...spec.attributes } : undefined,
     };
     this.units.set(unit.id, unit);
@@ -522,6 +540,12 @@ export class CombatWorld {
   }
 
   /** 試し斬り場用。状態を固定でかける・外す */
+  /** 状態を外から溜める(試し斬り場や試験から)。攻撃した者はいない扱い */
+  applyBuildup(unitId: string, status: StatusId, amount: number): void {
+    const unit = this.units.get(unitId);
+    if (unit) this.addBuildup(unit, status, amount, { skill: '', via: [], depth: 0 });
+  }
+
   forceStatus(unitId: string, status: StatusId, on: boolean): void {
     const unit = this.units.get(unitId);
     if (!unit) return;
@@ -593,9 +617,21 @@ export class CombatWorld {
       !this.isBusy(unit) &&
       unit.guardSince === null &&
       !this.isIncapacitated(unit) &&
+      this.fitsAltitude(unit, skillId) &&
       // 静寂と恐怖の間は、アクティブスキルを使えない。切り札は使える
       (!this.hasStatusFlag(unit, 'silences') || (activeSkillDef(skillId).tags as readonly string[]).includes('trump'))
     );
+  }
+
+  /** 空を飛んでいるか */
+  isAirborne(unit: Unit): boolean {
+    return unit.airborneUntil > this.time;
+  }
+
+  /** 飛んでいる間だけ・地にいる間だけの技が、今の高さで使えるか */
+  private fitsAltitude(unit: Unit, skillId: ActiveSkillId): boolean {
+    const aloft = (activeSkillDef(skillId) as { aloft?: boolean }).aloft;
+    return aloft === undefined || aloft === this.isAirborne(unit);
   }
 
   /** 回避できるか。振りかぶり中と昏倒中はできない。硬直は回避で抜けられる */
@@ -662,7 +698,8 @@ export class CombatWorld {
     // 雨乞うのように、条件を満たしている間だけ間隔が変わる
     const ctx = this.context(unit, unit, {});
     const when = (def.intervalWhen ?? []).reduce((m, w) => (w.when.every((p) => evaluatePredicate(p, ctx)) ? m * w.mult : m), 1);
-    const span = def.cooldown * when * this.statOf(unit, 'cooldown', [...def.tags, def.category, skillId]);
+    const rage = unit.enraged && unit.kind ? (enemyDef(unit.kind).enrage?.cooldown ?? 1) : 1;
+    const span = def.cooldown * when * rage * this.statOf(unit, 'cooldown', [...def.tags, def.category, skillId]);
     unit.cooldowns[skillId] = this.time + span;
     unit.cooldownSpans[skillId] = span;
     unit.windupUntil = this.time + def.windup;
@@ -671,8 +708,8 @@ export class CombatWorld {
     if (def.weapon) unit.hand += 1;
     const angle = Math.atan2(aim.y - unit.y, aim.x - unit.x);
     unit.facing = angle;
-    const action: PendingAction = { unitId, skill: skillId, resolved: def, at: this.time + def.windup, angle, targetId };
-    this.events.push({ type: 'windup', unitId, skill: skillId, angle, at: action.at, action: def.action, element: def.element });
+    const action: PendingAction = { unitId, skill: skillId, resolved: def, at: this.time + def.windup, angle, targetId, aim: { x: aim.x, y: aim.y } };
+    this.events.push({ type: 'windup', unitId, skill: skillId, angle, at: action.at, action: def.action, element: def.element, aim: action.aim });
     if (def.windup <= 0) this.executeSkill(action);
     else this.pending.push(action);
     return true;
@@ -778,6 +815,8 @@ export class CombatWorld {
         };
         let landed = 0;
         for (const other of this.opponentsOf(unit)) {
+          // 飛んでいる者に近攻撃は届かない
+          if (this.isAirborne(other)) continue;
           // 回避で範囲の外へ抜けていても、避け始めた位置に当たるならジャスト回避の判定に回す
           const justDodging = this.time - other.dodgeStartedAt <= DEFENSE.justDodgeWindow && reaches(other, other.dodgeOrigin);
           if (reaches(other, other)) landed++;
@@ -865,7 +904,7 @@ export class CombatWorld {
         this.events.push({ type: 'nova', unitId: unit.id, x: unit.x, y: unit.y, radius: action.radius, element: skillElement(def) });
         let landed = 0;
         for (const other of this.opponentsOf(unit)) {
-          if (Math.hypot(other.x - unit.x, other.y - unit.y) > action.radius + other.radius) continue;
+          if (this.isAirborne(other) || Math.hypot(other.x - unit.x, other.y - unit.y) > action.radius + other.radius) continue;
           landed++;
           this.queueAttack(unit, other, def, charge);
         }
@@ -879,19 +918,50 @@ export class CombatWorld {
         break;
       }
       case 'blink': {
-        if (!target) break;
-        // 背後なら相手の向きの逆側、正面なら相手と自分の間に移る
-        const a = action.where === 'behind' ? target.facing + Math.PI : Math.atan2(unit.y - target.y, unit.x - target.x);
         const from = { x: unit.x, y: unit.y };
-        let x = target.x + Math.cos(a) * (action.distance + target.radius);
-        let y = target.y + Math.sin(a) * (action.distance + target.radius);
+        let x: number;
+        let y: number;
+        if (action.where === 'at') {
+          // 振りかぶったときに狙った所へ。見てから離れれば避けられる
+          x = pending.aim.x;
+          y = pending.aim.y;
+        } else {
+          if (!target) break;
+          // 背後なら相手の向きの逆側、正面なら相手と自分の間に移る
+          const a = action.where === 'behind' ? target.facing + Math.PI : Math.atan2(unit.y - target.y, unit.x - target.x);
+          x = target.x + Math.cos(a) * (action.distance + target.radius);
+          y = target.y + Math.sin(a) * (action.distance + target.radius);
+        }
         if (this.bounds) {
           x = Math.min(this.bounds.width - unit.radius, Math.max(unit.radius, x));
           y = Math.min(this.bounds.height - unit.radius, Math.max(unit.radius, y));
         }
         this.moveUnit(unit.id, x, y);
-        unit.facing = Math.atan2(target.y - y, target.x - x);
+        if (target) unit.facing = Math.atan2(target.y - y, target.x - x);
         this.events.push({ type: 'blink', unitId: unit.id, from, to: { x, y } });
+        if (action.land) {
+          // 降りた周りを砕く。飛んでいれば、ここで地に降りる
+          if (this.isAirborne(unit)) {
+            unit.airborneUntil = 0;
+            this.events.push({ type: 'landed', unitId: unit.id, x, y });
+          }
+          const land: ResolvedSkill = { ...def, action: { type: 'nova', ...action.land } };
+          this.events.push({ type: 'nova', unitId: unit.id, x, y, radius: action.land.radius, element: skillElement(def) });
+          let landed = 0;
+          for (const other of this.opponentsOf(unit)) {
+            if (Math.hypot(other.x - x, other.y - y) > action.land.radius + other.radius) continue;
+            landed++;
+            this.queueAttack(unit, other, land, charge);
+          }
+          this.onMultiHit(unit, landed, def.name);
+          this.processHits();
+        }
+        break;
+      }
+      case 'takeOff': {
+        unit.airborneUntil = this.time + action.duration;
+        unit.landWith = action.land as ActiveSkillId | undefined;
+        this.events.push({ type: 'takeOff', unitId: unit.id, until: unit.airborneUntil });
         break;
       }
       case 'healAllies': {
@@ -948,6 +1018,8 @@ export class CombatWorld {
     if (unit.actives.length > 0 && !unit.actives.includes(tactic.skill)) return false;
     const def = this.skillFor(unit, tactic.skill);
     if (!def || (actionReach(def.action) !== undefined && !target)) return false;
+    // 飛んでいる相手に、届かない近攻撃と周りに放つ技は出さない(下の行の遠攻撃へ回す)
+    if (target && this.isAirborne(target) && (def.action.type === 'melee' || def.action.type === 'nova')) return false;
     const ctx = this.context(target ?? unit, unit, {});
     // 知らない条件(古い作戦など)の行は使わない
     const condition = TACTIC_CONDITIONS[tactic.condition];
@@ -1062,6 +1134,12 @@ export class CombatWorld {
     for (const unit of this.units.values()) {
       if (unit.autoBattle) this.runTactics(unit);
       if (!unit.ai?.enabled) continue;
+      // 大物は深手を負うと怒り、攻めが速まる
+      const rage = unit.kind ? enemyDef(unit.kind).enrage : undefined;
+      if (rage && !unit.enraged && unit.hp > 0 && unit.hp < unit.maxHp * rage.below) {
+        unit.enraged = true;
+        this.events.push({ type: 'enraged', unitId: unit.id, label: rage.label });
+      }
       for (const skill of unit.ai.skills) {
         if (!this.canUseSkill(unit.id, skill)) continue;
         const reach = this.reachOf(unit, skill);
@@ -1098,7 +1176,23 @@ export class CombatWorld {
     for (const unit of this.units.values()) {
       const weatherApplies = this.weather ? fieldDef(this.weather).applies : undefined;
       if (weatherApplies) this.addBuildup(unit, weatherApplies.status, weatherApplies.perSec * sec, { skill: '', via: [], depth: 0 });
-      for (const patch of this.floorsUnder(unit)) {
+      // 飛んでいる者は床を踏まない。飛ぶ時間が切れたら地に降りる
+      if (unit.airborneUntil > 0 && unit.airborneUntil <= this.time) {
+        const dive = unit.landWith ? this.skillFor(unit, unit.landWith) : undefined;
+        const target = dive ? this.tacticTarget(unit) : undefined;
+        unit.landWith = undefined;
+        if (dive && target) {
+          // 急降下で降りる。振りかぶりの間は飛んだまま、狙った所へ落ちる
+          unit.airborneUntil = this.time + dive.windup + 50;
+          unit.busyUntil = this.time;
+          delete unit.cooldowns[dive.id];
+          this.useSkill(unit.id, dive.id, { x: target.x, y: target.y });
+        } else {
+          unit.airborneUntil = 0;
+          this.events.push({ type: 'landed', unitId: unit.id, x: unit.x, y: unit.y });
+        }
+      }
+      for (const patch of this.isAirborne(unit) ? [] : this.floorsUnder(unit)) {
         const applies = fieldDef(patch.field).applies;
         const owner = patch.ownerId ? this.units.get(patch.ownerId) : undefined;
         if (applies) this.addBuildup(unit, applies.status, applies.perSec * sec, { attacker: owner, skill: owner ? fieldDef(patch.field).name : '', via: [], depth: 0 });
@@ -1166,6 +1260,8 @@ export class CombatWorld {
       if (!unit.kind || unit.hp <= 0 || this.isBusy(unit) || this.isIncapacitated(unit)) continue;
       const def = enemyDef(unit.kind);
       if (def.behavior === 'stationary') continue;
+      // 飛んでいる間は、間合いを取って周りを回る
+      const flying = this.isAirborne(unit);
       const target = this.tacticTarget(unit);
       if (!target) continue;
       const dx = target.x - unit.x;
@@ -1179,9 +1275,9 @@ export class CombatWorld {
         // 恐怖の間は背を向けて逃げる。背後から斬られやすい
         mx = -ux;
         my = -uy;
-      } else if (def.behavior === 'chase' || def.behavior === 'swarm') {
-        // 最初の技が届く所まで寄る
-        const reach = this.reachOf(unit, def.skills[0]!) ?? 60;
+      } else if (!flying && (def.behavior === 'chase' || def.behavior === 'swarm')) {
+        // 目安の技(なければ最初の技)が届く所まで寄る
+        const reach = this.reachOf(unit, def.approach ?? def.skills[0]!) ?? 60;
         if (dist - target.radius > reach * 0.7) {
           mx = ux;
           my = uy;
@@ -1193,7 +1289,7 @@ export class CombatWorld {
           }
         }
       } else {
-        const keep = def.keepAt ?? 300;
+        const keep = flying ? 320 : (def.keepAt ?? 300);
         if (dist < keep * 0.75) {
           mx = -ux;
           my = -uy;
@@ -1239,7 +1335,8 @@ export class CombatWorld {
       }
       const len = Math.hypot(mx, my);
       if (len < 0.01) continue;
-      const step = (def.speed * this.statOf(unit, 'moveSpeed') * sec) / Math.max(1, len);
+      const pace = (flying ? 1.6 : 1) * (unit.enraged ? (def.enrage?.speed ?? 1) : 1);
+      const step = (def.speed * pace * this.statOf(unit, 'moveSpeed') * sec) / Math.max(1, len);
       unit.facing = Math.atan2(my, mx);
       let nx = unit.x + mx * step;
       let ny = unit.y + my * step;
@@ -1989,6 +2086,8 @@ export class CombatWorld {
     if (this.isBlocked(unit, status, src.attacker)) return;
     const active = this.isActive(unit, status);
     if (active && !def.refresh) return;
+    // 大物は動きを止める状態が溜まりにくい
+    if (def.incapacitates && unit.kind) amount *= enemyDef(unit.kind).poise ?? 1;
     st.buildup += amount;
     if (st.buildup < def.max) return;
     st.buildup = 0;

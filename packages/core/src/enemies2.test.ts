@@ -15,9 +15,9 @@ function arena() {
 }
 
 describe('敵の一覧', () => {
-  it('14種。どれも問うこと(concept)を持ち、一戦のどこかに出る', () => {
-    expect(ENEMY_IDS).toHaveLength(14);
-    const used = new Set(ENCOUNTER_IDS.flatMap((id) => ENCOUNTERS[id].waves.flatMap((w) => w.spawn.map((s) => s.enemy))));
+  it('雑魚14種と大物。どれも問うこと(concept)を持ち、一戦のどこかに出る', () => {
+    expect(ENEMY_IDS.filter((id) => !('boss' in ENEMIES[id]))).toHaveLength(14);
+    const used = new Set<string>(ENCOUNTER_IDS.flatMap((id) => ENCOUNTERS[id].waves.flatMap((w) => w.spawn.map((s) => s.enemy))));
     for (const id of ENEMY_IDS) {
       expect(ENEMIES[id].concept.length).toBeGreaterThan(0);
       expect(used.has(id)).toBe(true);
