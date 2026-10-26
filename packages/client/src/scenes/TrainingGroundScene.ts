@@ -25,6 +25,7 @@ import {
   type StatusDef,
   type FloorPatch,
   FLOOR_IDS,
+  weaponDef,
   FORMS,
   learnedForms,
   ENEMIES,
@@ -33,7 +34,7 @@ import {
   type EnemyId,
 } from '@hakusura/core';
 import { EncounterView } from '../ui/EncounterView';
-import { createPilgrimTexture, frameIndex, preloadPilgrim, type Anim, type Dir } from '../art';
+import { GRIP, SHIELD_SIZE, WEAPON_SIZE, createPilgrimTexture, frameIndex, preloadPilgrim, shieldTexture, weaponTexture, type Anim, type Dir } from '../art';
 import { InputController } from '../input/InputController';
 import { ACTIVE_SLOT_ACTIONS, loadKeybinds, type Keybinds } from '../input/keybinds';
 import { BreakdownView } from '../ui/BreakdownView';
@@ -57,6 +58,15 @@ const PLAYER_LOOK = 15;
  * feet は立ち位置から足元までの距離。足元の輪(付与・盾)はここに描く
  */
 const PLAYER_ART = { scale: 2.25, originY: 18 / 32, feet: (29 - 18) * 2.25 } as const;
+/** 向きごとの手の位置(立ち位置から)。behind なら体の後ろに隠れる */
+const HAND_OFFSETS: Record<Dir, Record<'main' | 'off' | 'shield', { x: number; y: number; behind: boolean }>> = {
+  down: { main: { x: 12, y: 6, behind: false }, off: { x: -12, y: 6, behind: false }, shield: { x: -11, y: 4, behind: false } },
+  up: { main: { x: 12, y: 2, behind: true }, off: { x: -12, y: 2, behind: true }, shield: { x: -11, y: 0, behind: true } },
+  // 横向きの盾は、隠れないよう体の前に構える
+  side: { main: { x: 5, y: 8, behind: false }, off: { x: -3, y: 3, behind: true }, shield: { x: 9, y: 2, behind: false } },
+};
+/** 近攻撃で武器を振り抜く時間(ミリ秒) */
+const SWING_MS = 170;
 /** 浮きスティック。押した所から引いた向きへ動く(画面のピクセル) */
 const STICK = { deadzone: 10, full: 56, tapMs: 260 };
 const DODGE = { speed: 900, duration: 170, cooldown: 650 };
@@ -146,6 +156,12 @@ export class TrainingGroundScene extends Phaser.Scene {
   private playerSprite!: Phaser.GameObjects.Sprite;
   private overGfx!: Phaser.GameObjects.Graphics;
   private lastPlayerPos = { x: 0, y: 0 };
+  /** 手に持つ武器と盾の絵。武器は狙う向きへ回し、近攻撃では扇に沿って振る */
+  private held: { img: Phaser.GameObjects.Image; side: 1 | -1; kind: 'melee' | 'ranged' | 'shield' }[] = [];
+  /** 直近の近攻撃の振り。いつ、どの向きへ、どれだけの扇で */
+  private swing: { at: number; angle: number; arc: number } | null = null;
+  /** 振りかぶっている攻撃の種類 */
+  private pendingKind: 'melee' | 'other' = 'other';
 
   constructor() {
     super('TrainingGround');
@@ -192,6 +208,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     createPilgrimTexture(this);
     this.playerSprite = this.add.sprite(this.player.x, this.player.y, 'pilgrim', 0).setScale(PLAYER_ART.scale).setOrigin(0.5, PLAYER_ART.originY).setDepth(1);
     this.overGfx = this.add.graphics().setDepth(2);
+    this.refreshHeld();
     this.rainGfx = this.add.graphics().setScrollFactor(0).setDepth(50);
     this.veils = { fog: this.makeVeil('veil-fog', [200, 204, 208], 0.72, 200), night: this.makeVeil('veil-night', [5, 5, 12], 0.8, 240) };
     this.stickGfx = this.add.graphics().setScrollFactor(0).setDepth(60);
@@ -382,6 +399,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     if (this.player.queued && this.player.queued.skill !== this.player.trump) this.player.queued = undefined;
     this.hud.setTrump(this.player.trump);
     this.hud.setSlots(this.player.actives);
+    this.refreshHeld();
     saveBuildState(this.buildState);
   }
 
@@ -808,6 +826,67 @@ export class TrainingGroundScene extends Phaser.Scene {
     g.fillStyle(0xc9b79c, 0.45).fillCircle(stick.startX + dx * k, stick.startY + dy * k, 18);
   }
 
+  /** 着けている武器と盾の絵を作り直す。1本目は利き手(右)、2本目と盾は逆の手 */
+  private refreshHeld(): void {
+    for (const h of this.held) h.img.destroy();
+    this.held = [];
+    const p = this.player;
+    const add = (key: string | undefined, side: 1 | -1, kind: 'melee' | 'ranged' | 'shield', size: { w: number; h: number }, origin: { x: number; y: number }) => {
+      if (!key) return;
+      const img = this.add.image(p.x, p.y, key).setScale(PLAYER_ART.scale).setOrigin(origin.x / size.w, origin.y / size.h);
+      this.held.push({ img, side, kind });
+    };
+    p.weapons.forEach((w, i) => {
+      const def = weaponDef(w);
+      add(weaponTexture(this, w.type, def.element), i === 0 ? 1 : -1, def.kind, WEAPON_SIZE, GRIP);
+    });
+    const shield = p.shields[0];
+    if (shield) {
+      const half = SHIELD_SIZE / 2;
+      add(shieldTexture(this, shield.type, shield.element), p.weapons.length >= 2 ? 1 : -1, 'shield', { w: SHIELD_SIZE, h: SHIELD_SIZE }, { x: half, y: half });
+    }
+  }
+
+  /**
+   * 武器と盾を手の位置に置く。武器は狙う向きへ回し、近攻撃の振りの間は扇の端から端へ振り抜く。
+   * 上を向いているときは体の後ろに隠れる
+   */
+  private updateHeld(dir: Dir, left: boolean): void {
+    const p = this.player;
+    const a = this.facing;
+    const now = this.time.now;
+    const alpha = p.invulnerableUntil > this.world.time ? 0.45 : 1;
+    const swinging = this.swing && now - this.swing.at < SWING_MS ? this.swing : null;
+    const windingMelee = p.windupUntil > this.world.time && this.pendingKind === 'melee';
+    for (const h of this.held) {
+      const side = h.side;
+      // 手の位置は絵の向きに合わせる。下向きは画面の右が利き手、横向きは利き手が手前
+      const offset = HAND_OFFSETS[dir][h.kind === 'shield' ? 'shield' : side === 1 ? 'main' : 'off'];
+      const hand = { x: p.x + (left ? -offset.x : offset.x), y: p.y + offset.y };
+      const behind = offset.behind;
+      let rot = a;
+      if (h.kind === 'melee') {
+        const half = Phaser.Math.DegToRad((swinging?.arc ?? 120) / 2);
+        if (swinging) {
+          const t = (now - swinging.at) / SWING_MS;
+          rot = swinging.angle - half + 2 * half * (1 - (1 - t) ** 2);
+        } else if (windingMelee) rot = a - half - 0.35;
+        else rot = a + side * 0.55;
+      } else if (h.kind === 'ranged') {
+        // 撃った瞬間(振りかぶりが明けた直後)は少し跳ね上がる
+        const since = this.world.time - p.windupUntil;
+        const recoil = this.pendingKind === 'other' && since >= 0 && since < 160 ? 1 - since / 160 : 0;
+        rot = a - recoil * 0.35;
+      }
+      h.img.setPosition(hand.x, hand.y).setAlpha(alpha).setDepth(behind ? 0.9 : 1.1);
+      if (h.kind === 'shield') {
+        h.img.setRotation(0);
+        continue;
+      }
+      h.img.setRotation(rot).setFlipY(Math.cos(rot) < 0);
+    }
+  }
+
   /**
    * 自キャラの絵のコマを選ぶ。向きは狙う向きから、動きは歩き・振りかぶり・被弾から決める。
    * 左向きは横向きの絵を裏返す
@@ -843,6 +922,7 @@ export class TrainingGroundScene extends Phaser.Scene {
       i = Math.floor(now / 120) % 4;
     }
     sprite.setFrame(frameIndex(dir, anim, i));
+    this.updateHeld(dir, dir === 'side' && Math.abs(deg) > 90);
     sprite.setAlpha(p.invulnerableUntil > world.time ? 0.45 : 1);
     if (hurt > 0) sprite.setTint(0xff7060);
     else sprite.clearTint();
@@ -1183,6 +1263,7 @@ export class TrainingGroundScene extends Phaser.Scene {
         break;
       }
       case 'swing': {
+        if (event.unitId === this.player.id) this.swing = { at: this.time.now, angle: event.angle, arc: event.arc };
         const fx = this.add.graphics().setDepth(30);
         const half = Phaser.Math.DegToRad(event.arc / 2);
         fx.fillStyle(ELEMENTS[event.element].color, 0.25);
@@ -1285,6 +1366,7 @@ export class TrainingGroundScene extends Phaser.Scene {
         break;
       }
       case 'windup': {
+        if (event.unitId === this.player.id) this.pendingKind = event.action.type === 'melee' ? 'melee' : 'other';
         this.telegraphs.push({
           unitId: event.unitId,
           skill: event.skill,

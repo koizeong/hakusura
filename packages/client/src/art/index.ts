@@ -29,3 +29,32 @@ export function createPilgrimTexture(scene: Phaser.Scene): void {
   // ドット絵は拡大してもにじまないようにする
   tex.setFilter(Phaser.Textures.FilterMode.NEAREST);
 }
+
+export * from './weapons';
+import { drawShield, drawWeapon } from './weapons';
+import type { ElementId, ShieldTypeId, WeaponTypeId } from '@hakusura/core';
+
+/** 武器の絵を用意して名前を返す。形と属性の組ごとに、初めて要るときに作る。素手なら undefined */
+export function weaponTexture(scene: Phaser.Scene, type: WeaponTypeId, element: ElementId): string | undefined {
+  const key = `weapon:${type}:${element}`;
+  if (scene.textures.exists(key)) return key;
+  const g = drawWeapon(type, element);
+  if (!g) return undefined;
+  return paintTexture(scene, key, g);
+}
+
+/** 盾の絵を用意して名前を返す */
+export function shieldTexture(scene: Phaser.Scene, type: ShieldTypeId, element?: ElementId): string {
+  const key = `shield:${type}:${element ?? 'none'}`;
+  if (scene.textures.exists(key)) return key;
+  return paintTexture(scene, key, drawShield(type, element));
+}
+
+function paintTexture(scene: Phaser.Scene, key: string, g: { width: number; height: number; paint(ctx: CanvasRenderingContext2D, x: number, y: number): void }): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = g.width;
+  canvas.height = g.height;
+  g.paint(canvas.getContext('2d')!, 0, 0);
+  scene.textures.addCanvas(key, canvas)!.setFilter(Phaser.Textures.FilterMode.NEAREST);
+  return key;
+}
