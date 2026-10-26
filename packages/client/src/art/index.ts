@@ -58,3 +58,18 @@ function paintTexture(scene: Phaser.Scene, key: string, g: { width: number; heig
   scene.textures.addCanvas(key, canvas)!.setFilter(Phaser.Textures.FilterMode.NEAREST);
   return key;
 }
+
+export * from './enemies';
+import { ENEMY_FRAMES, buildEnemySheet, enemyArtSize } from './enemies';
+import type { EnemyId } from '@hakusura/core';
+
+/** 敵の絵を用意して名前を返す。コマは 0 から ENEMY_FRAMES の順 */
+export function enemyTexture(scene: Phaser.Scene, id: EnemyId | 'scarecrow'): string {
+  const key = `enemy:${id}`;
+  if (scene.textures.exists(key)) return key;
+  const size = enemyArtSize(id);
+  const tex = scene.textures.addCanvas(key, buildEnemySheet(id))!;
+  ENEMY_FRAMES.forEach((_, i) => tex.add(i, 0, i * size, 0, size, size));
+  tex.setFilter(Phaser.Textures.FilterMode.NEAREST);
+  return key;
+}

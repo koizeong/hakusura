@@ -34,7 +34,7 @@ import {
   type EnemyId,
 } from '@hakusura/core';
 import { EncounterView } from '../ui/EncounterView';
-import { GRIP, SHIELD_SIZE, WEAPON_SIZE, createPilgrimTexture, frameIndex, preloadPilgrim, shieldTexture, weaponTexture, type Anim, type Dir } from '../art';
+import { GRIP, SHIELD_SIZE, WEAPON_SIZE, createPilgrimTexture, enemyArtOrigin, enemyArtSize, enemyTexture, frameIndex, preloadPilgrim, shieldTexture, weaponTexture, type Anim, type Dir } from '../art';
 import { InputController } from '../input/InputController';
 import { ACTIVE_SLOT_ACTIONS, loadKeybinds, type Keybinds } from '../input/keybinds';
 import { BreakdownView } from '../ui/BreakdownView';
@@ -156,6 +156,10 @@ export class TrainingGroundScene extends Phaser.Scene {
   private playerSprite!: Phaser.GameObjects.Sprite;
   private overGfx!: Phaser.GameObjects.Graphics;
   private lastPlayerPos = { x: 0, y: 0 };
+  /** 敵と案山子の絵 */
+  private unitSprites = new Map<string, Phaser.GameObjects.Sprite>();
+  private lastUnitPos = new Map<string, { x: number; y: number }>();
+  private seenSprites = new Set<string>();
   /** 手に持つ武器と盾の絵。武器は狙う向きへ回し、近攻撃では扇に沿って振る */
   private held: { img: Phaser.GameObjects.Image; side: 1 | -1; kind: 'melee' | 'ranged' | 'shield' }[] = [];
   /** 直近の近攻撃の振り。いつ、どの向きへ、どれだけの扇で */
@@ -736,28 +740,10 @@ export class TrainingGroundScene extends Phaser.Scene {
       }
     }
 
-    // 敵。種類ごとの図形と、減った体力
-    for (const s of this.enemies()) {
-      if (!s.kind) continue;
-      this.drawEnemy(s);
-    }
-
-    // 案山子
-    for (const s of this.scarecrows) {
-      if (!world.units.has(s.id)) continue;
-      g.fillStyle(0x4a3b2c).fillRect(s.x - 3, s.y - 26, 6, 46);
-      g.fillRect(s.x - 20, s.y - 14, 40, 5);
-      g.fillStyle(0x8a7454).fillCircle(s.x, s.y - 28, 9);
-      g.lineStyle(1, 0x2a2018).strokeCircle(s.x, s.y - 28, 9);
-      const flash = this.hurtFlash(s.id);
-      if (flash > 0) g.fillStyle(0xffffff, flash * 0.6).fillCircle(s.x, s.y - 14, 20);
-      this.drawStatuses(s, s.y + 26);
-      if (world.isIncapacitated(s)) {
-        const a = world.time / 150;
-        g.fillStyle(0xd8c25a, 0.9);
-        for (let i = 0; i < 3; i++) g.fillCircle(s.x + Math.cos(a + i * 2.1) * 14, s.y - 44 + Math.sin(a + i * 2.1) * 4, 2.5);
-      }
-    }
+    // 敵と案山子。絵の上に重ねる印のため、先に重ねの層を消しておく
+    this.overGfx.clear();
+    for (const s of this.enemies()) this.drawUnitSprite(s, s.kind ?? 'scarecrow');
+    this.sweepSprites();
 
     // ターゲット固定の印
     if (this.lockTarget) {
@@ -776,7 +762,6 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.updatePlayerSprite();
     // 絵の上に重ねる印。弾も自分の絵に隠れないよう、ここに描く
     const o = this.overGfx;
-    o.clear();
     // 本当の当たり判定。胴の上に小さく
     o.fillStyle(0xe8dcc8, 0.75).fillCircle(p.x, p.y, 2.5);
     o.lineStyle(1, 0xf2e6c8, 0.25).strokeCircle(p.x, p.y, p.radius);
@@ -878,7 +863,8 @@ export class TrainingGroundScene extends Phaser.Scene {
         const recoil = this.pendingKind === 'other' && since >= 0 && since < 160 ? 1 - since / 160 : 0;
         rot = a - recoil * 0.35;
       }
-      h.img.setPosition(hand.x, hand.y).setAlpha(alpha).setDepth(behind ? 0.9 : 1.1);
+      // 体と同じ奥行きの、すぐ前か後ろに置く
+      h.img.setPosition(hand.x, hand.y).setAlpha(alpha).setDepth(1 + p.y / 1e5 + (behind ? -1e-6 : 1e-6));
       if (h.kind === 'shield') {
         h.img.setRotation(0);
         continue;
@@ -897,7 +883,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     const sprite = this.playerSprite;
     const moved = Math.hypot(p.x - this.lastPlayerPos.x, p.y - this.lastPlayerPos.y);
     this.lastPlayerPos = { x: p.x, y: p.y };
-    sprite.setPosition(p.x, p.y);
+    sprite.setPosition(p.x, p.y).setDepth(1 + p.y / 1e5);
 
     const deg = Phaser.Math.RadToDeg(this.facing);
     const dir: Dir = deg > -135 && deg < -45 ? 'up' : deg >= 45 && deg <= 135 ? 'down' : 'side';
@@ -962,116 +948,66 @@ export class TrainingGroundScene extends Phaser.Scene {
     }
   }
 
-  /** 敵を図形で描く。予兆の間は縁を明るくする */
-  private drawEnemy(u: Unit): void {
-    const g = this.gfx;
+  /**
+   * 敵と案山子をドット絵で描く。コマは被弾・振りかぶり・動き(歩いていれば速く)から選び、左を向けば裏返す。
+   * 振りかぶりの間は赤みを帯び、当たった瞬間は白く光る。体力と状態の印は絵の上に重ねる
+   */
+  private drawUnitSprite(u: Unit, art: EnemyId | 'scarecrow'): void {
     const world = this.world;
-    const def = ENEMIES[u.kind!];
-    const r = u.radius;
-    const winding = u.windupUntil > world.time;
-    g.fillStyle(def.look.color, 1);
-    g.lineStyle(2, winding ? 0xe0503a : 0x1a1410, 1);
-    switch (def.look.shape) {
-      case 'triangle': {
-        const a = u.facing;
-        const pts = [0, 2.4, -2.4].map((o) => ({ x: u.x + Math.cos(a + o) * r * 1.25, y: u.y + Math.sin(a + o) * r * 1.25 }));
-        g.fillTriangle(pts[0]!.x, pts[0]!.y, pts[1]!.x, pts[1]!.y, pts[2]!.x, pts[2]!.y);
-        g.strokeTriangle(pts[0]!.x, pts[0]!.y, pts[1]!.x, pts[1]!.y, pts[2]!.x, pts[2]!.y);
-        break;
-      }
-      case 'square':
-        g.fillRect(u.x - r, u.y - r, r * 2, r * 2).strokeRect(u.x - r, u.y - r, r * 2, r * 2);
-        g.fillStyle(0x2a201a, 1).fillRect(u.x - r * 0.6, u.y - r * 0.25, r * 1.2, r * 0.3);
-        break;
-      case 'diamond': {
-        const pts = [
-          { x: u.x, y: u.y - r * 1.3 },
-          { x: u.x + r, y: u.y },
-          { x: u.x, y: u.y + r * 1.3 },
-          { x: u.x - r, y: u.y },
-        ];
-        g.fillPoints(pts, true).strokePoints(pts, true);
-        break;
-      }
-      case 'bell':
-        g.fillCircle(u.x, u.y - r * 0.2, r).strokeCircle(u.x, u.y - r * 0.2, r);
-        g.fillRect(u.x - r * 1.2, u.y + r * 0.5, r * 2.4, r * 0.45);
-        g.fillStyle(0x2a2a30, 1).fillCircle(u.x, u.y + r * 1.15, r * 0.3);
-        break;
-      case 'hood': {
-        // 頭巾の者。尖った頭と、闇の中の顔
-        const pts = [
-          { x: u.x, y: u.y - r * 1.4 },
-          { x: u.x + r, y: u.y + r * 0.9 },
-          { x: u.x - r, y: u.y + r * 0.9 },
-        ];
-        g.fillPoints(pts, true).strokePoints(pts, true);
-        g.fillStyle(0x0a0808, 0.9).fillCircle(u.x, u.y - r * 0.2, r * 0.38);
-        break;
-      }
-      case 'spike': {
-        // 棘に覆われた体
-        g.fillCircle(u.x, u.y, r * 0.85).strokeCircle(u.x, u.y, r * 0.85);
-        g.lineStyle(2, def.look.color, 1);
-        for (let i = 0; i < 10; i++) {
-          const a = (i / 10) * Math.PI * 2;
-          g.lineBetween(u.x + Math.cos(a) * r * 0.8, u.y + Math.sin(a) * r * 0.8, u.x + Math.cos(a) * r * 1.35, u.y + Math.sin(a) * r * 1.35);
-        }
-        break;
-      }
-      case 'star': {
-        const pts = Array.from({ length: 12 }, (_, i) => {
-          const a = (i / 12) * Math.PI * 2 + world.time / 2000;
-          const d = i % 2 === 0 ? r * 1.3 : r * 0.6;
-          return { x: u.x + Math.cos(a) * d, y: u.y + Math.sin(a) * d };
-        });
-        g.fillPoints(pts, true).strokePoints(pts, true);
-        break;
-      }
-      case 'eye': {
-        // 影の目。半ば透けて見える
-        g.fillStyle(def.look.color, 0.55).fillEllipse(u.x, u.y, r * 2.4, r * 1.3);
-        g.lineStyle(2, winding ? 0xe0503a : 0x1a1410, 1).strokeEllipse(u.x, u.y, r * 2.4, r * 1.3);
-        g.fillStyle(0xd8c8f0, 0.9).fillCircle(u.x + Math.cos(u.facing) * r * 0.4, u.y + Math.sin(u.facing) * r * 0.2, r * 0.3);
-        break;
-      }
-      case 'sac': {
-        // 脈打つ肉の袋
-        const pulse = 1 + Math.sin(world.time / 260 + u.y) * 0.07;
-        g.fillEllipse(u.x, u.y, r * 2 * pulse, r * 1.7 * pulse).strokeEllipse(u.x, u.y, r * 2 * pulse, r * 1.7 * pulse);
-        g.fillStyle(0x2a1010, 0.6).fillCircle(u.x - r * 0.35, u.y - r * 0.1, r * 0.22).fillCircle(u.x + r * 0.3, u.y + r * 0.25, r * 0.18);
-        break;
-      }
-      case 'cross': {
-        g.fillRect(u.x - r * 0.3, u.y - r * 1.3, r * 0.6, r * 2.6).strokeRect(u.x - r * 0.3, u.y - r * 1.3, r * 0.6, r * 2.6);
-        g.fillRect(u.x - r, u.y - r * 0.7, r * 2, r * 0.5).strokeRect(u.x - r, u.y - r * 0.7, r * 2, r * 0.5);
-        break;
-      }
-      default:
-        // 油袋は膨らんだり萎んだりする
-        g.fillCircle(u.x, u.y, r * (1 + Math.sin(world.time / 300 + u.x) * 0.06)).strokeCircle(u.x, u.y, r);
-        g.fillStyle(0x2a2010, 0.8).fillCircle(u.x - r * 0.3, u.y - r * 0.2, r * 0.25);
+    const o = this.overGfx;
+    let sprite = this.unitSprites.get(u.id);
+    if (!sprite) {
+      sprite = this.add.sprite(u.x, u.y, enemyTexture(this, art), 0).setScale(PLAYER_ART.scale).setOrigin(0.5, enemyArtOrigin(art));
+      this.unitSprites.set(u.id, sprite);
     }
-    // 当たった瞬間は白く光る
+    this.seenSprites.add(u.id);
+    const last = this.lastUnitPos.get(u.id) ?? { x: u.x, y: u.y };
+    const moving = Math.hypot(u.x - last.x, u.y - last.y) > 0.3;
+    this.lastUnitPos.set(u.id, { x: u.x, y: u.y });
+    const now = this.time.now;
     const flash = this.hurtFlash(u.id);
-    if (flash > 0) g.fillStyle(0xffffff, flash * 0.7).fillCircle(u.x, u.y, r * 1.1);
+    const winding = u.windupUntil > world.time;
+    const phase = Math.floor((now + (u.x * 7) % 400) / (moving ? 200 : 520)) % 2;
+    sprite.setPosition(u.x, u.y).setDepth(1 + u.y / 1e5);
+    sprite.setFrame(flash > 0 ? 3 : winding ? 2 : phase);
+    if (art !== 'scarecrow') sprite.setFlipX(Math.cos(u.facing) < 0);
+    if (flash > 0.4) sprite.setTintFill(0xffffff);
+    else if (winding) sprite.setTint(0xff9a8a);
+    else sprite.clearTint();
+    // 影潜みは半ば透けている
+    sprite.setAlpha(art === 'shadowStalker' ? 0.82 : 1);
+
+    const size = enemyArtSize(art) * PLAYER_ART.scale;
+    const top = u.y - size * enemyArtOrigin(art) + (art === 'scarecrow' ? 8 : 10);
+    const bottom = u.y + size * (1 - enemyArtOrigin(art)) - 4;
     // 体力。減ってから見せる
-    if (u.hp < u.maxHp) {
-      const w = Math.max(28, r * 2.2);
-      g.fillStyle(0x000000, 0.7).fillRect(u.x - w / 2, u.y - r - 12, w, 4);
-      g.fillStyle(0xa83228, 1).fillRect(u.x - w / 2, u.y - r - 12, (w * Math.max(0, u.hp)) / u.maxHp, 4);
+    if (u.mortal && u.hp < u.maxHp) {
+      const w = Math.max(28, u.radius * 2.2);
+      o.fillStyle(0x000000, 0.7).fillRect(u.x - w / 2, top - 6, w, 4);
+      o.fillStyle(0xa83228, 1).fillRect(u.x - w / 2, top - 6, (w * Math.max(0, u.hp)) / u.maxHp, 4);
     }
-    this.drawStatuses(u, u.y + r + 6);
+    this.drawStatuses(u, bottom);
     if (world.isIncapacitated(u)) {
       const a = world.time / 150;
-      g.fillStyle(0xd8c25a, 0.9);
-      for (let i = 0; i < 3; i++) g.fillCircle(u.x + Math.cos(a + i * 2.1) * 14, u.y - r - 18 + Math.sin(a + i * 2.1) * 4, 2.5);
+      o.fillStyle(0xd8c25a, 0.9);
+      for (let i = 0; i < 3; i++) o.fillCircle(u.x + Math.cos(a + i * 2.1) * 14, top - 12 + Math.sin(a + i * 2.1) * 4, 2.5);
     }
+  }
+
+  /** この絵の中に、もう場にいない者の絵が残っていれば消す */
+  private sweepSprites(): void {
+    for (const [id, sprite] of this.unitSprites) {
+      if (this.seenSprites.has(id)) continue;
+      sprite.destroy();
+      this.unitSprites.delete(id);
+      this.lastUnitPos.delete(id);
+    }
+    this.seenSprites.clear();
   }
 
   /** 状態の蓄積を細い棒、発動中を太い棒で出す */
   private drawStatuses(unit: Unit, top: number): void {
-    const g = this.gfx;
+    const g = this.overGfx;
     const width = 40;
     let y = top;
     for (const id of STATUS_IDS) {
