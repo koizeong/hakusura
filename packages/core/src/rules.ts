@@ -47,15 +47,22 @@ export type Predicate =
   /** 自分がその床の上にいる */
   | { type: 'selfOnFloor'; field: FieldId }
   /** 直前に使ったスキル */
-  | { type: 'lastSkillWas'; skill: string };
+  | { type: 'lastSkillWas'; skill: string }
+  /** ヒットの属性 */
+  | { type: 'hitElementIs'; element: ElementId }
+  /**
+   * 繋ぎ。このスキルの1つ前の手が、その属性・種類で、within ミリ秒以内に使ったもの。
+   * 前の手はスキルを使った瞬間に決まるので、飛んでいる弾が当たるときも変わらない
+   */
+  | { type: 'afterStep'; element?: ElementId; category?: string; within: number };
 
 export type Action =
   /** 対象の状態を消す(凍結を砕くなど) */
   | { type: 'clearStatus'; status: StatusId }
   /** 持ち主が最大HPの ratio だけ回復する。腐敗していればダメージになる */
   | { type: 'heal'; ratio: number }
-  /** 同じ攻撃をもう一度当てる。power があれば、その割合の威力で */
-  | { type: 'repeatHit'; power?: number }
+  /** 同じ攻撃をもう一度当てる。power があれば、その割合の威力で。times があれば、その回数 */
+  | { type: 'repeatHit'; power?: number; times?: number }
   | { type: 'applyBuildup'; status: StatusId; amount: number; to?: 'target' | 'attacker' }
   /** 対象に新しいヒットを落とす */
   | { type: 'strike'; element: ElementId; power: number; buildup: number; tags?: readonly string[] }
@@ -147,6 +154,8 @@ export interface PredicateContext {
   attackerOnFloor?(field: FieldId): boolean;
   attackerLastSkill?: string;
   useIndex?: number;
+  /** このヒットを出したスキルの、1つ前の手と、その間(ミリ秒) */
+  prevStep?: { element?: ElementId; category: string; gap: number };
 }
 
 export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean {
@@ -197,6 +206,13 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return ctx.attackerOnFloor?.(p.field) ?? false;
     case 'lastSkillWas':
       return ctx.attackerLastSkill === p.skill;
+    case 'hitElementIs':
+      return ctx.hitElement === p.element;
+    case 'afterStep': {
+      const prev = ctx.prevStep;
+      if (!prev || prev.gap > p.within) return false;
+      return (p.element === undefined || prev.element === p.element) && (p.category === undefined || prev.category === p.category);
+    }
   }
 }
 

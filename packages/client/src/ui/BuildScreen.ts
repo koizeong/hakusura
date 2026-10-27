@@ -4,7 +4,7 @@ import {
   ARTIFACTS,
   BUILD_ACTIVE_IDS,
   BUILD_LIMITS,
-  CONDITIONS,
+  conditionDef,
   CONDITION_IDS,
   EQUIP_SLOTS,
   EQUIP_SLOT_IDS,
@@ -96,11 +96,17 @@ import {
   variantName,
   variationDef,
   type SkillVariant,
+  compareItem,
+  contributionOf,
+  lootFit,
+  measureLoadout,
+  type Comparison,
 } from '@hakusura/core';
 import { itemIconUrl } from '../art/items';
+import type { LoadoutReply, LoadoutRequest } from './loadoutWorker';
 import { h, signedPercent } from './dom';
 import { createTacticsEditor } from './TacticsEditor';
-import { CHARACTER_LIMIT, characterName, currentBuild, currentCharacter, newCharacterId, type BuildState } from './buildStore';
+import { CHARACTER_LIMIT, characterName, currentBuild, currentCharacter, isUnlocked, newCharacterId, unlock, type BuildState } from './buildStore';
 
 type Tab = 'expedition' | 'equipment' | 'attributes' | 'skills' | 'tactics' | 'trump' | 'code';
 const TABS: Record<Tab, string> = {
@@ -145,8 +151,57 @@ export class BuildScreen {
   /** 能力値の仮振り。「決める」まで反映しない */
   private draft: Partial<Record<AttributeId, number>> = {};
   private codeMessage = '';
+  /** 装備の見比べ。早回しで測るので、描いた後に少しずつ測って札に書き込む */
+  private jobs: (() => void)[] = [];
+  private pumping = false;
+  /** おすすめ選びと、まとめて捨てるときの進み具合 */
+  private busy?: { what: 'recommend' | 'sweep'; progress: number };
+  private loadoutMessage = '';
 
   constructor(private host: BuildScreenHost) {}
+
+  /** 測る仕事を積む。1回に少しずつ進め、画面を止めない */
+  private schedule(job: () => void): void {
+    this.jobs.push(job);
+    if (this.pumping) return;
+    this.pumping = true;
+    const tick = () => {
+      const start = performance.now();
+      while (this.jobs.length > 0 && performance.now() - start < 12) this.jobs.shift()!();
+      if (this.jobs.length > 0 && this.visible) setTimeout(tick, 0);
+      else {
+        this.jobs = [];
+        this.pumping = false;
+      }
+    };
+    setTimeout(tick, 0);
+  }
+
+  /** 見比べの一行。測り終えたら書き込む */
+  private verdictEl(measure: () => Comparison | undefined, mode: 'wear' | 'worn'): HTMLElement {
+    const el = h('div', { class: 'verdict pending' }, '測っています…');
+    const build = this.build;
+    this.schedule(() => {
+      if (!el.isConnected || build !== this.build) return;
+      const c = measure();
+      if (!c) {
+        el.remove();
+        return;
+      }
+      const replaced = build.equipment[c.slot];
+      const head =
+        mode === 'wear' ? (replaced ? `${replaced.name}と替えると` : `${EQUIP_SLOTS[c.slot].name}に着けると`) : 'この装備で';
+      el.className = `verdict ${c.verdict}`;
+      el.replaceChildren(
+        h('span', {}, head),
+        h('b', { class: ratioClass(c.power) }, `火力 ${ratioText(c.power)}`),
+        h('b', { class: ratioClass(c.toughness) }, `耐久 ${ratioText(c.toughness)}`),
+        mode === 'wear' && c.verdict === 'worse' ? h('em', {}, '弱くなる') : '',
+        mode === 'wear' && c.verdict === 'better' ? h('em', {}, '強くなる') : '',
+      );
+    });
+    return el;
+  }
 
   /** 今選んでいるキャラとビルド */
   private get character(): Character {
@@ -196,7 +251,7 @@ export class BuildScreen {
         h(
           'nav',
           { class: 'tabs' },
-          ...(Object.keys(TABS) as Tab[]).map((t) =>
+          ...(Object.keys(TABS) as Tab[]).filter((t) => t !== 'expedition' || isUnlocked(this.host.state, 'expedition')).map((t) =>
             h('button', { class: t === this.tab ? 'on' : '', onclick: () => ((this.tab = t), this.render()) }, TABS[t]),
           ),
         ),
@@ -332,7 +387,14 @@ export class BuildScreen {
           'div',
           { class: `slot-row${slot === this.selectedSlot ? ' selected' : ''}`, onclick: () => this.selectSlot(slot) },
           h('span', { class: 'slot-name' }, EQUIP_SLOTS[slot].name),
-          item ? itemCard(this.attrs, item, h('button', { onclick: (e: Event) => (e.stopPropagation(), this.unequip(slot)) }, '外す')) : h('span', { class: 'empty' }, '空き'),
+          item
+            ? itemCard(
+                this.attrs,
+                item,
+                this.verdictEl(() => contributionOf(this.build, slot), 'worn'),
+                h('button', { onclick: (e: Event) => (e.stopPropagation(), this.unequip(slot)) }, '外す'),
+              )
+            : h('span', { class: 'empty' }, '空き'),
         );
       }),
     );
@@ -351,7 +413,20 @@ export class BuildScreen {
           'select',
           { onchange: (e: Event) => (this.lootCondition = (e.target as HTMLSelectElement).value as ConditionId | '') },
           h('option', { value: '' }, '—'),
-          ...CONDITION_IDS.map((id) => h('option', { value: id, selected: id === this.lootCondition }, `${CONDITIONS[id].no}. ${CONDITIONS[id].text}`)),
+          h(
+            'optgroup',
+            { label: '条件文' },
+            ...CONDITION_IDS.filter((id) => !conditionDef(id).link).map((id) =>
+              h('option', { value: id, selected: id === this.lootCondition }, `${conditionDef(id).no}. ${conditionDef(id).text}`),
+            ),
+          ),
+          h(
+            'optgroup',
+            { label: '繋ぎ' },
+            ...CONDITION_IDS.filter((id) => conditionDef(id).link).map((id) =>
+              h('option', { value: id, selected: id === this.lootCondition }, conditionDef(id).text),
+            ),
+          ),
         ),
         h('button', { disabled: !this.lootCondition, onclick: () => this.lootWithCondition() }, '拾う'),
       ),
@@ -380,9 +455,11 @@ export class BuildScreen {
       h('small', {}, `拾い物の山:${state.stash.length - equippedIds.size}個(放置で手に入る想定)`),
     );
 
+    const tools = this.renderLoadoutTools();
     return h(
       'div',
       { class: 'equipment' },
+      tools,
       slots,
       h(
         'section',
@@ -398,6 +475,7 @@ export class BuildScreen {
                 itemCard(
                   this.attrs,
                   item,
+                  this.verdictEl(() => compareItem(this.build, item), 'wear'),
                   h('button', { onclick: () => this.equip(item) }, '着ける'),
                   h('button', { class: 'discard', onclick: () => this.discard(item) }, '捨てる'),
                 ),
@@ -405,6 +483,108 @@ export class BuildScreen {
             ),
       ),
     );
+  }
+
+  /** 今の火力と耐久、おすすめで着ける、弱くなる物をまとめて捨てる */
+  private renderLoadoutTools(): HTMLElement {
+    const busy = this.busy;
+    const label = (what: 'recommend' | 'sweep', idle: string, doing: string) =>
+      busy?.what === what ? `${doing} ${Math.round(busy.progress * 100)}%` : idle;
+    const summary = h('span', { class: 'loadout-summary pending' }, '測っています…');
+    const build = this.build;
+    this.schedule(() => {
+      if (!summary.isConnected || build !== this.build) return;
+      const m = measureLoadout(build);
+      summary.className = 'loadout-summary';
+      summary.textContent = `火力 ${Math.round(m.power)}・耐久 ${Math.round(m.toughness)}`;
+    });
+    return h(
+      'div',
+      { class: 'loadout-tools' },
+      summary,
+      h('button', { class: 'recommend', disabled: !!busy, onclick: () => this.recommend() }, label('recommend', 'おすすめで着ける', '選んでいます')),
+      h('button', { class: 'discard', disabled: !!busy, onclick: () => this.sweep() }, label('sweep', '弱くなる物をまとめて捨てる', '測っています')),
+      this.loadoutMessage ? h('small', { class: 'loadout-message' }, this.loadoutMessage) : '',
+      h('small', { class: 'note' }, '火力は案山子の群れを早回しで斬らせた毎秒の傷、耐久は最大HP÷被ダメージの倍率。条件文や繋ぎの効き目も早回しに入る'),
+    );
+  }
+
+  /** 早回しの糸。初めて要るときに作る */
+  private worker?: Worker;
+  private workerJob = 0;
+
+  /** 装備の見比べを別の糸で回す。進み具合はボタンに書く */
+  private runLoadout(what: 'recommend' | 'sweep', request: LoadoutRequest extends infer R ? (R extends unknown ? Omit<R, 'id'> : never) : never): Promise<Extract<LoadoutReply, { done: true }>> {
+    this.worker ??= new Worker(new URL('./loadoutWorker.ts', import.meta.url), { type: 'module' });
+    const id = ++this.workerJob;
+    const worker = this.worker;
+    this.busy = { what, progress: 0 };
+    this.loadoutMessage = '';
+    this.render();
+    return new Promise((resolve) => {
+      const onMessage = (e: MessageEvent<LoadoutReply>) => {
+        if (e.data.id !== id) return;
+        if ('done' in e.data) {
+          worker.removeEventListener('message', onMessage);
+          this.busy = undefined;
+          resolve(e.data);
+          return;
+        }
+        this.busy = { what, progress: e.data.progress };
+        this.updateBusyLabel();
+      };
+      worker.addEventListener('message', onMessage);
+      worker.postMessage({ ...request, id } as LoadoutRequest);
+    });
+  }
+
+  /** おすすめを選ぶ。部位ごとに拾い物の山から一番強くなる物を、早回しで測って選ぶ */
+  private async recommend(): Promise<void> {
+    if (this.busy) return;
+    const build = this.build;
+    const before = measureLoadout(build);
+    const reply = await this.runLoadout('recommend', { kind: 'recommend', build: plain(build), stash: plain(this.host.state.stash) });
+    if (build !== this.build || !reply.build) return this.render();
+    // 糸から戻った物は写しなので、拾い物の山の同じ物に置き換える
+    const byId = new Map(this.host.state.stash.map((i) => [i.id, i]));
+    const next: Build['equipment'] = {};
+    for (const s of EQUIP_SLOT_IDS) {
+      const item = reply.build.equipment[s];
+      if (item) next[s] = byId.get(item.id) ?? build.equipment[s] ?? item;
+    }
+    const changed = EQUIP_SLOT_IDS.filter((s) => build.equipment[s]?.id !== next[s]?.id);
+    build.equipment = next;
+    const after = measureLoadout(build);
+    this.loadoutMessage =
+      changed.length === 0
+        ? '今の組み合わせが一番強い'
+        : `${changed.map((s) => EQUIP_SLOTS[s].name).join('・')}を替えた。火力 ${Math.round(before.power)}→${Math.round(after.power)}・耐久 ${Math.round(before.toughness)}→${Math.round(after.toughness)}`;
+    this.changed();
+  }
+
+  /** 拾い物の山を全て測り、着けると弱くなるだけの物を捨てる */
+  private async sweep(): Promise<void> {
+    if (this.busy) return;
+    const build = this.build;
+    const equipped = new Set(Object.values(build.equipment).map((i) => i?.id));
+    const items = this.host.state.stash.filter((i) => !equipped.has(i.id) && !i.artifact);
+    const reply = await this.runLoadout('sweep', { kind: 'sweep', build: plain(build), items: plain(items) });
+    const worse = reply.worse ?? [];
+    if (worse.length === 0) this.loadoutMessage = '弱くなるだけの物はなかった';
+    else if (confirm(`着けると弱くなるだけの物が${worse.length}個ある。捨てるか?`)) {
+      const drop = new Set(worse);
+      this.host.state.stash = this.host.state.stash.filter((x) => !drop.has(x.id));
+      this.loadoutMessage = `${worse.length}個を捨てた`;
+    }
+    this.changed();
+  }
+
+  /** 進み具合だけ書き換える(全体を描き直すと測り直しになるので) */
+  private updateBusyLabel(): void {
+    const busy = this.busy;
+    if (!busy) return;
+    const btn = this.el.querySelector(busy.what === 'recommend' ? '.loadout-tools .recommend' : '.loadout-tools .discard');
+    if (btn) btn.textContent = `${busy.what === 'recommend' ? '選んでいます' : '測っています'} ${Math.round(busy.progress * 100)}%`;
   }
 
   /** 部位を選ぶ。狭い画面では候補が下にあるので、そこまで送る */
@@ -430,7 +610,9 @@ export class BuildScreen {
   }
 
   private loot(): void {
-    for (let i = 0; i < LOOT_COUNT; i++) this.host.state.stash.unshift(generateItem(() => this.host.random()));
+    // 拾い物は、半分ほど今のビルドに合うものが出る
+    const fit = lootFit(this.build);
+    for (let i = 0; i < LOOT_COUNT; i++) this.host.state.stash.unshift(generateItem(() => this.host.random(), { fit }));
     this.changed();
   }
 
@@ -616,7 +798,7 @@ export class BuildScreen {
           h('span', {}, build.variants?.[id] ? variantName(build.variants[id], def.name) : def.name),
           h('small', {}, detail),
         );
-        return known && isTechnique(def) ? h('div', {}, row, this.variantPicker(id)) : row;
+        return known && isTechnique(def) && isUnlocked(this.host.state, 'variants') ? h('div', {}, row, this.variantPicker(id)) : row;
       }),
       h('h3', {}, 'パッシブ'),
       ...PASSIVE_IDS.map((id) => {
@@ -634,7 +816,7 @@ export class BuildScreen {
           h('small', {}, known ? PASSIVES[id].description : '未修得。遠征で見つかる'),
         );
       }),
-      this.renderTechniqueStash(),
+      isUnlocked(this.host.state, 'variants') ? this.renderTechniqueStash() : '',
     );
   }
 
@@ -722,7 +904,8 @@ export class BuildScreen {
     const build = this.build;
     const editor = createTacticsEditor(build.tactics, {
       skills: () => build.actives,
-      forms: () => learnedForms(this.host.state.learned),
+      // 型は初めて決めるまで伏せておく
+      forms: () => (isUnlocked(this.host.state, 'forms') ? learnedForms(this.host.state.learned) : []),
       onChange: () => this.host.onChange(),
     });
     return h('div', {}, editor.el);
@@ -890,6 +1073,7 @@ export class BuildScreen {
     if (!report) return;
     this.host.state.stash.unshift(...report.items);
     this.host.state.techniques.unshift(...report.variants);
+    unlock(this.host.state, 'variants');
     this.lastReport = { name: c.name, level: c.level, report };
     this.changed();
   }
@@ -992,7 +1176,10 @@ export class BuildScreen {
 }
 
 /** 装備1つの札。補正値は得になる向きを明るく、損になる向きを赤くする */
-function itemCard(attrs: Attributes, item: Item, ...actions: HTMLElement[]): HTMLElement {
+function itemCard(attrs: Attributes, item: Item, ...parts: HTMLElement[]): HTMLElement {
+  // 見比べの一行は札の中に、ボタンは下に並べる
+  const verdicts = parts.filter((p) => p.classList.contains('verdict'));
+  const actions = parts.filter((p) => !p.classList.contains('verdict'));
   const weapon = itemWeapon(item);
   const shield = itemShield(item);
   const needs = weapon ? weaponDef(weapon).needs : undefined;
@@ -1002,7 +1189,7 @@ function itemCard(attrs: Attributes, item: Item, ...actions: HTMLElement[]): HTM
   const total = itemTotal(item);
   return h(
     'div',
-    { class: `item-card${artifact ? ' artifact' : ''}` },
+    { class: `item-card${artifact ? ' artifact' : ''}${item.cursed ? ' cursed' : ''}` },
     h(
       'div',
       { class: 'item-head' },
@@ -1019,9 +1206,32 @@ function itemCard(attrs: Attributes, item: Item, ...actions: HTMLElement[]): HTM
     ...item.affixes.map((a) =>
       h('div', { class: `affix ${benefitOf(a) >= 0 ? 'good' : 'bad'}` }, `${AFFIXES[a.affix].name} ${signedPercent(a.value / 100)}`),
     ),
-    item.condition ? h('div', { class: 'affix condition' }, `${CONDITIONS[item.condition].text}(コスト ${CONDITIONS[item.condition].cost}%)`) : '',
+    item.condition
+      ? h(
+          'div',
+          { class: `affix condition${conditionDef(item.condition).link ? ' link' : ''}` },
+          `${conditionDef(item.condition).link ? '繋ぎ:' : ''}${conditionDef(item.condition).text}(コスト ${conditionDef(item.condition).cost}%)`,
+        )
+      : '',
+    item.cursed ? h('div', { class: 'cursed-note' }, '忌まわしき品:補正値は損に傾くが、重い条件文を宿す') : '',
+    ...verdicts,
     actions.length > 0 ? h('div', { class: 'item-actions' }, ...actions) : '',
   );
+}
+
+/** 倍率を「+12%」のように */
+/** 糸へ渡せる素の写し */
+function plain<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v)) as T;
+}
+
+function ratioText(r: number): string {
+  const p = Math.round((r - 1) * 100);
+  return p === 0 ? '±0' : `${p > 0 ? '+' : ''}${p}%`;
+}
+
+function ratioClass(r: number): string {
+  return r > 1.005 ? 'up' : r < 0.995 ? 'down' : 'flat';
 }
 
 /** 武器の性能を一行で */

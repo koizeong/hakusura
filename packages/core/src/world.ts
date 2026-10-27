@@ -205,7 +205,12 @@ export interface Hit {
   rules?: readonly Rule[];
   /** 技を何回目に使ったか */
   useIndex?: number;
+  /** このヒットを出したスキルの、1つ前の手(繋ぎの条件文で見る) */
+  prev?: PrevStep;
 }
+
+/** スキルを使ったときの、1つ前の手と、その間 */
+export type PrevStep = NonNullable<ResolvedSkill['prev']>;
 
 export interface DamageRecord {
   time: number;
@@ -686,7 +691,10 @@ export class CombatWorld {
     unit.lastAttackAt = this.time;
     const uses = (unit.skillUses[skillId] ?? 0) + 1;
     unit.skillUses[skillId] = uses;
-    let def: ResolvedSkill = { ...this.skillFor(unit, skillId)!, useIndex: uses };
+    // 1つ前の手。型で手順が空になる前に覚えておく
+    const last = unit.history.at(-1);
+    const prev: PrevStep | undefined = last ? { element: last.element, category: last.category, gap: this.time - last.at } : undefined;
+    let def: ResolvedSkill = { ...this.skillFor(unit, skillId)!, useIndex: uses, prev };
     // 型。直近の手順と合えば決まり、この一手が強くなる
     const form = this.recordStep(unit, skillId, def);
     if (form) {
@@ -1635,6 +1643,7 @@ export class CombatWorld {
         charge,
         rules: def.rules,
         useIndex: def.useIndex,
+        prev: def.prev,
       });
     }
     if (attacker.imbue && attacker.imbue.until > this.time) {
@@ -1791,6 +1800,7 @@ export class CombatWorld {
       hitElement: hit.element,
       attackerLastElement: attacker?.lastElement,
       useIndex: hit.useIndex,
+      prevStep: hit.prev,
     });
     const bonuses: RuleBonus[] = [];
     const qualifiers: string[] = [];
@@ -1891,7 +1901,7 @@ export class CombatWorld {
       }
     }
 
-    const hitCtx = this.context(target, attacker, { hitTags: hit.tags, hitElement: hit.element, useIndex: hit.useIndex });
+    const hitCtx = this.context(target, attacker, { hitTags: hit.tags, hitElement: hit.element, useIndex: hit.useIndex, prevStep: hit.prev });
     for (const { rule } of rules) {
       if (rule.on !== 'hit' || !ruleMatches(rule, hitCtx)) continue;
       for (const action of rule.do) this.runAction(action, rule.label, target, source);
@@ -2000,14 +2010,16 @@ export class CombatWorld {
       }
       case 'repeatHit':
         if (src.hit) {
-          this.enqueue({
-            ...src.hit,
-            power: src.hit.power * (action.power ?? 1),
-            buildup: src.hit.buildup * (action.power ?? 1),
-            tags: new Set([...src.hit.tags, 'repeat']),
-            depth: src.depth + 1,
-            via,
-          });
+          for (let i = 0; i < (action.times ?? 1); i++) {
+            this.enqueue({
+              ...src.hit,
+              power: src.hit.power * (action.power ?? 1),
+              buildup: src.hit.buildup * (action.power ?? 1),
+              tags: new Set([...src.hit.tags, 'repeat']),
+              depth: src.depth + 1,
+              via,
+            });
+          }
         }
         break;
       case 'applyBuildup': {

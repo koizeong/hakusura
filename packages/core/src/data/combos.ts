@@ -1,4 +1,5 @@
 import { FORMS, FORM_IDS } from './forms';
+import { LINK_LABELS } from './links';
 
 /**
  * コンボ。ヒットに関わったルールのラベルやタグが揃うと成立し、戦闘中に名前を出す。
@@ -33,10 +34,11 @@ const BASIC = {
   doomSpread: { name: '宣告の伝染', labels: ['死の宣告'], color: 0x6a3a7a },
 } as const satisfies Record<string, ComboDef>;
 
-/** 型も、決まればコンボとして名前を出す */
+/** 型と繋ぎも、決まればコンボとして名前を出す */
 export const COMBOS: Record<string, ComboDef> = {
   ...BASIC,
   ...Object.fromEntries(FORM_IDS.map((id) => [`form:${id}`, { name: FORMS[id].name, labels: [FORMS[id].name], color: FORMS[id].color }])),
+  ...Object.fromEntries(LINK_LABELS.map((label) => [`link:${label}`, { name: label.replace('繋ぎ・', '') + 'の繋ぎ', labels: [label], color: 0xe8c070 }])),
 };
 
 export type ComboId = string;

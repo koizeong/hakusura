@@ -858,6 +858,8 @@ export interface ResolvedSkill {
   intervalWhen?: readonly { when: readonly Predicate[]; mult: number }[];
   /** 何回目に使ったか。使うたびに付く */
   useIndex?: number;
+  /** 使ったときの1つ前の手と、その間(ミリ秒)。繋ぎの条件文で見る */
+  prev?: { element?: ElementId; category: string; gap: number };
 }
 
 /**

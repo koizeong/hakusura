@@ -1,5 +1,5 @@
 import { statDef, type StatId } from './stats';
-import { CONDITIONS, CONDITION_IDS, type ConditionId } from './conditions';
+import { CONDITION_IDS, HANDMADE_CONDITION_IDS, LINK_CONDITION_IDS, conditionDef, type ConditionId } from './conditions';
 import type { ArtifactId } from './artifacts';
 import { LOOT_WEAPON_TYPE_IDS, rollWeapon, weaponName, type TemperId, type WeaponSpec, type WeaponTypeId } from './weapons';
 import { SHIELD_TYPE_IDS, rollShield, shieldName, type ShieldSpec, type ShieldTypeId } from './shields';
@@ -122,6 +122,23 @@ export const EQUIP_RULES = {
   countMax: 4,
   /** 条件文が入る確率 */
   conditionChance: 0.3,
+  /**
+   * 合計の出方。大半は得の向き(goodMin〜totalMax)に出る。
+   * cursedChance の確率で、合計がマイナスの「忌まわしき品」になり、代わりに重い条件文が必ず付く
+   */
+  goodMin: 20,
+  cursedChance: 0.12,
+  cursedMax: -20,
+  /** 忌まわしき品に付く条件文のコストの下限 */
+  cursedConditionCost: 40,
+  /** 1項目の振れ幅。たいていは usualMin〜usualMax、extremeChance の確率で affixMin〜affixMax まで振れる */
+  usualMin: -40,
+  usualMax: 120,
+  extremeChance: 0.1,
+  /** 条件文を選ぶとき、繋ぎの条件文になる確率(手で書いたものと半々より少し多め) */
+  linkChance: 0.6,
+  /** ビルドに合うものから選ぶ確率(fit を渡したとき) */
+  fitChance: 0.6,
   /** 補正値の刻み */
   step: 5,
   /** 武器の枠のとき、盾が出る確率 */
@@ -154,7 +171,12 @@ export interface Item {
   shieldType?: ShieldTypeId;
   /** 防具の素材 */
   material?: ArmorMaterialId;
+  /** 忌まわしき品。補正値の合計がマイナスで、代わりに重い条件文が付く */
+  cursed?: boolean;
 }
+
+/** 忌まわしき品の名前の頭 */
+export const CURSED_PREFIX = '忌まわしき';
 
 /** 武器なら、その1本 */
 export function itemWeapon(item: Item): WeaponSpec | undefined {
@@ -173,7 +195,7 @@ export function benefitOf(a: ItemAffix): number {
 
 /** 装備の補正値の合計。条件文のコストも含む。-100〜+100 に収まる */
 export function itemTotal(item: Item): number {
-  return item.affixes.reduce((s, a) => s + benefitOf(a), 0) + (item.condition ? CONDITIONS[item.condition].cost : 0);
+  return item.affixes.reduce((s, a) => s + benefitOf(a), 0) + (item.condition ? conditionDef(item.condition).cost : 0);
 }
 
 /** 補正値を Modifier の値(1 = 100%)に直す */
@@ -205,6 +227,30 @@ export interface GenerateOptions {
   /** 条件文が入る確率と、出やすい条件文。条件文を選ぶとき、半分の確率でこの中から選ぶ */
   conditionChance?: number;
   preferConditions?: readonly ConditionId[];
+  /** 今のビルドの属性と技の種類。渡すと、補正値・条件文・武器の属性がビルドに寄る */
+  fit?: LootFit;
+}
+
+/** 拾い物を寄せる先。ビルドの使う属性と、技の種類(近攻撃・遠攻撃・付与) */
+export interface LootFit {
+  elements: readonly ElementId[];
+  categories: readonly string[];
+}
+
+/** その補正値の項目がビルドに合うか。タグのない項目(与ダメージ・クールダウンなど)はどのビルドにも合う */
+export function affixFits(id: AffixId, fit: LootFit): boolean {
+  const tags = (AFFIXES[id] as AffixDef).tags;
+  if ((AFFIXES[id] as AffixDef).common) return false;
+  return tags.length === 0 || tags.some((t) => (fit.elements as readonly string[]).includes(t) || fit.categories.includes(t));
+}
+
+/** その条件文がビルドに合うか。繋ぎなら、前の手と今の手がどちらもビルドにあるもの */
+export function conditionFits(id: ConditionId, fit: LootFit): boolean {
+  const link = conditionDef(id).link;
+  if (!link) return true;
+  const has = (step: { element: ElementId } | { category: string }) =>
+    'element' in step ? fit.elements.includes(step.element) : fit.categories.includes(step.category);
+  return has(link.prev) && has(link.now);
 }
 
 /**
@@ -226,26 +272,54 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
 
   // 防具は素材を決め、その素材らしい補正値を出やすくする
   const material = kind === 'armor' ? pick(ARMOR_MATERIAL_IDS) : undefined;
-  const preferAffixes = [...(options.preferAffixes ?? []), ...(material ? ARMOR_MATERIALS[material].affixes : [])];
+  const fit = options.fit;
+  // ビルドに合う項目は、素材や行き先の項目と同じく出やすくする
+  const fitting = fit ? AFFIX_IDS.filter((id) => affixFits(id, fit)) : [];
+  const materialAffixes = material ? ARMOR_MATERIALS[material].affixes : [];
+  const preferAffixes = [...(options.preferAffixes ?? []), ...materialAffixes];
+  const pickAffix = (): AffixId => {
+    if (fitting.length > 0 && random() < R.fitChance) return pick(fitting);
+    return pickPreferred(AFFIX_IDS, preferAffixes);
+  };
 
-  const count = R.countMin + Math.floor(random() * (R.countMax - R.countMin + 1));
+  // 忌まわしき品は、合計がマイナスになる代わりに重い条件文が必ず付く
+  const cursed = !options.condition && random() < R.cursedChance;
+  const count = Math.max(cursed ? 2 : R.countMin, R.countMin + Math.floor(random() * (R.countMax - R.countMin + 1)));
   const conditionChance = options.conditionChance ?? R.conditionChance;
-  const condition = options.condition ?? (count >= 2 && random() < conditionChance ? pickPreferred(CONDITION_IDS, options.preferConditions) : undefined);
+  const pickCondition = (minCost = 0): ConditionId => {
+    const pool = (ids: readonly ConditionId[]) => ids.filter((id) => conditionDef(id).cost >= minCost);
+    if (options.preferConditions && options.preferConditions.length > 0 && random() < 0.5) {
+      const preferred = pool(options.preferConditions);
+      if (preferred.length > 0) return pick(preferred);
+    }
+    let ids = pool(random() < R.linkChance ? LINK_CONDITION_IDS : HANDMADE_CONDITION_IDS);
+    if (fit && random() < R.fitChance) {
+      const fits = ids.filter((id) => conditionFits(id, fit));
+      if (fits.length > 0) ids = fits;
+    }
+    return pick(ids.length > 0 ? ids : CONDITION_IDS);
+  };
+  const condition =
+    options.condition ?? (cursed ? pickCondition(R.cursedConditionCost) : count >= 2 && random() < conditionChance ? pickCondition() : undefined);
   const affixCount = Math.max(1, count - (condition ? 1 : 0));
 
   const commons = AFFIX_IDS.filter((id) => (AFFIXES[id] as AffixDef).common);
   const chosen: AffixId[] = [pick(commons)];
   for (let guard = 0; chosen.length < affixCount && guard < 100; guard++) {
-    const id = pickPreferred(AFFIX_IDS, preferAffixes);
+    const id = pickAffix();
     if (!chosen.includes(id)) chosen.push(id);
   }
 
-  // 合計を決め、条件文のコストを引いた残りを振り分ける
-  const total = roundStep(R.totalMin + random() * (R.totalMax - R.totalMin));
-  const remain = total - (condition ? CONDITIONS[condition].cost : 0);
+  // 合計を決め、条件文のコストを引いた残りを振り分ける。たいていは得の向きに出る
+  const total = cursed
+    ? roundStep(R.totalMin + random() * (R.cursedMax - R.totalMin))
+    : roundStep(R.goodMin + random() * (R.totalMax - R.goodMin));
+  const remain = total - (condition ? conditionDef(condition).cost : 0);
+  const swing = () =>
+    random() < R.extremeChance ? R.affixMin + random() * (R.affixMax - R.affixMin) : R.usualMin + random() * (R.usualMax - R.usualMin);
   let benefits: number[] = [];
   for (let attempt = 0; attempt < 200; attempt++) {
-    const head = chosen.slice(1).map(() => roundStep(R.affixMin + random() * (R.affixMax - R.affixMin)));
+    const head = chosen.slice(1).map(() => roundStep(swing()));
     const last = remain - head.reduce((s, v) => s + v, 0);
     if (last >= R.affixMin && last <= R.affixMax) {
       benefits = [last, ...head];
@@ -269,11 +343,22 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
       options.shieldType ?? (!options.weaponType && random() < (options.shieldChance ?? EQUIP_RULES.shieldChance) ? pick(SHIELD_TYPE_IDS) : undefined);
     if (shieldType) {
       const shield = rollShield(random, shieldType);
-      return { id, name: shieldName(shield), kind, affixes, condition, shieldType, element: shield.element };
+      return { id, name: `${cursed ? CURSED_PREFIX : ''}${shieldName(shield)}`, kind, affixes, condition, shieldType, element: shield.element, ...(cursed ? { cursed } : {}) };
     }
-    const weapon = rollWeapon(random, options.weaponType ?? pick(options.weaponTypes ?? LOOT_WEAPON_TYPE_IDS), { elements: options.preferElements });
-    return { id, name: weaponName(weapon), kind, affixes, condition, weaponType: weapon.type, element: weapon.element, tempers: [...(weapon.tempers ?? [])] };
+    const elements = [...(options.preferElements ?? []), ...(fit && random() < R.fitChance ? fit.elements : [])];
+    const weapon = rollWeapon(random, options.weaponType ?? pick(options.weaponTypes ?? LOOT_WEAPON_TYPE_IDS), { elements: elements.length > 0 ? elements : undefined });
+    return {
+      id,
+      name: `${cursed ? CURSED_PREFIX : ''}${weaponName(weapon)}`,
+      kind,
+      affixes,
+      condition,
+      weaponType: weapon.type,
+      element: weapon.element,
+      tempers: [...(weapon.tempers ?? [])],
+      ...(cursed ? { cursed } : {}),
+    };
   }
   const name = kind === 'armor' && slot && material ? `${ARMOR_MATERIALS[material].prefix}${pick(ARMOR_NAMES[slot] ?? ['防具'])}` : pick(BASE_NAMES[kind]);
-  return { id, name, kind, slot, affixes, condition, material };
+  return { id, name: `${cursed ? CURSED_PREFIX : ''}${name}`, kind, slot, affixes, condition, material, ...(cursed ? { cursed } : {}) };
 }

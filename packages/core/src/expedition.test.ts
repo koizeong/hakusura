@@ -78,7 +78,7 @@ describe('遠征', () => {
     }
     expect(found).toBeGreaterThan(0);
     expect(unlearnedSkills(learned).length).toBe(before - found);
-  });
+  }, 30000);
 
   it('同じ遠征なら同じ物を持ち帰る', () => {
     const run = () => {
@@ -114,7 +114,7 @@ describe('行き先ごとの特徴', () => {
   it('持ち帰る物に、その地らしさが出る(廃坑は武器が多く、決まった種類が出る)', () => {
     let weapons = 0;
     let total = 0;
-    for (let seed = 1; seed <= 10; seed++) {
+    for (let seed = 1; seed <= 24; seed++) {
       const c = newCharacter('c', '骨拾い', 0, strong);
       startExpedition(c, 'rustMine', 0, seed);
       for (const item of finishExpedition(c, learnedCopy())!.items) {
@@ -126,7 +126,7 @@ describe('行き先ごとの特徴', () => {
       }
     }
     expect(weapons / total).toBeGreaterThan(0.4);
-  });
+  }, 30000);
 });
 
 describe('負傷', () => {

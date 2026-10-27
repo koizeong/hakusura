@@ -1008,6 +1008,103 @@ canvas {
   font-size: 12px;
 }
 
+/* 繋ぎの条件文。前の手と今の手で数字が跳ねるので、目立たせる */
+.affix.condition.link {
+  color: #f0c870;
+  border-left: 2px solid #c89a40;
+  padding-left: 4px;
+}
+
+/* 忌まわしき品 */
+.item-card.cursed {
+  border-color: #5a2a4a;
+  background: linear-gradient(#1e1219, transparent 60%);
+}
+
+.cursed-note {
+  font-size: 11px;
+  color: #b07a9a;
+}
+
+/* 着けたらどうなるか */
+.verdict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--line);
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.verdict b {
+  font-weight: normal;
+}
+
+.verdict .up {
+  color: #a8d080;
+}
+
+.verdict .down {
+  color: #d86a5a;
+}
+
+.verdict em {
+  font-style: normal;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+}
+
+.verdict.better em {
+  color: #a8d080;
+}
+
+.verdict.worse em {
+  color: #d86a5a;
+}
+
+.verdict.worse {
+  opacity: 0.85;
+}
+
+.loadout-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  grid-column: 1 / -1;
+}
+
+.loadout-tools button {
+  min-height: 40px;
+}
+
+.loadout-summary {
+  font-size: 15px;
+  color: #e8dcc8;
+}
+
+.loadout-summary.pending {
+  color: var(--dim);
+}
+
+.loadout-message {
+  flex-basis: 100%;
+  color: #c9d1b0;
+}
+
+.loadout-tools .note {
+  flex-basis: 100%;
+  color: var(--dim);
+  font-size: 11px;
+}
+
 .artifact-text {
   margin: 2px 0;
   font-size: 12px;

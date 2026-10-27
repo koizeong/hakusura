@@ -6,7 +6,7 @@ import { FORM_IDS, type FormId } from './data/forms';
 import type { ActiveSkillId } from './data/skills';
 import type { PassiveId } from './data/passives';
 import type { SkillVariant } from './data/variations';
-import { addExp, type Character } from './build';
+import { addExp, lootFit, type Character } from './build';
 import { VARIANT_BASES, learnedForms, rollVariant, unlearnedSkills, type Learned } from './expedition';
 
 /** 場を片付けてから、次の群れが来るまでの間 */
@@ -154,6 +154,7 @@ export function claimEncounterReward(e: Encounter, c: Character, learned: Learne
         preferElements: reward.preferElements,
         preferAffixes: reward.preferAffixes,
         conditionChance: reward.conditionChance,
+        fit: lootFit(c.build),
       }),
     );
   }

@@ -1,5 +1,5 @@
 import { CombatWorld } from './world';
-import { applyBuild, addExp, type Build, type Character } from './build';
+import { applyBuild, addExp, lootFit, type Build, type Character } from './build';
 import { dealtBy, summarize } from './breakdown';
 import { generateItem, type Item } from './data/equipment';
 import { EXPEDITION_INJURY, EXPEDITION_YIELD, expeditionDef, type ExpeditionDef, type ExpeditionId } from './data/expeditions';
@@ -170,6 +170,8 @@ export function finishExpedition(c: Character, learned: Learned, now: number = e
         preferAffixes: def.preferAffixes,
         preferConditions: def.preferConditions,
         conditionChance: def.conditionChance,
+        // 送り出したときのビルドに半分ほど寄せる
+        fit: lootFit(ex.build ?? c.build),
       }),
     );
   }

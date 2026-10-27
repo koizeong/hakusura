@@ -1,0 +1,165 @@
+import { describe, expect, it } from 'vitest';
+import { CombatWorld } from './world';
+import { CONDITIONS, LINK_CONDITION_IDS, conditionDef, type ConditionId } from './data/conditions';
+import { AFFIX_IDS, EQUIP_RULES, affixFits, generateItem, itemTotal, type Item } from './data/equipment';
+import { LINK_RULES } from './data/links';
+import { lootFit, type Build } from './build';
+import { DEFAULT_TACTICS } from './data/tactics';
+import { baseAttributes } from './data/attributes';
+import { compareItem, loadoutScore, measureLoadout, recommendNow } from './loadout';
+
+const run = (w: CombatWorld, ms: number) => {
+  for (let t = 0; t < ms; t += 25) w.update(25);
+};
+
+/** 剣(斬の近攻撃)と雷の短銃(雷の遠攻撃)を持ち、条件文を1つ着けた者と、硬い案山子 */
+function duel(condition?: ConditionId) {
+  const w = new CombatWorld({ seed: 2 });
+  const p = w.addUnit({
+    id: 'p',
+    name: '巡礼者',
+    team: 'player',
+    x: 0,
+    y: 0,
+    weapons: [{ type: 'ironSword' }, { type: 'capGun', element: 'lightning' }],
+    conditions: condition ? [condition] : [],
+  });
+  w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 60, y: 0, maxHp: 1e9 });
+  return { w, p };
+}
+
+/** 撃ってから斬ったときの、斬りの与ダメージの合計とヒット数 */
+function shootThenSlash(condition: ConditionId | undefined, wait = 0) {
+  const { w } = duel(condition);
+  const t = w.units.get('t')!;
+  w.useSkill('p', 'shoot', t, 't');
+  run(w, 1500 + wait);
+  const before = w.log.length;
+  w.units.get('p')!.busyUntil = 0;
+  w.useSkill('p', 'slash', t, 't');
+  run(w, 800);
+  const slash = w.log.slice(before).filter((r) => r.tags.includes('melee'));
+  return { total: slash.reduce((s, r) => s + r.amount, 0), count: slash.length, labels: slash.flatMap((r) => r.via) };
+}
+
+describe('繋ぎの条件文', () => {
+  it('属性と種類の組み合わせから作られ、データに1件足せば増える', () => {
+    expect(LINK_CONDITION_IDS.length).toBeGreaterThan(200);
+    expect(conditionDef('link:lightning>melee:mult').text).toBe('雷で攻めた次に近攻撃を当てると、与ダメージ2.5倍');
+    expect(conditionDef('link:fire>ice:hits').text).toContain('5回多く当たる');
+    // 細かい繋ぎほど見返りが大きい
+    expect(conditionDef('link:melee>ranged:mult').cost).toBeLessThan(conditionDef('link:fire>ice:mult').cost);
+  });
+
+  it('雷の次に近攻撃を当てると、与ダメージが倍になる', () => {
+    const plain = shootThenSlash(undefined);
+    const linked = shootThenSlash('link:lightning>melee:mult');
+    expect(plain.total).toBeGreaterThan(0);
+    expect(linked.total).toBeCloseTo(plain.total * 2.5, 0);
+    expect(linked.labels).toContain('繋ぎ・雷→近攻撃');
+  });
+
+  it('前の手から間が空くと繋がらない', () => {
+    const plain = shootThenSlash(undefined, LINK_RULES.window);
+    const late = shootThenSlash('link:lightning>melee:mult', LINK_RULES.window);
+    expect(late.total).toBeCloseTo(plain.total, 0);
+  });
+
+  it('ヒットが増える繋ぎは、威力半分のヒットを足す', () => {
+    const plain = shootThenSlash(undefined);
+    const linked = shootThenSlash('link:lightning>melee:hits');
+    expect(plain.count).toBeGreaterThan(0);
+    expect(linked.count).toBe(plain.count * (1 + 4));
+    expect(linked.total).toBeCloseTo(plain.total * (1 + 4 * LINK_RULES.extraHitPower), 0);
+  });
+
+  it('前の手は使った瞬間に決まる。飛んでいる弾は、後から別の手を使っても繋ぎを保つ', () => {
+    const { w } = duel('link:melee>lightning:mult');
+    const t = w.units.get('t')!;
+    t.x = 600;
+    w.useSkill('p', 'slash', t, 't');
+    run(w, 900);
+    w.useSkill('p', 'shoot', t, 't');
+    // 弾が飛んでいる間に、もう一度斬る(当たらない所で振る)
+    run(w, 700);
+    w.units.get('p')!.busyUntil = 0;
+    w.useSkill('p', 'slash', t, 't');
+    run(w, 2000);
+    expect(w.log.some((r) => r.tags.includes('ranged') && r.via.includes('繋ぎ・近攻撃→雷'))).toBe(true);
+  });
+});
+
+const starter: Build = {
+  attributes: { ...baseAttributes(), str: 14, dex: 14, int: 16, fai: 12 },
+  actives: ['slash', 'shoot', 'emberOil'],
+  passives: ['sootPrayer', 'bloodCallsThunder', 'readTheBlow', 'parryStance'],
+  equipment: {
+    weapon1: { id: 's', name: '鉄の剣', kind: 'weapon', weaponType: 'ironSword', affixes: [] },
+    weapon2: { id: 'g', name: '雷の短銃', kind: 'weapon', weaponType: 'capGun', affixes: [] },
+  },
+  trump: 'rainBell',
+  tactics: DEFAULT_TACTICS.map((t) => ({ ...t })),
+};
+
+describe('拾い物の出方', () => {
+  const items = (n: number, fit?: ReturnType<typeof lootFit>) => {
+    const w = new CombatWorld({ seed: 9 });
+    return Array.from({ length: n }, () => generateItem(() => w.random(), fit ? { fit } : {}));
+  };
+
+  it('たいていは得の向きに出る。合計がマイナスのものは忌まわしき品で、重い条件文が付く', () => {
+    const list = items(400);
+    const negative = list.filter((i) => itemTotal(i) < 0);
+    expect(negative.length / list.length).toBeLessThan(EQUIP_RULES.cursedChance * 1.6);
+    for (const i of negative) {
+      expect(i.cursed).toBe(true);
+      expect(i.name.startsWith('忌まわしき')).toBe(true);
+      expect(conditionDef(i.condition!).cost).toBeGreaterThanOrEqual(EQUIP_RULES.cursedConditionCost);
+    }
+    for (const i of list) {
+      expect(itemTotal(i)).toBeGreaterThanOrEqual(EQUIP_RULES.totalMin);
+      expect(itemTotal(i)).toBeLessThanOrEqual(EQUIP_RULES.totalMax);
+      for (const a of i.affixes) expect(Math.abs(a.value)).toBeLessThanOrEqual(EQUIP_RULES.affixMax);
+    }
+  });
+
+  it('ビルドを渡すと、補正値と繋ぎがビルドに寄る', () => {
+    const fit = lootFit(starter);
+    expect(fit.elements).toEqual(expect.arrayContaining(['slash', 'lightning', 'fire']));
+    expect(fit.categories).toEqual(expect.arrayContaining(['melee', 'ranged', 'imbue']));
+    const share = (list: Item[]) => {
+      const affixes = list.flatMap((i) => i.affixes.slice(1).map((a) => a.affix));
+      return affixes.filter((a) => affixFits(a, fit)).length / affixes.length;
+    };
+    const baseline = AFFIX_IDS.filter((a) => affixFits(a, fit)).length / AFFIX_IDS.length;
+    expect(share(items(300, fit))).toBeGreaterThan(baseline + 0.25);
+    const links = items(400, fit).flatMap((i) => (i.condition && CONDITIONS[i.condition]?.link ? [CONDITIONS[i.condition]!.link!] : []));
+    const has = (s: { element: string } | { category: string }) =>
+      'element' in s ? (fit.elements as readonly string[]).includes(s.element) : fit.categories.includes(s.category);
+    expect(links.filter((l) => has(l.prev) && has(l.now)).length / links.length).toBeGreaterThan(0.5);
+  });
+});
+
+describe('装備の見比べ', () => {
+  const ring = (affixes: Item['affixes']): Item => ({ id: `r${JSON.stringify(affixes)}`, name: '指輪', kind: 'accessory', affixes });
+
+  it('火力の上がる物は良く、下がるだけの物は悪いと分かる', () => {
+    const good = compareItem(starter, ring([{ affix: 'damage', value: 80 }]))!;
+    expect(good.verdict).toBe('better');
+    expect(good.power).toBeGreaterThan(1.5);
+    const bad = compareItem(starter, ring([{ affix: 'damage', value: -80 }]))!;
+    expect(bad.verdict).toBe('worse');
+    const tough = compareItem(starter, ring([{ affix: 'maxHp', value: 100 }]))!;
+    expect(tough.toughness).toBeCloseTo(2, 1);
+    expect(tough.verdict).toBe('better');
+  });
+
+  it('おすすめは、拾い物の山から点の高い組み合わせを選ぶ', () => {
+    const stash = [ring([{ affix: 'damage', value: -50 }]), ring([{ affix: 'damage', value: 60 }]), ring([{ affix: 'cooldown', value: -40 }])];
+    const best = recommendNow(starter, stash);
+    expect(loadoutScore(measureLoadout(best))).toBeGreaterThan(loadoutScore(measureLoadout(starter)));
+    const worn = Object.values(best.equipment).map((i) => i!.id);
+    expect(worn).toContain(stash[1]!.id);
+    expect(worn).not.toContain(stash[0]!.id);
+  }, 30000);
+});

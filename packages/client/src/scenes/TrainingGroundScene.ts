@@ -31,6 +31,7 @@ import {
   learnedForms,
   ENEMIES,
   enemyDef,
+  conditionDef,
   Encounter,
   claimEncounterReward,
   type EncounterId,
@@ -45,7 +46,7 @@ import { Hud } from '../ui/Hud';
 import { createTrainingPanel, type BattleMode, type EnemyAttack } from '../ui/TrainingPanel';
 import { ComboView } from '../ui/ComboView';
 import { BuildScreen } from '../ui/BuildScreen';
-import { currentBuild, currentCharacter, loadBuildState, resetBuildState, saveBuildState, type BuildState } from '../ui/buildStore';
+import { UNLOCK_NAMES, currentBuild, currentCharacter, loadBuildState, resetBuildState, saveBuildState, unlock, type BuildState, type Unlock } from '../ui/buildStore';
 
 const ARENA = { width: 1600, height: 1000 };
 /** 霧と夜の暗がりの絵の大きさ。場のどこにいても場を覆える */
@@ -406,6 +407,13 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.hud.setNotice(unspentPoints(currentCharacter(this.buildState)), returned);
   }
 
+  /** 伏せていた仕組みを開き、知らせる */
+  private openUnlock(key: Unlock): void {
+    if (!unlock(this.buildState, key)) return;
+    this.callout(this.player, `${UNLOCK_NAMES[key]}が開いた(支度で見られる)`, '#e8d8a8');
+    saveBuildState(this.buildState);
+  }
+
   private openBuild(): void {
     this.breakdown.el.classList.add('hidden');
     this.buildScreen.open();
@@ -535,8 +543,11 @@ export class TrainingGroundScene extends Phaser.Scene {
         if (spoils) {
           this.buildState.stash.unshift(...spoils.items);
           this.buildState.techniques.unshift(...spoils.variants);
-          this.onBuildChange();
+          if (spoils.variants.length > 0) this.openUnlock('variants');
         }
+        // 一戦を終えたら遠征が開く
+        this.openUnlock('expedition');
+        this.onBuildChange();
         this.encounterView.showResult(e, summarize(dealtBy(world.log, player.id), world.time), player.falls, () => this.endEncounter(), spoils);
       } else this.encounterView.update(e);
     }
@@ -556,7 +567,12 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.hud.update(world, player, this.dodgeReadyAt, this.lockTarget, !!player.queued && player.queued.until >= world.time);
     if (this.breakdown.visible && world.time - this.lastBreakdown > 250) {
       this.lastBreakdown = world.time;
-      this.breakdown.render(summarize(dealtBy(world.log, player.id), world.time));
+      // 条件文がどの装備のものか
+      const owners = new Map<string, string>();
+      for (const item of Object.values(currentBuild(this.buildState).equipment)) {
+        if (item?.condition) owners.set(conditionDef(item.condition).rule.label, item.name);
+      }
+      this.breakdown.render(summarize(dealtBy(world.log, player.id), world.time), owners);
     }
   }
 
@@ -1512,6 +1528,7 @@ export class TrainingGroundScene extends Phaser.Scene {
       case 'form': {
         if (event.unitId !== this.player.id) break;
         this.callout(this.player, event.name, `#${FORMS[event.form].color.toString(16).padStart(6, '0')}`);
+        this.openUnlock('forms');
         break;
       }
       case 'fervor': {

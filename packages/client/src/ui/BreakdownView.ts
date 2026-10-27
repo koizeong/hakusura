@@ -13,7 +13,8 @@ export class BreakdownView {
     this.el.classList.toggle('hidden');
   }
 
-  render(b: Breakdown): void {
+  /** owners は条件文のラベルから、それを宿す装備の名前を引く */
+  render(b: Breakdown, owners: ReadonlyMap<string, string> = new Map()): void {
     if (!this.visible) return;
     const elementColor = (key: string) => {
       const def = (ELEMENTS as Record<string, { name: string; color: number }>)[key];
@@ -38,7 +39,12 @@ export class BreakdownView {
           (_, i) => elementColor(b.byElement[i]!.element),
         ),
         table('コンボ', b.byCombo, (_, i) => `#${comboDef(b.byCombo[i]!.combo).color.toString(16).padStart(6, '0')}`),
-        table('条件文・パッシブ', b.byVia, undefined, '1ヒットに複数が関わると、それぞれに数える'),
+        table(
+          '条件文・パッシブ',
+          b.byVia.map((r) => (owners.has(r.key) ? { ...r, key: `${r.key}(${owners.get(r.key)})` } : r)),
+          undefined,
+          '1ヒットに複数が関わると、それぞれに数える。( )は宿している装備',
+        ),
       ),
       h('p', { class: 'hint' }, 'Tab で閉じる'),
     );

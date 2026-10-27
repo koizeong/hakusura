@@ -3,13 +3,13 @@ import { variantProblem, type SkillVariant } from './data/variations';
 import { PASSIVES, type PassiveId } from './data/passives';
 import { CONDITIONS } from './data/conditions';
 import { ARTIFACTS } from './data/artifacts';
-import { AFFIXES, ARMOR_MATERIALS, EQUIP_SLOTS, EQUIP_SLOT_IDS, itemShield, itemTotal, itemWeapon, type EquipSlotId, type Item } from './data/equipment';
+import { AFFIXES, ARMOR_MATERIALS, EQUIP_SLOTS, EQUIP_SLOT_IDS, itemShield, itemTotal, itemWeapon, type EquipSlotId, type Item, type LootFit } from './data/equipment';
 import { SHIELD_TYPES, type ShieldSpec } from './data/shields';
-import { ELEMENTS } from './data/elements';
+import { ELEMENTS, type ElementId } from './data/elements';
 import { gripOf } from './data/grips';
 import { ATTRIBUTE_IDS, ATTRIBUTE_RULES, baseAttributes, expToNext, pointsAtLevel, spentPoints, type Attributes } from './data/attributes';
 import type { ExpeditionId } from './data/expeditions';
-import { WEAPON_TEMPERS, WEAPON_TYPES, type WeaponSpec } from './data/weapons';
+import { WEAPON_TEMPERS, WEAPON_TYPES, weaponDef, type WeaponSpec } from './data/weapons';
 import { FOLLOW_UP, TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import type { CombatWorld, Unit } from './world';
 
@@ -127,6 +127,26 @@ export function buildWeapons(build: Build): WeaponSpec[] {
     return w ? [w] : [];
   });
   return weapons.length > 0 ? weapons : [{ type: 'fists' }];
+}
+
+/**
+ * 拾い物を寄せる先。ビルドのスキルが出す属性(技なら合う武器の属性)と、スキルの種類。
+ * 遠征の持ち帰りや拾い物は、半分ほどこれに合うものが出る
+ */
+export function lootFit(build: Build): LootFit {
+  const elements = new Set<ElementId>();
+  const categories = new Set<string>();
+  const weapons = buildWeapons(build);
+  for (const id of [...build.actives, ...(build.trump ? [build.trump] : [])]) {
+    const def: ActiveSkillDef = activeSkillDef(id);
+    if (isTechnique(def)) {
+      const fits = weapons.filter((w) => techniqueFits(def, w));
+      if (fits.length === 0) continue;
+      for (const w of fits) elements.add(weaponDef(w).element);
+    } else if (def.element) elements.add(def.element);
+    if (def.category === 'melee' || def.category === 'ranged' || def.category === 'imbue') categories.add(def.category);
+  }
+  return { elements: [...elements], categories: [...categories] };
 }
 
 /** 重さの決まり。担える重さは base に筋力1点ごとに perStr を足したもの */

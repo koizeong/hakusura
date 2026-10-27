@@ -1,4 +1,5 @@
 import type { Rule } from '../rules';
+import { LINK_CONDITIONS, type LinkConditionDef } from './links';
 
 export interface ConditionDef {
   /** docs/conditions.md の番号 */
@@ -9,10 +10,12 @@ export interface ConditionDef {
   rule: Rule;
   /** 1つの条件文で、いくつかの効き目を持つとき */
   extraRules?: readonly Rule[];
+  /** 繋ぎの条件文なら、前の手と今の手 */
+  link?: LinkConditionDef['link'];
 }
 
-/** 条件文。装備の補正値の1枠を使って入る */
-export const CONDITIONS = {
+/** 手で書いた条件文 */
+const HANDMADE = {
   twinStrikeOnBurning: {
     no: 1,
     text: '炎上状態の敵に攻撃すると、2回攻撃になる',
@@ -186,9 +189,16 @@ export const CONDITIONS = {
   },
 } as const satisfies Record<string, ConditionDef>;
 
-export type ConditionId = keyof typeof CONDITIONS;
+export type HandmadeConditionId = keyof typeof HANDMADE;
+/** 繋ぎの条件文は `link:前>今:見返り` の名前 */
+export type ConditionId = HandmadeConditionId | `link:${string}`;
+
+/** 条件文。装備の補正値の1枠を使って入る。手で書いたものと、繋ぎ(data/links.ts)から作ったもの */
+export const CONDITIONS: Record<ConditionId, ConditionDef> = { ...HANDMADE, ...LINK_CONDITIONS };
 export const CONDITION_IDS = Object.keys(CONDITIONS) as ConditionId[];
+export const HANDMADE_CONDITION_IDS = Object.keys(HANDMADE) as HandmadeConditionId[];
+export const LINK_CONDITION_IDS = Object.keys(LINK_CONDITIONS) as ConditionId[];
 
 export function conditionDef(id: ConditionId): ConditionDef {
-  return CONDITIONS[id];
+  return CONDITIONS[id]!;
 }

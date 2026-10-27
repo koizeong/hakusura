@@ -8,6 +8,7 @@ import {
   STARTING_SKILLS,
   canFight,
   generateItem,
+  lootFit,
   rollVariant,
   type SkillVariant,
   levelForPoints,
@@ -29,6 +30,25 @@ export interface BuildState {
   learned: Learned;
   /** 拾った変化つきの技。全キャラで共有し、ビルドで技の型として差し替える */
   techniques: SkillVariant[];
+  /**
+   * 開いた仕組み。最初は伏せておき、遊ぶうちに開く(遠征は一戦を終えたら、型は初めて決めたら、変化つきの技は遠征から戻ったら)。
+   * 持たない古い保存は、全て開いているとみなす
+   */
+  unlocked?: Unlock[];
+}
+
+export type Unlock = 'expedition' | 'forms' | 'variants';
+export const UNLOCK_NAMES: Record<Unlock, string> = { expedition: '遠征', forms: '型', variants: '変化つきの技' };
+
+export function isUnlocked(state: BuildState, key: Unlock): boolean {
+  return !state.unlocked || state.unlocked.includes(key);
+}
+
+/** 仕組みを開く。新しく開いたら true */
+export function unlock(state: BuildState, key: Unlock): boolean {
+  if (isUnlocked(state, key)) return false;
+  state.unlocked!.push(key);
+  return true;
 }
 
 /** 作れるキャラの数 */
@@ -105,7 +125,6 @@ function initialState(random: () => number): BuildState {
     generateItem(random, { kind: 'weapon', slot: 'weapon1', weaponType: t }),
   );
   const artifacts: Item[] = ARTIFACT_IDS.map((id, i) => ({ id: `artifact-${id}-${i}`, name: ARTIFACTS[id].name, kind: 'accessory', affixes: [], artifact: id }));
-  const loot = Array.from({ length: 12 }, () => generateItem(random));
   const build: Build = {
     actives: ['slash', 'shoot', 'emberOil'],
     passives: ['sootPrayer', 'bloodCallsThunder', 'readTheBlow', 'parryStance'],
@@ -120,11 +139,13 @@ function initialState(random: () => number): BuildState {
     tactics: DEFAULT_TACTICS.map((t) => ({ ...t })),
     attributes: starterAttributes(),
   };
+  // 最初の拾い物は、最初のビルドに合うものを少しだけ
+  const loot = Array.from({ length: 6 }, () => generateItem(random, { fit: lootFit(build) }));
   // 最初のキャラは、振り分けに足りるレベルまで育った古参として始める
   const first = migrate(characterName(0), build, Date.now());
   // 変化つきの技も、試せるよう少し持たせておく
   const techniques = (['slash', 'sweep', 'shoot'] as const).map((base) => rollVariant(random, base));
-  return { characters: [first], current: 0, stash: [...starterWeapons, ...weaponSamples, ...shieldSamples, ...artifacts, ...loot], learned: startingLearned(), techniques };
+  return { characters: [first], current: 0, stash: [...starterWeapons, ...weaponSamples, ...shieldSamples, ...artifacts, ...loot], learned: startingLearned(), techniques, unlocked: [] };
 }
 
 export function loadBuildState(random: () => number): BuildState {
