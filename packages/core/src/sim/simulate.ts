@@ -1,0 +1,182 @@
+import { CombatWorld, type Unit } from '../world';
+import { applyBuild, lootFit, type Build } from '../build';
+import { Encounter } from '../encounter';
+import type { EncounterId } from '../data/encounters';
+import { generateItem, type Item } from '../data/equipment';
+import { dealtBy, summarize } from '../breakdown';
+import { comboDef } from '../data/combos';
+import { measureBuildPower } from '../expedition';
+import { measureLoadout, recommendNow } from '../loadout';
+import { actionReach } from '../data/skills';
+
+/**
+ * 調整用のシミュレーター。ビルドを入力なしで戦わせ、強さの傾向を数字で見る。
+ * 一戦では、プレイヤーの足の代わりに「操り手」が歩く:届く間合いへ寄り、敵の弾と予兆から逃げる
+ */
+
+/** 試し斬り場の自分と同じ。最大HPのもとと、自動の時の歩く速さ */
+export const SIM_PLAYER = { maxHp: 300, radius: 8, moveSpeed: 330 } as const;
+
+const ARENA = { width: 1600, height: 1000 };
+
+/**
+ * ビルドに防具と装飾品を揃える。同じ種から count 個の拾い物(ビルドに寄せる)を作り、
+ * おすすめの組み合わせを選ぶ。武器の枠はビルドのまま
+ */
+export function outfit(build: Build, count = 80, seed = 7): Build {
+  const w = new CombatWorld({ seed });
+  const fit = lootFit(build);
+  const stash: Item[] = [];
+  while (stash.length < count) {
+    const item = generateItem(() => w.random(), { fit });
+    if (item.kind !== 'weapon') stash.push(item);
+  }
+  return recommendNow(build, stash);
+}
+
+/** 1体の硬い案山子を斬り続けたときの DPS */
+export function singleTargetDps(build: Build, seconds = 30, seed = 1): number {
+  const w = new CombatWorld({ seed });
+  const p = w.addUnit({ id: 'p', name: '試し', team: 'player', x: 0, y: 0, maxHp: 1e9, autoBattle: true });
+  applyBuild(w, p, build);
+  w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 70, y: 0, maxHp: 1e9 });
+  if (p.trump) w.queueSkill('p', p.trump, 5000);
+  for (let t = 0; t < seconds * 1000; t += 25) w.update(25);
+  return summarize(dealtBy(w.log, 'p'), w.time).total / seconds;
+}
+
+export interface EncounterRun {
+  result: string;
+  seconds: number;
+  kills: number;
+  spawned: number;
+  falls: number;
+  dps: number;
+  /** 受けた傷の合計 */
+  taken: number;
+  /** 傷の多い順に、発動元・条件文・コンボの割合 */
+  topSources: [string, number][];
+  topVia: [string, number][];
+  topCombos: [string, number][];
+}
+
+/**
+ * 操り手。届く間合いへ寄り(近攻撃なら寄せ、遠攻撃なら離れ気味)、
+ * 近くの敵の弾と、自分に向いた振りかぶりから横へ逃げる。完璧ではなく、人が遊ぶときの粗い近似
+ */
+function pilot(w: CombatWorld, p: Unit, reach: number, dt: number): void {
+  if (w.isIncapacitated(p)) return;
+  const foes = [...w.units.values()].filter((u) => u.team !== p.team && u.hp > 0);
+  if (foes.length === 0) return;
+  const near = foes.reduce((a, b) => (Math.hypot(a.x - p.x, a.y - p.y) < Math.hypot(b.x - p.x, b.y - p.y) ? a : b));
+  const focus = (p.focusId && w.units.get(p.focusId)) || near;
+  let mx = 0;
+  let my = 0;
+  const d = Math.hypot(focus.x - p.x, focus.y - p.y) || 1;
+  const want = Math.max(40, reach * 0.8);
+  if (d - focus.radius > want) {
+    mx += (focus.x - p.x) / d;
+    my += (focus.y - p.y) / d;
+  } else if (reach > 200 && d < reach * 0.45) {
+    mx -= (focus.x - p.x) / d;
+    my -= (focus.y - p.y) / d;
+  }
+  // 弾から横へ逃げる
+  for (const proj of w.projectiles) {
+    const owner = w.units.get(proj.ownerId);
+    if (!owner || owner.team === p.team) continue;
+    const dx = p.x - proj.x;
+    const dy = p.y - proj.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 110) continue;
+    const speed = Math.hypot(proj.vx, proj.vy) || 1;
+    // 弾の進む向きに対して、自分のいる側へ押し出す
+    const side = Math.sign((proj.vx * dy - proj.vy * dx) / speed) || 1;
+    const strength = (110 - dist) / 110;
+    mx += (-proj.vy / speed) * side * strength * 2.5;
+    my += (proj.vx / speed) * side * strength * 2.5;
+  }
+  // 振りかぶっている敵の届く所から離れる
+  for (const u of foes) {
+    if (u.windupUntil <= w.time) continue;
+    const dist = Math.hypot(p.x - u.x, p.y - u.y) || 1;
+    if (dist > u.radius + 190) continue;
+    mx += ((p.x - u.x) / dist) * 2;
+    my += ((p.y - u.y) / dist) * 2;
+  }
+  const len = Math.hypot(mx, my);
+  if (len < 0.01) return;
+  const step = (SIM_PLAYER.moveSpeed * w.statOf(p, 'moveSpeed') * dt) / 1000;
+  const nx = Math.min(ARENA.width - p.radius, Math.max(p.radius, p.x + (mx / len) * step));
+  const ny = Math.min(ARENA.height - p.radius, Math.max(p.radius, p.y + (my / len) * step));
+  w.moveUnit(p.id, nx, ny);
+}
+
+/** そのビルドの攻撃の技の、一番長い届く距離 */
+function buildReach(w: CombatWorld, p: Unit): number {
+  const reaches = p.actives.flatMap((id) => {
+    const def = w.skillFor(p, id);
+    if (!def || !def.tags.includes('attack')) return [];
+    const r = actionReach(def.action);
+    return r === undefined ? [] : [r];
+  });
+  return reaches.length > 0 ? Math.max(...reaches) : 60;
+}
+
+const share = (rows: { key: string; share: number }[], n = 4): [string, number][] => rows.slice(0, n).map((r) => [r.key, r.share]);
+
+/** 一戦を入力なし(操り手つき)で最後まで戦わせる。切り札は戻りしだい切る */
+export function runEncounter(build: Build, id: EncounterId, seed = 1, dodge = true): EncounterRun {
+  const w = new CombatWorld({ seed, bounds: ARENA });
+  const p = w.addUnit({ id: 'player', name: '巡礼者', team: 'player', x: ARENA.width / 2, y: ARENA.height / 2, ...SIM_PLAYER, autoBattle: true });
+  applyBuild(w, p, build);
+  p.hp = p.maxHp;
+  const e = new Encounter(w, id, p);
+  const reach = buildReach(w, p);
+  let taken = 0;
+  const dt = 25;
+  while (!e.result) {
+    e.update();
+    if (e.result) break;
+    if (p.trump && w.canUseSkill(p.id, p.trump) && !p.queued) w.queueSkill(p.id, p.trump, 3000);
+    if (dodge) pilot(w, p, reach, dt);
+    w.update(dt);
+    for (const ev of w.drainEvents()) if (ev.type === 'damage' && ev.record.targetId === p.id) taken += ev.record.amount;
+  }
+  const b = summarize(dealtBy(w.log, p.id), w.time);
+  return {
+    result: e.result,
+    seconds: e.elapsed / 1000,
+    kills: e.kills,
+    spawned: e.spawned.length,
+    falls: p.falls,
+    dps: b.total / Math.max(1, e.elapsed / 1000),
+    taken,
+    topSources: share(b.bySource),
+    topVia: share(b.byVia),
+    topCombos: b.byCombo.slice(0, 4).map((r) => [comboDef(r.combo).name, r.share]),
+  };
+}
+
+export interface ArchetypeReport {
+  bare: { single: number; pack: number };
+  geared: { single: number; pack: number; toughness: number; equipment: string[] };
+  encounters: Partial<Record<EncounterId, EncounterRun[]>>;
+}
+
+/** 1つのビルドを、素と揃えた装備で測り、一戦を seeds 回ずつ戦わせる */
+export function reportArchetype(build: Build, encounters: readonly EncounterId[], seeds: readonly number[]): ArchetypeReport {
+  const geared = outfit(build);
+  const out: ArchetypeReport = {
+    bare: { single: singleTargetDps(build), pack: measureBuildPower(build, 30) },
+    geared: {
+      single: singleTargetDps(geared),
+      pack: measureBuildPower(geared, 30),
+      toughness: measureLoadout(geared).toughness,
+      equipment: Object.values(geared.equipment).flatMap((i) => (i && i.kind !== 'weapon' ? [i.name + (i.condition ? `〔${i.condition}〕` : '')] : [])),
+    },
+    encounters: {},
+  };
+  for (const id of encounters) out.encounters[id] = seeds.map((s) => runEncounter(geared, id, s));
+  return out;
+}

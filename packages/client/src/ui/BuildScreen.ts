@@ -156,8 +156,13 @@ export class BuildScreen {
   private jobs: (() => void)[] = [];
   private pumping = false;
   /** おすすめ選びと、まとめて捨てるときの進み具合 */
-  private busy?: { what: 'recommend' | 'sweep'; progress: number };
+  private busy?: { what: 'recommend' | 'sweep' | 'score'; progress: number };
   private loadoutMessage = '';
+  /** 並べ方。見る人ごとの好みなので、この画面の中と端末に覚える */
+  private sort = loadSort();
+  /** 強くなる順に並べるための点。測ったときのビルドと一緒に覚える */
+  private scores?: { key: string; values: Record<string, number> };
+  private scoring = false;
 
   constructor(private host: BuildScreenHost) {}
 
@@ -401,7 +406,7 @@ export class BuildScreen {
     );
 
     const equippedIds = new Set(Object.values(equipped).map((i) => i?.id));
-    const candidates = state.stash.filter((item) => !equippedIds.has(item.id) && canEquip(item, this.selectedSlot));
+    const candidates = this.sortItems(state.stash.filter((item) => !equippedIds.has(item.id) && canEquip(item, this.selectedSlot)));
     const loot = h(
       'div',
       { class: 'loot' },
@@ -467,6 +472,8 @@ export class BuildScreen {
         { class: 'candidates' },
         h('h3', {}, `${EQUIP_SLOTS[this.selectedSlot].name}に着けられるもの`),
         loot,
+        sortSelect('並べ方', ITEM_SORTS, this.sort.items, (v) => this.setSort('items', v)),
+        this.sort.items === 'gain' && this.scoring ? h('small', { class: 'note' }, '強くなる順に並べるため、測っています…') : '',
         candidates.length === 0
           ? h('p', { class: 'empty' }, '着けられるものがない。拾い物をしよう')
           : h(
@@ -515,13 +522,16 @@ export class BuildScreen {
   private workerJob = 0;
 
   /** 装備の見比べを別の糸で回す。進み具合はボタンに書く */
-  private runLoadout(what: 'recommend' | 'sweep', request: LoadoutRequest extends infer R ? (R extends unknown ? Omit<R, 'id'> : never) : never): Promise<Extract<LoadoutReply, { done: true }>> {
+  private runLoadout(what: 'recommend' | 'sweep' | 'score', request: LoadoutRequest extends infer R ? (R extends unknown ? Omit<R, 'id'> : never) : never): Promise<Extract<LoadoutReply, { done: true }>> {
     this.worker ??= new Worker(new URL('./loadoutWorker.ts', import.meta.url), { type: 'module' });
     const id = ++this.workerJob;
     const worker = this.worker;
     this.busy = { what, progress: 0 };
-    this.loadoutMessage = '';
-    this.render();
+    // 並べるための測りは、画面をそのままにして裏で回す
+    if (what !== 'score') {
+      this.loadoutMessage = '';
+      this.render();
+    }
     return new Promise((resolve) => {
       const onMessage = (e: MessageEvent<LoadoutReply>) => {
         if (e.data.id !== id) return;
@@ -583,9 +593,55 @@ export class BuildScreen {
   /** 進み具合だけ書き換える(全体を描き直すと測り直しになるので) */
   private updateBusyLabel(): void {
     const busy = this.busy;
-    if (!busy) return;
+    if (!busy || busy.what === 'score') return;
     const btn = this.el.querySelector(busy.what === 'recommend' ? '.loadout-tools .recommend' : '.loadout-tools .discard');
     if (btn) btn.textContent = `${busy.what === 'recommend' ? '選んでいます' : '測っています'} ${Math.round(busy.progress * 100)}%`;
+  }
+
+  /** 並べ方を変えて覚える */
+  private setSort(kind: keyof SortState, value: string): void {
+    this.sort = { ...this.sort, [kind]: value };
+    saveSort(this.sort);
+    this.render();
+  }
+
+  /** 拾い物を並べ方どおりに並べる。強くなる順は、別の糸で測り終えたら並べ直す */
+  private sortItems(items: Item[]): Item[] {
+    const by = this.sort.items;
+    const list = [...items];
+    const name = (a: Item, b: Item) => a.name.localeCompare(b.name, 'ja');
+    switch (by) {
+      case 'total':
+        return list.sort((a, b) => itemTotal(b) - itemTotal(a));
+      case 'condition': {
+        const rank = (i: Item) => (i.condition ? (conditionDef(i.condition).link ? 0 : 1) : 2);
+        return list.sort((a, b) => rank(a) - rank(b));
+      }
+      case 'name':
+        return list.sort(name);
+      case 'gain': {
+        const scores = this.scoresFor(items);
+        return scores ? list.sort((a, b) => (scores[b.id] ?? 1) - (scores[a.id] ?? 1)) : list;
+      }
+      default:
+        return list;
+    }
+  }
+
+  /** 強くなる順のための点。まだ測っていなければ、別の糸で測り始めて undefined を返す */
+  private scoresFor(items: Item[]): Record<string, number> | undefined {
+    const build = this.build;
+    const key = JSON.stringify([Object.values(build.equipment).map((i) => i?.id), build.actives, build.attributes, items.map((i) => i.id)]);
+    if (this.scores?.key === key) return this.scores.values;
+    if (!this.scoring && !this.busy) {
+      this.scoring = true;
+      void this.runLoadout('score', { kind: 'score', build: plain(build), items: plain(items) }).then((reply) => {
+        this.scoring = false;
+        this.scores = { key, values: reply.scores ?? {} };
+        this.render();
+      });
+    }
+    return undefined;
   }
 
   /** 部位を選ぶ。狭い画面では候補が下にあるので、そこまで送る */
@@ -766,9 +822,10 @@ export class BuildScreen {
       'div',
       { class: 'skills' },
       h('p', { class: 'counter' }, `アクティブ ${build.actives.length} / ${BUILD_LIMITS.actives}  ・  スキル合計 ${total} / ${BUILD_LIMITS.skills}`),
+      sortSelect('並べ方', SKILL_SORTS, this.sort.skills, (v) => this.setSort('skills', v)),
       h('h3', {}, 'アクティブ'),
       h('p', { class: 'note' }, `技は武器の速さ・範囲・属性で出る。今の武器:${buildWeapons(build).map((w) => weaponDef(w).name).join('・')}`),
-      ...BUILD_ACTIVE_IDS.map((id) => {
+      ...this.sortSkills(BUILD_ACTIVE_IDS, build.actives, (id) => activeSkillDef(id).name, (id) => this.activeUsable(id), (id) => activeSkillDef(id).category).map((id) => {
         const def = activeSkillDef(id);
         let detail: string;
         let usable = true;
@@ -802,7 +859,7 @@ export class BuildScreen {
         return known && isTechnique(def) && isUnlocked(this.host.state, 'variants') ? h('div', {}, row, this.variantPicker(id)) : row;
       }),
       h('h3', {}, 'パッシブ'),
-      ...PASSIVE_IDS.map((id) => {
+      ...this.sortSkills(PASSIVE_IDS, build.passives, (id) => PASSIVES[id].name, (id) => isLearned(this.host.state.learned, id), () => '').map((id) => {
         const known = isLearned(this.host.state.learned, id);
         return h(
           'label',
@@ -819,6 +876,31 @@ export class BuildScreen {
       }),
       isUnlocked(this.host.state, 'variants') ? this.renderTechniqueStash() : '',
     );
+  }
+
+  /** アクティブが今使えるか。覚えていて、技なら今の武器で出る */
+  private activeUsable(id: ActiveSkillId): boolean {
+    if (!isLearned(this.host.state.learned, id)) return false;
+    const def = activeSkillDef(id);
+    return !isTechnique(def) || buildWeapons(this.build).some((w) => techniqueFits(def, w));
+  }
+
+  /** スキルを並べ方どおりに並べる。どれも、決まった順を崩さないよう安定に並べる */
+  private sortSkills<T extends string>(ids: readonly T[], using: readonly T[], name: (id: T) => string, usable: (id: T) => boolean, category: (id: T) => string): T[] {
+    const list = [...ids];
+    const order = Object.keys(SKILL_CATEGORIES);
+    switch (this.sort.skills) {
+      case 'using':
+        return list.sort((a, b) => Number(using.includes(b)) - Number(using.includes(a)));
+      case 'usable':
+        return list.sort((a, b) => Number(usable(b)) - Number(usable(a)));
+      case 'category':
+        return list.sort((a, b) => order.indexOf(category(a)) - order.indexOf(category(b)));
+      case 'name':
+        return list.sort((a, b) => name(a).localeCompare(name(b), 'ja'));
+      default:
+        return list;
+    }
   }
 
   /** 技の型を選ぶ。持っている変化つきの技があるときだけ出す */
@@ -1295,4 +1377,50 @@ function environmentText(d: ExpeditionDef): string {
 /** 変化の中身を言葉にする */
 function variantText(v: SkillVariant): string {
   return v.variations.map((id) => variationDef(id).text).join('・');
+}
+
+/** 並べ方の選び肢 */
+const ITEM_SORTS = { new: '拾った順', gain: '強くなる順(早回しで測る)', total: '合計の高い順', condition: '繋ぎ・条件文つきを先に', name: '名前順' } as const;
+const SKILL_SORTS = { default: '決まった順', using: '組んでいる物を先に', usable: '使える物を先に', category: '種類ごと', name: '名前順' } as const;
+
+interface SortState {
+  items: string;
+  skills: string;
+}
+
+const SORT_KEY = 'hakusura.sort.v1';
+
+function loadSort(): SortState {
+  const fallback: SortState = { items: 'new', skills: 'default' };
+  try {
+    const saved = JSON.parse(localStorage.getItem(SORT_KEY) ?? 'null') as Partial<SortState> | null;
+    return {
+      items: saved?.items && saved.items in ITEM_SORTS ? saved.items : fallback.items,
+      skills: saved?.skills && saved.skills in SKILL_SORTS ? saved.skills : fallback.skills,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveSort(sort: SortState): void {
+  try {
+    localStorage.setItem(SORT_KEY, JSON.stringify(sort));
+  } catch {
+    // 覚えられなくても並べ方は効く
+  }
+}
+
+/** 並べ方の選び箱 */
+function sortSelect(label: string, options: Record<string, string>, value: string, onChange: (v: string) => void): HTMLElement {
+  return h(
+    'label',
+    { class: 'sort-select' },
+    `${label} `,
+    h(
+      'select',
+      { onchange: (e: Event) => onChange((e.target as HTMLSelectElement).value) },
+      ...Object.entries(options).map(([k, v]) => h('option', { value: k, selected: k === value }, v)),
+    ),
+  );
 }

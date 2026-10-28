@@ -10,7 +10,8 @@
     "build": "npm run build -w @hakusura/client",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/client --noEmit"
+    "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/client --noEmit",
+    "sim": "SIM=1 vitest run --root packages/core src/sim/report.test.ts --silent=false"
   },
   "devDependencies": {
     "typescript": "~5.9.3",

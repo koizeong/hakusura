@@ -1775,3 +1775,19 @@ button.discard {
 .rite-template button {
   min-height: 40px;
 }
+
+/* 並べ方 */
+.sort-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.sort-select select {
+  min-height: 36px;
+  flex: 1;
+  max-width: 260px;
+}
