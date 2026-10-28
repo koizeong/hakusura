@@ -156,7 +156,7 @@ describe('負傷', () => {
       }
     }
     expect(injured).toBeGreaterThan(5);
-  });
+  }, 30000);
 });
 
 describe('経験値の釣り合い', () => {

@@ -74,6 +74,8 @@ const SWING_MS = 170;
 /** 浮きスティック。押した所から引いた向きへ動く(画面のピクセル) */
 const STICK = { deadzone: 10, full: 56, tapMs: 260 };
 const DODGE = { speed: 900, duration: 170, cooldown: 650 };
+/** 自動のときのステップ。手動の回避より戻りが遅く、振りかぶりを潰して避ける */
+const STEP = { speed: 900, duration: 170, cooldown: 1100 };
 /** 振りかぶり・硬直中、ガード中の移動の速さ(倍率) */
 const BUSY_MOVE = 0.25;
 const GUARD_MOVE = 0.45;
@@ -131,6 +133,8 @@ export class TrainingGroundScene extends Phaser.Scene {
   private walking = false;
   private dodge: Dodge | null = null;
   private dodgeReadyAt = 0;
+  /** ステップのボタンが押された(次の更新で踏む) */
+  private stepRequested = false;
   private lastBreakdown = 0;
   private facing = 0;
   private lockTarget: Unit | null = null;
@@ -239,8 +243,9 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.keybinds = loadKeybinds();
     this.input2 = new InputController(this.keybinds, this.game.canvas);
     this.input2.onWheel = (dir) => this.switchLock(dir);
-    this.hud = new Hud(this.player.actives, DODGE.cooldown, this.player.trump!, {
+    this.hud = new Hud(this.player.actives, DODGE.cooldown, STEP.cooldown, this.player.trump!, {
       onTrump: () => this.useTrump(),
+      onStep: () => (this.stepRequested = true),
       onSpeed: () => this.cycleSpeed(),
       onBreakdown: () => this.toggleBreakdown(),
       onBuild: () => this.openBuild(),
@@ -619,6 +624,23 @@ export class TrainingGroundScene extends Phaser.Scene {
     const len = Math.hypot(mx, my);
     // 自動では攻撃中も足を止めない
     const speed = world.isIncapacitated(player) ? 0 : AUTO_MOVE_SPEED * throttle * world.statOf(player, 'moveSpeed');
+    // ステップ。歩いている向きへ(止まっていれば一番近い敵から離れる向きへ)一瞬で跳ぶ。振りかぶりは潰れる
+    const stepPressed = input.consumePressed('step') || this.stepRequested;
+    this.stepRequested = false;
+    if (stepPressed && world.time >= this.dodgeReadyAt && world.dodge(player.id, true)) {
+      const away = target ? Math.atan2(player.y - target.y, player.x - target.x) : this.facing + Math.PI;
+      const dir = len > 0 ? { x: mx / len, y: my / len } : { x: Math.cos(away), y: Math.sin(away) };
+      this.dodge = { vx: dir.x * STEP.speed, vy: dir.y * STEP.speed, until: world.time + STEP.duration };
+      this.dodgeReadyAt = world.time + STEP.cooldown;
+      this.moveTo = null;
+    }
+    if (this.dodge) {
+      if (world.time < this.dodge.until) {
+        this.moveBy((this.dodge.vx * dt) / 1000, (this.dodge.vy * dt) / 1000);
+        return;
+      }
+      this.dodge = null;
+    }
     const step = len > 0 ? Math.min((speed * dt) / 1000, this.moveTo ? Math.hypot(this.moveTo.x - player.x, this.moveTo.y - player.y) : Infinity) : 0;
     this.moveBy(len > 0 ? (mx / len) * step : 0, len > 0 ? (my / len) * step : 0);
   }
@@ -1581,7 +1603,24 @@ export class TrainingGroundScene extends Phaser.Scene {
         if (unit && event.amount >= 1) this.floatText(unit.x, unit.y - 30, `+${Math.round(event.amount)}`, '#8ad07a');
         break;
       }
-      case 'dodged':
+      case 'dodged': {
+        // 踏んだ所に土埃と残像
+        const unit = this.world.units.get(event.unitId);
+        if (!unit || unit !== this.player) break;
+        const fx = this.add.graphics().setDepth(0.5);
+        fx.fillStyle(0x8a7a62, 0.35).fillEllipse(unit.x, unit.y + PLAYER_ART.feet, 40, 12);
+        this.tweens.add({ targets: fx, alpha: 0, duration: 350, onComplete: () => fx.destroy() });
+        const ghost = this.add
+          .image(this.playerSprite.x, this.playerSprite.y, this.playerSprite.texture.key, this.playerSprite.frame.name)
+          .setScale(PLAYER_ART.scale)
+          .setOrigin(0.5, PLAYER_ART.originY)
+          .setFlipX(this.playerSprite.flipX)
+          .setTint(0x9fc4e8)
+          .setAlpha(0.5)
+          .setDepth(this.playerSprite.depth - 0.001);
+        this.tweens.add({ targets: ghost, alpha: 0, duration: 260, onComplete: () => ghost.destroy() });
+        break;
+      }
       case 'statusEnded':
       case 'imbue':
         break;

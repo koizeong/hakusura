@@ -54,7 +54,7 @@ export type Predicate =
    * 繋ぎ。このスキルの1つ前の手が、その属性・種類で、within ミリ秒以内に使ったもの。
    * 前の手はスキルを使った瞬間に決まるので、飛んでいる弾が当たるときも変わらない
    */
-  | { type: 'afterStep'; element?: ElementId; category?: string; within: number }
+  | { type: 'afterStep'; element?: ElementId; category?: string; within: number; differ?: readonly ('category' | 'element')[] }
   /** 自分が宿している儀式が min 個以上(max があれば max 個以下) */
   | { type: 'selfRites'; min: number; max?: number }
   /** このヒットを出した技に、儀式を min 個以上宿していた */
@@ -223,7 +223,11 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
     case 'afterStep': {
       const prev = ctx.prevStep;
       if (!prev || prev.gap > p.within) return false;
-      return (p.element === undefined || prev.element === p.element) && (p.category === undefined || prev.category === p.category);
+      if ((p.element !== undefined && prev.element !== p.element) || (p.category !== undefined && prev.category !== p.category)) return false;
+      // 前の手と今のヒットで、違っていなければならないもの
+      if (p.differ?.includes('category') && ctx.hitTags?.has(prev.category)) return false;
+      if (p.differ?.includes('element') && prev.element !== undefined && prev.element === ctx.hitElement) return false;
+      return true;
     }
   }
 }

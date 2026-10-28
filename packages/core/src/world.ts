@@ -660,9 +660,14 @@ export class CombatWorld {
   }
 
   /** 回避を始める。移動そのものは呼び出し側が行う */
-  dodge(unitId: string): boolean {
+  /**
+   * cancelWindup なら、振りかぶりを潰してでも避ける(自動で戦うときのステップ。撃つか避けるかを選ぶ)
+   */
+  dodge(unitId: string, cancelWindup = false): boolean {
     const unit = this.units.get(unitId);
-    if (!unit || !this.canDodge(unitId)) return false;
+    if (!unit) return false;
+    if (cancelWindup && unit.windupUntil > this.time && !this.isIncapacitated(unit)) this.interrupt(unit);
+    if (!this.canDodge(unitId)) return false;
     unit.busyUntil = this.time;
     unit.dodgeStartedAt = this.time;
     unit.dodgeOrigin = { x: unit.x, y: unit.y };
@@ -771,7 +776,8 @@ export class CombatWorld {
       if (e.element) element = e.element;
     }
     this.events.push({ type: 'riteReleased', unitId: unit.id, skill: def.name, names: rites.map((r) => r.name) });
-    return { ...def, element, rules, rites: count };
+    // 儀式を宿した技には rited のタグを付ける(儀式を宿した技のダメージの補正値が効く)
+    return { ...def, element, rules, rites: count, tags: [...def.tags, 'rited'] };
   }
 
   /** 使ったスキルを手順に足し、決まった型を返す。決まったら手順は空にする */

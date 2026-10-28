@@ -217,7 +217,8 @@ input {
 }
 
 .auto-skills .chip .shade,
-.trump .shade {
+.trump .shade,
+.step .shade {
   position: absolute;
   left: 0;
   right: 0;
@@ -683,7 +684,8 @@ canvas {
 }
 
 @media (pointer: coarse) {
-  .trump .key {
+  .trump .key,
+  .step .key {
     display: none;
   }
 }
@@ -1790,4 +1792,44 @@ button.discard {
   min-height: 36px;
   flex: 1;
   max-width: 260px;
+}
+
+/* 自動のときのステップ。切り札の隣に、少し小さく */
+.step {
+  position: relative;
+  overflow: hidden;
+  width: 72px;
+  height: 64px;
+  border: 1px solid #5a6a7a;
+  background: #161c22;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 6px;
+}
+
+.step .label {
+  position: relative;
+  font-size: 11px;
+  color: #9fc4e8;
+}
+
+.step .name {
+  position: relative;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.step .key {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.step:disabled {
+  cursor: default;
+  border-color: var(--line);
 }

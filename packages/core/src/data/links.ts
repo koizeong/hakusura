@@ -5,7 +5,7 @@ import { SKILL_CATEGORIES } from './skills';
 /**
  * 繋ぎ。「〈前の手〉の次に〈今の手〉を当てると〈見返り〉」の条件文。
  * 前の手・今の手は属性かスキルの種類(近攻撃・遠攻撃・付与)で、前の手は LINK_RULES.window 以内に使ったもの。
- * 見返りは与ダメージの倍率か、ヒットの数。属性どうしのように細かい繋ぎほど見返りが大きい。
+ * 見返りは与ダメージの倍率か、ヒットの数。成立させるのが厳しい繋ぎほど見返りが大きい。
  * 属性や種類を1件足せば、繋ぎも増える
  */
 export const LINK_RULES = {
@@ -34,9 +34,17 @@ function nowPredicate(s: LinkStep): Predicate {
   return 'element' in s ? { type: 'hitElementIs', element: s.element } : { type: 'hitHasTag', tag: s.category };
 }
 
-/** 前の手の条件 */
-function afterPredicate(s: LinkStep): Predicate {
-  return { type: 'afterStep', ...('element' in s ? { element: s.element } : { category: s.category }), within: LINK_RULES.window };
+/**
+ * 前の手の条件。differ は、前の手と今のヒットで違っていなければならないもの。
+ * 「近攻撃→斬」を斬の近攻撃だけのビルドで毎回決めさせないため、種類と属性をまたぐ繋ぎは両方が違うことを求める
+ */
+function afterPredicate(s: LinkStep, differ: ('category' | 'element')[]): Predicate {
+  return {
+    type: 'afterStep',
+    ...('element' in s ? { element: s.element } : { category: s.category }),
+    within: LINK_RULES.window,
+    ...(differ.length > 0 ? { differ } : {}),
+  };
 }
 
 export interface LinkConditionDef {
@@ -45,16 +53,41 @@ export interface LinkConditionDef {
   cost: number;
   rule: Rule;
   /** 繋ぎの前の手と今の手(装備をビルドに寄せるときに見る) */
-  link: { prev: LinkStep; now: LinkStep; reward: 'mult' | 'hits' };
+  link: { prev: LinkStep; now: LinkStep; reward: 'mult' | 'hits'; strictness: number };
 }
 
-/** 細かさ。属性は種類より細かい。細かいほど見返りが大きい */
-function fineness(prev: LinkStep, now: LinkStep): 0 | 1 | 2 {
-  return (('element' in prev ? 1 : 0) + ('element' in now ? 1 : 0)) as 0 | 1 | 2;
+/**
+ * 厳しさ。成立させるのが難しい繋ぎほど見返りが大きい。
+ * 0:種類→種類(近攻撃の次に遠攻撃)、儀式の次に種類
+ * 1:属性→属性(雷の次に斬)、儀式の次に属性
+ * 2:種類と属性をまたぐ(斬でない近攻撃の次に、近攻撃でない斬)。種類も属性も変えなければならない
+ */
+function strictness(prev: LinkStep, now: LinkStep): 0 | 1 | 2 {
+  const pe = 'element' in prev;
+  const ne = 'element' in now;
+  if (!pe && prev.category === 'rite') return ne ? 1 : 0;
+  if (pe && ne) return 1;
+  if (!pe && !ne) return 0;
+  return 2;
 }
 
-const MULT = [2, 2.5, 3] as const;
-const HITS = [3, 4, 5] as const;
+const MULT = [2, 3, 4] as const;
+const HITS = [2, 3, 4] as const;
+
+/** 繋ぎの言い回し。厳しい繋ぎは、変えなければならないものを名前に含める */
+function headText(prev: LinkStep, now: LinkStep, level: 0 | 1 | 2): string {
+  if (level === 2) {
+    // 片方が種類、片方が属性。前の手はその属性でなく、今の手はその種類でないこと
+    const cat = 'category' in prev ? prev : (now as { category: 'melee' | 'ranged' });
+    const el = 'element' in prev ? prev : (now as { element: ElementId });
+    const c = SKILL_CATEGORIES[cat.category];
+    const e = ELEMENTS[el.element].name;
+    return 'category' in prev ? `${e}でない${c}の次に、${c}でない${e}の攻撃を当てると` : `${c}でない${e}の攻撃の次に、${e}でない${c}を当てると`;
+  }
+  const p = 'element' in prev ? `${stepName(prev)}で攻めた` : `${stepName(prev)}を出した`;
+  const n = 'element' in now ? `${stepName(now)}の攻撃` : stepName(now);
+  return `${p}次に${n}を当てると`;
+}
 
 function generate(): Record<`link:${string}`, LinkConditionDef> {
   const prevs: LinkStep[] = [...PREV_CATEGORIES.map((category) => ({ category })), ...ELEMENT_IDS.map((element) => ({ element }))];
@@ -64,30 +97,31 @@ function generate(): Record<`link:${string}`, LinkConditionDef> {
   for (const prev of prevs) {
     for (const now of nows) {
       if (stepKey(prev) === stepKey(now)) continue;
-      const f = fineness(prev, now);
+      const level = strictness(prev, now);
       const label = `繋ぎ・${stepName(prev)}→${stepName(now)}`;
-      const head = `${'element' in prev ? `${stepName(prev)}で攻めた` : `${stepName(prev)}を出した`}次に${'element' in now ? `${stepName(now)}の攻撃` : stepName(now)}を当てると`;
-      const when: Predicate[] = [{ type: 'hitHasTag', tag: 'attack' }, nowPredicate(now), afterPredicate(prev)];
-      const mult = MULT[f];
+      const head = headText(prev, now, level);
+      const differ: ('category' | 'element')[] = level === 2 ? ['category', 'element'] : [];
+      const when: Predicate[] = [{ type: 'hitHasTag', tag: 'attack' }, nowPredicate(now), afterPredicate(prev, differ)];
+      const mult = MULT[level];
       out[`link:${stepKey(prev)}>${stepKey(now)}:mult`] = {
         no: no++,
         text: `${head}、与ダメージ${mult}倍`,
-        cost: Math.round((mult - 1) * 25),
+        cost: Math.round((mult - 1) * 20),
         rule: { label, on: 'damage', when, add: mult - 1 },
-        link: { prev, now, reward: 'mult' },
+        link: { prev, now, reward: 'mult', strictness: level },
       };
-      const hits = HITS[f];
+      const hits = HITS[level];
       out[`link:${stepKey(prev)}>${stepKey(now)}:hits`] = {
         no: no++,
         text: `${head}、${hits}回多く当たる(威力は半分)`,
-        cost: hits * 10,
+        cost: hits * 12,
         rule: {
           label,
           on: 'hit',
           when: [...when, { type: 'hitLacksTag', tag: 'repeat' }],
           do: [{ type: 'repeatHit', power: LINK_RULES.extraHitPower, times: hits }],
         },
-        link: { prev, now, reward: 'hits' },
+        link: { prev, now, reward: 'hits', strictness: level },
       };
     }
   }

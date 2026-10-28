@@ -45,18 +45,33 @@ function shootThenSlash(condition: ConditionId | undefined, wait = 0) {
 describe('繋ぎの条件文', () => {
   it('属性と種類の組み合わせから作られ、データに1件足せば増える', () => {
     expect(LINK_CONDITION_IDS.length).toBeGreaterThan(200);
-    expect(conditionDef('link:lightning>melee:mult').text).toBe('雷で攻めた次に近攻撃を当てると、与ダメージ2.5倍');
-    expect(conditionDef('link:fire>ice:hits').text).toContain('5回多く当たる');
-    // 細かい繋ぎほど見返りが大きい
+    expect(conditionDef('link:lightning>melee:mult').text).toBe('近攻撃でない雷の攻撃の次に、雷でない近攻撃を当てると、与ダメージ4倍');
+    expect(conditionDef('link:melee>ranged:mult').text).toBe('近攻撃を出した次に遠攻撃を当てると、与ダメージ2倍');
+    expect(conditionDef('link:fire>ice:hits').text).toContain('3回多く当たる');
+    // 厳しい繋ぎほど見返りが大きい
     expect(conditionDef('link:melee>ranged:mult').cost).toBeLessThan(conditionDef('link:fire>ice:mult').cost);
+    expect(conditionDef('link:fire>ice:mult').cost).toBeLessThan(conditionDef('link:melee>slash:mult').cost);
   });
 
-  it('雷の次に近攻撃を当てると、与ダメージが倍になる', () => {
+  it('雷の遠攻撃の次に斬の近攻撃を当てると、与ダメージが4倍になる', () => {
     const plain = shootThenSlash(undefined);
     const linked = shootThenSlash('link:lightning>melee:mult');
     expect(plain.total).toBeGreaterThan(0);
-    expect(linked.total).toBeCloseTo(plain.total * 2.5, 0);
+    expect(linked.total).toBeCloseTo(plain.total * 4, 0);
     expect(linked.labels).toContain('繋ぎ・雷→近攻撃');
+  });
+
+  it('種類と属性をまたぐ繋ぎは、一辺倒では決まらない(斬の近攻撃を続けても「近攻撃→斬」は決まらない)', () => {
+    const { w, p } = duel('link:melee>slash:mult');
+    const t = w.units.get('t')!;
+    w.useSkill('p', 'slash', t, 't');
+    run(w, 1200);
+    const before = w.log.length;
+    p.busyUntil = 0;
+    p.cooldowns = {};
+    w.useSkill('p', 'slash', t, 't');
+    run(w, 800);
+    expect(w.log.slice(before).some((r) => r.via.includes('繋ぎ・近攻撃→斬'))).toBe(false);
   });
 
   it('前の手から間が空くと繋がらない', () => {
@@ -71,6 +86,7 @@ describe('繋ぎの条件文', () => {
     expect(plain.count).toBeGreaterThan(0);
     expect(linked.count).toBe(plain.count * (1 + 4));
     expect(linked.total).toBeCloseTo(plain.total * (1 + 4 * LINK_RULES.extraHitPower), 0);
+    expect(conditionDef('link:lightning>melee:hits').link?.strictness).toBe(2);
   });
 
   it('前の手は使った瞬間に決まる。飛んでいる弾は、後から別の手を使っても繋ぎを保つ', () => {

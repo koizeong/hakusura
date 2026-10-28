@@ -25,6 +25,7 @@ const MATERIAL_COLORS: Record<ArmorMaterialId, readonly [string, string, string]
   pyre: ['#5e5a54', '#8a867e', '#3a3834'],
   bloodpact: ['#4a1418', '#7a2a2e', '#2a080c'],
   iron: ['#3e3e3c', '#6a6a66', '#222220'],
+  priest: ['#5a4e6a', '#8a7e9a', '#342c42'],
 };
 const NO_MATERIAL = ['#5a4e3e', '#7a6e5a', '#3a3226'] as const;
 

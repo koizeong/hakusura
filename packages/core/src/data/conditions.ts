@@ -200,6 +200,29 @@ const HANDMADE = {
     cost: 30,
     rule: { label: '急ぎの祈り', on: 'stat', stat: 'cooldown', tags: ['rite'], when: [], add: -0.15 },
   },
+  riteWard: {
+    no: 204,
+    text: '儀式を2つ以上宿している間、被ダメージ-30%',
+    cost: 25,
+    rule: { label: '祈りの帳', on: 'stat', stat: 'damageTaken', when: [{ type: 'selfRites', min: 2 }], add: -0.3 },
+  },
+  riteStride: {
+    no: 205,
+    text: '儀式を宿している間、移動速度+30%',
+    cost: 15,
+    rule: { label: '祈りの足取り', on: 'stat', stat: 'moveSpeed', when: [{ type: 'selfRites', min: 1 }], add: 0.3 },
+  },
+  riteBurst: {
+    no: 206,
+    text: '儀式を4つ以上宿した技は、3回多く当たる(威力は半分)',
+    cost: 40,
+    rule: {
+      label: '溢れる祭壇',
+      on: 'hit',
+      when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitLacksTag', tag: 'repeat' }, { type: 'ritesReleased', min: 4 }],
+      do: [{ type: 'repeatHit', power: 0.5, times: 3 }],
+    },
+  },
 } as const satisfies Record<string, ConditionDef>;
 
 export type HandmadeConditionId = keyof typeof HANDMADE;

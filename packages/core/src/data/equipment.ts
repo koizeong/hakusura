@@ -57,6 +57,7 @@ export const ARMOR_MATERIALS = {
   pyre: { prefix: '灰を被った', weight: 3, affixes: ['ashDamage', 'ashBuildup'] },
   bloodpact: { prefix: '血の誓いの', weight: 3, affixes: ['bloodDamage', 'thirstBuildup', 'healing'] },
   iron: { prefix: '鋲打ちの', weight: 7, affixes: ['bluntDamage', 'stunBuildup', 'pierceDamage'] },
+  priest: { prefix: '祭司の', weight: 2, affixes: ['riteDamage', 'riteCooldown', 'maxHp'] },
 } as const satisfies Record<string, { prefix: string; weight: number; affixes: readonly AffixId[] }>;
 export type ArmorMaterialId = keyof typeof ARMOR_MATERIALS;
 export const ARMOR_MATERIAL_IDS = Object.keys(ARMOR_MATERIALS) as ArmorMaterialId[];
@@ -101,6 +102,8 @@ export const AFFIXES = {
   ashBuildup: { name: '灰化の蓄積', stat: 'buildup', tags: ['ash'] },
   thirstBuildup: { name: '渇きの蓄積', stat: 'buildup', tags: ['blood'] },
   healing: { name: '回復', stat: 'healing', tags: [] },
+  riteDamage: { name: '儀式を宿した技のダメージ', stat: 'damage', tags: ['rited'] },
+  riteCooldown: { name: '儀式のクールダウン', stat: 'cooldown', tags: ['rite'] },
 } as const satisfies Record<string, AffixDef>;
 export type AffixId = keyof typeof AFFIXES;
 export const AFFIX_IDS = Object.keys(AFFIXES) as AffixId[];
@@ -198,10 +201,25 @@ export function itemTotal(item: Item): number {
   return item.affixes.reduce((s, a) => s + benefitOf(a), 0) + (item.condition ? conditionDef(item.condition).cost : 0);
 }
 
+/**
+ * 装備の補正値の種類。同じ種類は足し算、違う種類は掛け算になる。
+ * 与ダメージと状態の蓄積は、全体・技の種類(近攻撃・遠攻撃・儀式を宿した技)・属性・状態 の4つにまとめる。
+ * 属性ごとに別の種類にすると、7部位に散らばった補正値が掛け算で膨らむので
+ */
+export function affixGroup(def: AffixDef): string {
+  const t = def.tags;
+  if (def.stat !== 'damage' && def.stat !== 'buildup') return `${def.stat}:${[...t].sort().join('+')}`;
+  // 全体はパッシブの全体と同じ種類(足し算)にする
+  if (t.length === 0) return `${def.stat}:`;
+  if (t.every((x) => x === 'melee' || x === 'ranged' || x === 'rited')) return `${def.stat}:kind`;
+  if (t.includes('status')) return `${def.stat}:status`;
+  return `${def.stat}:element`;
+}
+
 /** 補正値を Modifier の値(1 = 100%)に直す */
 export function affixModifier(a: ItemAffix) {
   const def = affixDef(a.affix);
-  return { stat: def.stat, tags: def.tags, value: a.value / 100 };
+  return { stat: def.stat, tags: def.tags, value: a.value / 100, group: affixGroup(def) };
 }
 
 let itemCounter = 0;
@@ -241,7 +259,8 @@ export interface LootFit {
 export function affixFits(id: AffixId, fit: LootFit): boolean {
   const tags = (AFFIXES[id] as AffixDef).tags;
   if ((AFFIXES[id] as AffixDef).common) return false;
-  return tags.length === 0 || tags.some((t) => (fit.elements as readonly string[]).includes(t) || fit.categories.includes(t));
+  // 儀式を宿した技のダメージは、儀式を組んだビルドに合う
+  return tags.length === 0 || tags.some((t) => (fit.elements as readonly string[]).includes(t) || fit.categories.includes(t) || (t === 'rited' && fit.categories.includes('rite')));
 }
 
 /** その条件文がビルドに合うか。繋ぎなら、前の手と今の手がどちらもビルドにあるもの */

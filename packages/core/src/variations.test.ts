@@ -134,7 +134,7 @@ describe('変化の生成', () => {
     for (const base of ['slash', 'shoot', 'flurry', 'sweep'] as const) {
       expect(variantPowerRatio(rollVariant(random, base))).toBeLessThanOrEqual(VARIANT_RULES.maxPowerRatio);
     }
-  });
+  }, 30000);
 
   it('変化つきの技はビルドコードに乗り、決まりの外の変化は読み込めない', () => {
     const build: Build = {

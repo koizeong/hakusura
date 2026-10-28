@@ -130,3 +130,19 @@ describe('被ダメージの下限', () => {
     expect(w.statOf(p, 'damageTaken')).toBe(0.3);
   });
 });
+
+describe('ステップ(自動の回避)', () => {
+  it('振りかぶりを潰して避けられる。潰さない回避は振りかぶり中には出ない', () => {
+    const w = new CombatWorld({ seed: 1 });
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, weapons: [{ type: 'ironSword' }] });
+    const t = w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 60, y: 0, maxHp: 1e9 });
+    w.useSkill('p', 'slash', t, 't');
+    run(w, 50);
+    expect(w.dodge('p')).toBe(false);
+    expect(w.dodge('p', true)).toBe(true);
+    expect(p.invulnerableUntil).toBeGreaterThan(w.time);
+    run(w, 800);
+    // 潰した斬りつけは当たらない
+    expect(w.log.filter((r) => r.targetId === 't')).toHaveLength(0);
+  });
+});

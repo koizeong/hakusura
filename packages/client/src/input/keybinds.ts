@@ -14,6 +14,7 @@ export const INPUT_ACTIONS = {
   guard: 'ガード(手動)',
   lockOn: 'ターゲット固定',
   trump: '切り札(自動)',
+  step: 'ステップ(自動)',
   breakdown: '内訳',
 } as const;
 
@@ -40,6 +41,8 @@ export const DEFAULT_KEYBINDS: Keybinds = {
   lockOn: { device: 'mouse', button: 1 },
   // 自動で戦うときは回避を使わないので、同じキーを切り札に回す
   trump: { device: 'key', code: 'Space' },
+  // 自動のステップは、手動のガードと同じキー
+  step: { device: 'key', code: 'ShiftLeft' },
   breakdown: { device: 'key', code: 'Tab' },
 };
 

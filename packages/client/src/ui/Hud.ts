@@ -14,6 +14,7 @@ export interface HudActions {
   onSpeed(): void;
   onBreakdown(): void;
   onBuild(): void;
+  onStep(): void;
 }
 
 /** 画面下の体力・状態・スキル枠と、自動のときの切り札・早送り */
@@ -38,6 +39,10 @@ export class Hud {
   private autoSkills = new Map<ActiveSkillId, HTMLElement>();
   private autoBar: HTMLElement;
   private trumpButton: HTMLButtonElement;
+  /** 自動のときのステップ。切り札の隣に置く */
+  private stepButton: HTMLButtonElement;
+  private stepShade: HTMLElement;
+  private stepKey: HTMLElement;
   private trumpShade: HTMLElement;
   private trumpKey: HTMLElement;
   private trumpName: HTMLElement;
@@ -51,6 +56,7 @@ export class Hud {
   constructor(
     private slotSkills: readonly (ActiveSkillId | null)[],
     private dodgeCooldown: number,
+    private stepCooldown: number,
     private trump: ActiveSkillId | undefined,
     actions: HudActions,
   ) {
@@ -77,6 +83,16 @@ export class Hud {
       this.trumpKey,
       this.trumpLabel,
       this.trumpName,
+    );
+    this.stepShade = h('div', { class: 'shade' });
+    this.stepKey = h('span', { class: 'key' });
+    this.stepButton = h(
+      'button',
+      { class: 'step', onclick: (e: Event) => (actions.onStep(), (e.currentTarget as HTMLElement).blur()) },
+      this.stepShade,
+      this.stepKey,
+      h('span', { class: 'label' }, '見切り'),
+      h('span', { class: 'name' }, 'ステップ'),
     );
     this.speedButton = h('button', { class: 'speed', onclick: (e: Event) => (actions.onSpeed(), (e.currentTarget as HTMLElement).blur()) }, '×1');
     const breakdownButton = h(
@@ -106,7 +122,7 @@ export class Hud {
           h('div', { class: 'slot dodge' }, this.dodge.shade, this.dodge.key, h('span', { class: 'name' }, '回避'), h('span', { class: 'cat' }, '見切り')),
           h('div', { class: 'slot' }, this.guard.shade, this.guard.key, h('span', { class: 'name' }, 'ガード'), h('span', { class: 'cat' }, '弾き')),
         ),
-        h('div', { class: 'auto-row auto-only' }, this.autoBar, this.trumpButton),
+        h('div', { class: 'auto-row auto-only' }, this.autoBar, this.stepButton, this.trumpButton),
         this.hint,
       ),
     );
@@ -167,6 +183,7 @@ export class Hud {
     this.dodge.key.textContent = bindingLabel(binds.dodge);
     this.guard.key.textContent = bindingLabel(binds.guard);
     this.trumpKey.textContent = bindingLabel(binds.trump);
+    this.stepKey.textContent = bindingLabel(binds.step);
     this.lockKey = bindingLabel(binds.lockOn);
   }
 
@@ -204,6 +221,10 @@ export class Hud {
       this.trumpButton.disabled = !this.trump || trumpLeft > 0;
       this.trumpButton.classList.toggle('queued', trumpQueued);
       this.trumpLabel.textContent = trumpQueued ? '構え中' : '切り札';
+      // ステップの戻り
+      const stepLeft = Math.max(0, dodgeReadyAt - world.time) / this.stepCooldown;
+      this.stepShade.style.height = `${Math.min(1, stepLeft) * 100}%`;
+      this.stepButton.disabled = stepLeft > 0;
     }
 
     const parts: string[] = [];
