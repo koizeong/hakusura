@@ -32,6 +32,16 @@ export interface FormDef {
 }
 
 export const FORMS = {
+  threefoldPrayer: {
+    name: '三度の祈りの型',
+    description: '儀式を三つ重ねてから攻める',
+    steps: [{ category: 'rite' }, { category: 'rite' }, { category: 'rite' }, { category: 'melee' }],
+    window: 3500,
+    bonus: 0.8,
+    distinct: false,
+    fervor: 35,
+    color: 0xe8d8a8,
+  },
   thunderRain: {
     name: '雷雨の型',
     description: '濡らしてから雷で打つ',

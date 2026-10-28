@@ -144,7 +144,7 @@ export function lootFit(build: Build): LootFit {
       if (fits.length === 0) continue;
       for (const w of fits) elements.add(weaponDef(w).element);
     } else if (def.element) elements.add(def.element);
-    if (def.category === 'melee' || def.category === 'ranged' || def.category === 'imbue') categories.add(def.category);
+    if (def.category === 'melee' || def.category === 'ranged' || def.category === 'imbue' || def.category === 'rite') categories.add(def.category);
   }
   return { elements: [...elements], categories: [...categories] };
 }

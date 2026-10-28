@@ -3,7 +3,7 @@ import { computeDamage, type RuleBonus } from './damage';
 import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
 import { FLOOR_RULES, fieldDef, type FieldId } from './data/fields';
 import { STATUS_IDS, statusDef, statusForElement, type StatusDef, type StatusId } from './data/statuses';
-import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction } from './data/skills';
+import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction, type RiteEmpower } from './data/skills';
 import { toWeaponSpec, type WeaponRef, type WeaponSpec } from './data/weapons';
 import { shieldBurstElement, shieldDef, shieldName, type ShieldSpec } from './data/shields';
 import type { SkillVariant } from './data/variations';
@@ -21,7 +21,7 @@ import { passiveDef, type PassiveId } from './data/passives';
 import { conditionDef, type ConditionId } from './data/conditions';
 import { INTERACTIONS } from './data/interactions';
 import { DEFENSE_RULES } from './data/defense';
-import { evaluatePredicate, ruleMatches, type Action, type Modifier, type PredicateContext, type Rule } from './rules';
+import { evaluatePredicate, ruleMatches, type Action, type Modifier, type Predicate, type PredicateContext, type Rule } from './rules';
 
 export type Team = 'player' | 'enemy';
 
@@ -153,6 +153,8 @@ export interface Unit {
   enraged: boolean;
   /** 飛ぶ時間が切れたとき、降りるのに使う技 */
   landWith?: ActiveSkillId;
+  /** 宿している儀式。次の技で全て使い切る */
+  rites: { skill: ActiveSkillId; name: string; empower: RiteEmpower; until: number }[];
 }
 
 export interface Buff {
@@ -207,6 +209,8 @@ export interface Hit {
   useIndex?: number;
   /** このヒットを出したスキルの、1つ前の手(繋ぎの条件文で見る) */
   prev?: PrevStep;
+  /** このヒットを出した技に宿した儀式の数 */
+  rites?: number;
 }
 
 /** スキルを使ったときの、1つ前の手と、その間 */
@@ -269,6 +273,10 @@ export type CombatEvent =
   | { type: 'landed'; unitId: string; x: number; y: number }
   /** 大物が怒った */
   | { type: 'enraged'; unitId: string; label: string }
+  /** 儀式を宿した(count は宿している数) */
+  | { type: 'rite'; unitId: string; name: string; count: number }
+  /** 宿した儀式を技で使い切った */
+  | { type: 'riteReleased'; unitId: string; skill: string; names: string[] }
   /** 呼び出された(死体起こし・産み落とし) */
   | { type: 'summoned'; unitId: string; by: string; x: number; y: number; skill: string }
   /** 型が決まった */
@@ -484,6 +492,7 @@ export class CombatWorld {
       minions: [],
       airborneUntil: 0,
       enraged: false,
+      rites: [],
       attributes: spec.attributes ? { ...spec.attributes } : undefined,
     };
     this.units.set(unit.id, unit);
@@ -695,6 +704,8 @@ export class CombatWorld {
     const last = unit.history.at(-1);
     const prev: PrevStep | undefined = last ? { element: last.element, category: last.category, gap: this.time - last.at } : undefined;
     let def: ResolvedSkill = { ...this.skillFor(unit, skillId)!, useIndex: uses, prev };
+    // 宿した儀式は、攻撃の技(近攻撃・遠攻撃)で全て使い切る
+    def = this.releaseRites(unit, def);
     // 型。直近の手順と合えば決まり、この一手が強くなる
     const form = this.recordStep(unit, skillId, def);
     if (form) {
@@ -721,6 +732,46 @@ export class CombatWorld {
     if (def.windup <= 0) this.executeSkill(action);
     else this.pending.push(action);
     return true;
+  }
+
+  /** 儀式の数の上限。これより多く宿すと、古いものから消える */
+  static readonly RITE_LIMIT = 5;
+
+  /** 儀式を宿す */
+  private addRite(unit: Unit, skill: ActiveSkillId, name: string, empower: RiteEmpower, duration: number): void {
+    unit.rites = unit.rites.filter((r) => r.until > this.time);
+    if (empower.selfCost) {
+      // 血の誓いのように身を削る儀式。これでは倒れない
+      unit.hp = Math.max(1, unit.hp - unit.maxHp * empower.selfCost);
+      unit.lastHurtAt = this.time;
+    }
+    unit.rites.push({ skill, name, empower, until: this.time + duration });
+    if (unit.rites.length > CombatWorld.RITE_LIMIT) unit.rites.shift();
+    this.events.push({ type: 'rite', unitId: unit.id, name, count: unit.rites.length });
+  }
+
+  /** 攻撃の技を出すとき、宿した儀式を全て使い切って技に乗せる */
+  private releaseRites(unit: Unit, def: ResolvedSkill): ResolvedSkill {
+    unit.rites = unit.rites.filter((r) => r.until > this.time);
+    if (unit.rites.length === 0 || !def.tags.includes('attack') || (def.category !== 'melee' && def.category !== 'ranged')) return def;
+    const rites = unit.rites;
+    unit.rites = [];
+    const count = rites.length;
+    const rules: Rule[] = [...(def.rules ?? [])];
+    let element = def.element;
+    const attack: Predicate = { type: 'hitHasTag', tag: 'attack' };
+    const first: Predicate = { type: 'hitLacksTag', tag: 'repeat' };
+    for (const { name, empower: e } of rites) {
+      const add = (e.add ?? 0) + (e.perRite ?? 0) * count;
+      // 儀式ごとに別のラベルなので、別の種類として掛け合わさる
+      if (add !== 0) rules.push({ label: name, on: 'damage', when: [attack], add });
+      if (e.hits) rules.push({ label: name, on: 'hit', when: [attack, first], do: [{ type: 'repeatHit', power: 0.5, times: e.hits }] });
+      if (e.buildup) rules.push({ label: name, on: 'hit', when: [attack], do: [{ type: 'applyBuildup', status: e.buildup.status, amount: e.buildup.amount }] });
+      if (e.strike) rules.push({ label: name, on: 'hit', when: [attack, first], do: [{ type: 'strike', ...e.strike }] });
+      if (e.element) element = e.element;
+    }
+    this.events.push({ type: 'riteReleased', unitId: unit.id, skill: def.name, names: rites.map((r) => r.name) });
+    return { ...def, element, rules, rites: count };
   }
 
   /** 使ったスキルを手順に足し、決まった型を返す。決まったら手順は空にする */
@@ -964,6 +1015,10 @@ export class CombatWorld {
           this.onMultiHit(unit, landed, def.name);
           this.processHits();
         }
+        break;
+      }
+      case 'rite': {
+        this.addRite(unit, pending.skill, def.name, action.empower, action.duration);
         break;
       }
       case 'takeOff': {
@@ -1644,6 +1699,7 @@ export class CombatWorld {
         rules: def.rules,
         useIndex: def.useIndex,
         prev: def.prev,
+        rites: def.rites,
       });
     }
     if (attacker.imbue && attacker.imbue.until > this.time) {
@@ -1743,7 +1799,7 @@ export class CombatWorld {
     if (statDef(stat).kind === 'add') {
       return mods.filter((m) => m.tags.every((t) => tagSet.has(t))).reduce((s, m) => s + m.value, 0) + bonuses.reduce((s, b) => s + b.add, 0);
     }
-    return multiplierOf(mods, bonuses, tagSet);
+    return Math.max(statDef(stat).min ?? -Infinity, multiplierOf(mods, bonuses, tagSet));
   }
 
   /** アーティファクトの特別な効果をまとめる */
@@ -1777,6 +1833,7 @@ export class CombatWorld {
       targetBuildup: (s) => (this.isActive(target, s) ? 1 : target.statuses[s].buildup / statusDef(s).max),
       attackerOnFloor: (field) => !!attacker && this.floorsUnder(attacker).some((f) => f.field === field),
       attackerLastSkill: attacker?.history.at(-1)?.skill,
+      attackerRites: attacker ? attacker.rites.filter((r) => r.until > this.time).length : 0,
       // 相手の向きの後ろ半分から攻めている
       fromBehind:
         !!attacker &&
@@ -1801,6 +1858,7 @@ export class CombatWorld {
       attackerLastElement: attacker?.lastElement,
       useIndex: hit.useIndex,
       prevStep: hit.prev,
+      ritesReleased: hit.rites ?? 0,
     });
     const bonuses: RuleBonus[] = [];
     const qualifiers: string[] = [];
@@ -1901,7 +1959,7 @@ export class CombatWorld {
       }
     }
 
-    const hitCtx = this.context(target, attacker, { hitTags: hit.tags, hitElement: hit.element, useIndex: hit.useIndex, prevStep: hit.prev });
+    const hitCtx = this.context(target, attacker, { hitTags: hit.tags, hitElement: hit.element, useIndex: hit.useIndex, prevStep: hit.prev, ritesReleased: hit.rites ?? 0 });
     for (const { rule } of rules) {
       if (rule.on !== 'hit' || !ruleMatches(rule, hitCtx)) continue;
       for (const action of rule.do) this.runAction(action, rule.label, target, source);

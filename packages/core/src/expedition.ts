@@ -20,7 +20,7 @@ export interface Learned {
 
 /** 最初から覚えているスキル */
 export const STARTING_SKILLS: Learned = {
-  actives: ['slash', 'shoot', 'sweep', 'emberOil', 'rainBell'],
+  actives: ['slash', 'shoot', 'sweep', 'emberOil', 'rainBell', 'stillPrayer', 'whetRite', 'bloodOath', 'pyreOffering'],
   passives: ['sootPrayer', 'bloodCallsThunder', 'readTheBlow', 'parryStance'],
   forms: [...STARTING_FORMS],
 };

@@ -154,6 +154,8 @@ export function loadBuildState(random: () => number): BuildState {
     if (saved && Array.isArray(saved.characters) && saved.characters.length > 0 && Array.isArray(saved.stash)) {
       saved.current = Math.min(Math.max(0, saved.current | 0), saved.characters.length - 1);
       saved.learned ??= startingLearned();
+      // 後から最初の持ち物に足したスキル(儀式など)は、古い保存でも覚えていることにする
+      for (const id of STARTING_SKILLS.actives) if (!saved.learned.actives.includes(id)) saved.learned.actives.push(id);
       saved.techniques ??= [];
       saved.learned.forms ??= [...STARTING_FORMS];
       // 戦える者を選んでおく(負傷の間は戦えない)

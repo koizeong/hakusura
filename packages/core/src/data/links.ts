@@ -16,9 +16,9 @@ export const LINK_RULES = {
 } as const;
 
 /** 繋ぎの手。属性か、スキルの種類 */
-export type LinkStep = { element: ElementId } | { category: 'melee' | 'ranged' | 'imbue' };
+export type LinkStep = { element: ElementId } | { category: 'melee' | 'ranged' | 'imbue' | 'rite' };
 
-const PREV_CATEGORIES = ['melee', 'ranged', 'imbue'] as const;
+const PREV_CATEGORIES = ['melee', 'ranged', 'imbue', 'rite'] as const;
 const NOW_CATEGORIES = ['melee', 'ranged'] as const;
 
 function stepName(s: LinkStep): string {

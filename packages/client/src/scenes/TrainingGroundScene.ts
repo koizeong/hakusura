@@ -833,6 +833,15 @@ export class TrainingGroundScene extends Phaser.Scene {
       o.beginPath().arc(p.x, p.y, PLAYER_LOOK + 11, this.facing - arc, this.facing + arc).strokePath();
     }
     this.drawStatuses(p, fy + 8);
+    // 宿した儀式は、足元を巡る印で見せる
+    const rites = p.rites.filter((r) => r.until > world.time);
+    rites.forEach((_, i) => {
+      const a = world.time / 600 + (i / rites.length) * Math.PI * 2;
+      const x = p.x + Math.cos(a) * 26;
+      const y = fy + Math.sin(a) * 9;
+      o.fillStyle(0xe8d8a8, 0.9).fillRect(x - 2.25, y - 4.5, 4.5, 9);
+      o.fillStyle(0x6a4a20, 1).fillRect(x - 1, y - 2, 2, 4);
+    });
 
     this.drawProjectiles();
     for (let i = this.iconsUsed; i < this.iconPool.length; i++) this.iconPool[i]!.setVisible(false);
@@ -1468,6 +1477,22 @@ export class TrainingGroundScene extends Phaser.Scene {
         fx.fillStyle(0x8a7a62, 0.35).fillEllipse(event.x, event.y + 30, 220, 70);
         this.tweens.add({ targets: fx, alpha: 0, scaleX: 1.4, duration: 600, onComplete: () => fx.destroy() });
         this.cameras.main.shake(260, 0.012);
+        break;
+      }
+      case 'rite': {
+        const unit = this.world.units.get(event.unitId);
+        if (unit) this.callout(unit, `${event.name}(儀式 ${event.count})`, '#e8d8a8');
+        break;
+      }
+      case 'riteReleased': {
+        const unit = this.world.units.get(event.unitId);
+        if (!unit) break;
+        // 重ねた儀式を一度に放つ。多いほど大きく
+        this.callout(unit, `儀式 ×${event.names.length} ‹${event.names.join('・')}›`, '#f0d890');
+        if (event.names.length >= 3) this.cameras.main.flash(180, 140, 120, 60);
+        const fx = this.add.graphics().setDepth(29);
+        fx.lineStyle(3, 0xe8d8a8, 0.9).strokeCircle(unit.x, unit.y, 30 + event.names.length * 10);
+        this.tweens.add({ targets: fx, alpha: 0, scale: 1.6, duration: 450, onComplete: () => fx.destroy() });
         break;
       }
       case 'enraged': {

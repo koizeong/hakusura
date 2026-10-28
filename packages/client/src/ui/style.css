@@ -292,6 +292,10 @@ input {
   image-rendering: pixelated;
 }
 
+.own-statuses .rite {
+  color: #f0d890;
+}
+
 .own-statuses .imbue {
   color: #ff7a2e;
 }
@@ -1755,4 +1759,19 @@ button.discard {
 
 .form-row.unknown b {
   opacity: 0.45;
+}
+
+/* 儀式の手本 */
+.rite-template {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 8px;
+  border: 1px solid #5a4a2a;
+}
+
+.rite-template button {
+  min-height: 40px;
 }

@@ -155,9 +155,10 @@ export function createTacticsEditor(tactics: Tactic[], options: TacticsEditorOpt
         ),
       ),
       h('small', {}, '上から順に見て、条件に合い、使えるものを1つ使う。届かなければ届くまで待つ。「次に」を選ぶと、出した後に続けてそれを出す(連携)'),
-      h('h3', {}, '型'),
-      h('p', { class: 'note' }, '決まった順にスキルを出すと型が決まり、最後の一手が強くなり、昂りが大きく溜まる。連携で狙って組む'),
-      ...FORM_IDS.map((id) => {
+      // 型が開くまでは、型の一覧を出さない
+      options.forms().length === 0 ? '' : h('h3', {}, '型'),
+      options.forms().length === 0 ? '' : h('p', { class: 'note' }, '決まった順にスキルを出すと型が決まり、最後の一手が強くなり、昂りが大きく溜まる。連携で狙って組む'),
+      ...(options.forms().length === 0 ? [] : FORM_IDS).map((id) => {
         const known = options.forms().includes(id);
         const f = FORMS[id];
         return h(

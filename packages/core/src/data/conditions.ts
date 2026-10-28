@@ -187,6 +187,19 @@ const HANDMADE = {
       do: [{ type: 'repeatHit' }],
     },
   },
+  // 儀式を足したときに考えた条件文
+  ritualMaster: {
+    no: 202,
+    text: '儀式を3つ以上宿した技は、与ダメージ2倍',
+    cost: 50,
+    rule: { label: '満ちた祭壇', on: 'damage', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'ritesReleased', min: 3 }], add: 1 },
+  },
+  ritualHaste: {
+    no: 203,
+    text: '儀式のクールダウンが15%短くなる',
+    cost: 30,
+    rule: { label: '急ぎの祈り', on: 'stat', stat: 'cooldown', tags: ['rite'], when: [], add: -0.15 },
+  },
 } as const satisfies Record<string, ConditionDef>;
 
 export type HandmadeConditionId = keyof typeof HANDMADE;

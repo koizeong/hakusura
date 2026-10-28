@@ -14,6 +14,7 @@ export const SKILL_CATEGORIES = {
   summon: '召喚',
   guard: '防御',
   heal: '回復',
+  rite: '儀式',
 } as const;
 export type SkillCategory = keyof typeof SKILL_CATEGORIES;
 
@@ -82,7 +83,30 @@ export type SkillAction =
       buildup: number;
     }
   /** 一定時間、天候を変える */
-  | { type: 'weather'; field: FieldId; duration: number };
+  | { type: 'weather'; field: FieldId; duration: number }
+  /**
+   * 儀式。自分には何も起きず、次に出す技(攻撃の近攻撃・遠攻撃)に力を宿す。duration の間に技を出さなければ消える。
+   * 宿した儀式は次の技で全て使い切り、儀式ごとに別の種類として掛け合わさる
+   */
+  | { type: 'rite'; duration: number; empower: RiteEmpower };
+
+/** 儀式が次の技に宿す力 */
+export interface RiteEmpower {
+  /** 与ダメージに足す */
+  add?: number;
+  /** 宿している儀式(これを含む)1つごとに与ダメージに足す */
+  perRite?: number;
+  /** 威力 power(既定は半分)のヒットを足す */
+  hits?: number;
+  /** 技の属性をこれに変える */
+  element?: ElementId;
+  /** 当たると状態を溜める */
+  buildup?: { status: StatusId; amount: number };
+  /** 当たると属性の追撃を落とす */
+  strike?: { element: ElementId; power: number; buildup: number };
+  /** 唱えるとき、自分の最大HPのこの割合を削る */
+  selfCost?: number;
+}
 
 interface SkillBase {
   name: string;
@@ -461,6 +485,70 @@ export const ACTIVE_SKILLS = {
     recovery: 400,
     cooldown: 45000,
     action: { type: 'nova', radius: 280, power: 30, buildup: 100 },
+  },
+  /** 儀式。攻撃せず、次の技に力を宿す。重ねるほど次の一撃が膨らむ */
+  stillPrayer: {
+    name: '黙祷',
+    category: 'rite',
+    description: '短く祈り、次の技の与ダメージ+60%',
+    tags: ['rite'],
+    windup: 400,
+    recovery: 150,
+    cooldown: 5000,
+    action: { type: 'rite', duration: 10000, empower: { add: 0.6 } },
+  },
+  whetRite: {
+    name: '研ぎの儀',
+    category: 'rite',
+    description: '刃に唾して研ぐ。次の技が3回多く当たる(威力は半分)',
+    tags: ['rite'],
+    needs: { dex: 14 },
+    windup: 600,
+    recovery: 200,
+    cooldown: 7000,
+    action: { type: 'rite', duration: 10000, empower: { hits: 3 } },
+  },
+  bloodOath: {
+    name: '血の誓い',
+    category: 'rite',
+    description: '自分の最大HPの8%を捧げ、次の技の与ダメージ+150%',
+    tags: ['rite', 'blood'],
+    windup: 500,
+    recovery: 200,
+    cooldown: 9000,
+    action: { type: 'rite', duration: 10000, empower: { add: 1.5, selfCost: 0.08 } },
+  },
+  ashLitany: {
+    name: '灰の祝詞',
+    category: 'rite',
+    description: '次の技を灰の属性に変え、当たると灰化を溜める',
+    tags: ['rite', 'ash'],
+    needs: { fai: 14 },
+    windup: 700,
+    recovery: 200,
+    cooldown: 8000,
+    action: { type: 'rite', duration: 10000, empower: { element: 'ash', buildup: { status: 'ashen', amount: 60 }, add: 0.2 } },
+  },
+  stormSigil: {
+    name: '雷の印',
+    category: 'rite',
+    description: '次の技が当たると、雷の追撃が落ちる',
+    tags: ['rite', 'lightning'],
+    needs: { int: 14 },
+    windup: 600,
+    recovery: 200,
+    cooldown: 7000,
+    action: { type: 'rite', duration: 10000, empower: { strike: { element: 'lightning', power: 30, buildup: 40 } } },
+  },
+  pyreOffering: {
+    name: '焚き上げ',
+    category: 'rite',
+    description: '宿している儀式(これを含む)1つごとに、次の技の与ダメージ+50%',
+    tags: ['rite', 'fire'],
+    windup: 800,
+    recovery: 300,
+    cooldown: 11000,
+    action: { type: 'rite', duration: 10000, empower: { perRite: 0.5 } },
   },
   /** 案山子の反撃。大きく振りかぶるので見てから避けられる */
   strawSwipe: {
@@ -860,6 +948,8 @@ export interface ResolvedSkill {
   useIndex?: number;
   /** 使ったときの1つ前の手と、その間(ミリ秒)。繋ぎの条件文で見る */
   prev?: { element?: ElementId; category: string; gap: number };
+  /** この技に宿した儀式の数 */
+  rites?: number;
 }
 
 /**

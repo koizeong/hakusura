@@ -24,6 +24,11 @@ const BASIC = {
   notRaining: { label: '雨が降っていない', group: '天候', when: [{ type: 'not', p: { type: 'weather', weather: 'rain' } }] },
   readBlow: { label: '見切りを得ている', group: '自分の状態', when: [{ type: 'selfHasBuff', label: '見切り' }] },
   fervorReady: { label: '昂りを得ている', group: '自分の状態', when: [{ type: 'selfHasBuff', label: '昂り' }] },
+  noRites: { label: '儀式を宿していない', group: '儀式', when: [{ type: 'selfRites', min: 0, max: 0 }] },
+  ritesUnder3: { label: '宿した儀式が2つ以下', group: '儀式', when: [{ type: 'selfRites', min: 0, max: 2 }] },
+  rites1: { label: '儀式を1つ以上宿している', group: '儀式', when: [{ type: 'selfRites', min: 1 }] },
+  rites2: { label: '儀式を2つ以上宿している', group: '儀式', when: [{ type: 'selfRites', min: 2 }] },
+  rites3: { label: '儀式を3つ以上宿している', group: '儀式', when: [{ type: 'selfRites', min: 3 }] },
 } satisfies Record<string, TacticConditionDef>;
 
 /** 溜まり具合の条件の目安。この割合以上溜まっていて、まだ発動していない */
@@ -69,7 +74,7 @@ export type TacticConditionId = string;
 export const TACTIC_CONDITION_IDS = Object.keys(TACTIC_CONDITIONS);
 
 /** 編集画面で並べるまとまりの順 */
-export const TACTIC_CONDITION_GROUPS = ['基本', '相手の状態', '相手の溜まり具合', '自分の状態', '天候', '床', '直前の手'] as const;
+export const TACTIC_CONDITION_GROUPS = ['基本', '相手の状態', '相手の溜まり具合', '自分の状態', '儀式', '天候', '床', '直前の手'] as const;
 
 /** 作戦の1行。上の行から順に見て、最初に使えるものを使う */
 export interface Tactic {
@@ -89,4 +94,19 @@ export const DEFAULT_TACTICS: readonly Tactic[] = [
   { skill: 'shoot', condition: 'targetWet', enabled: true, then: ['slash'] },
   { skill: 'slash', condition: 'always', enabled: true },
   { skill: 'shoot', condition: 'always', enabled: true },
+];
+
+/**
+ * 儀式の作戦の手本。儀式を重ねてから、満ちたら大技で使い切る。
+ * 支度の作戦で「儀式の手本にする」を押すと、これに差し替わる
+ */
+export const RITE_TACTICS: readonly Tactic[] = [
+  { skill: 'stillPrayer', condition: 'ritesUnder3', enabled: true },
+  { skill: 'whetRite', condition: 'ritesUnder3', enabled: true },
+  { skill: 'bloodOath', condition: 'ritesUnder3', enabled: true },
+  { skill: 'pyreOffering', condition: 'rites2', enabled: true },
+  { skill: 'slash', condition: 'rites3', enabled: true },
+  { skill: 'shoot', condition: 'rites3', enabled: true },
+  // 儀式がどれも戻っていなければ、普通に斬る
+  { skill: 'slash', condition: 'always', enabled: true },
 ];

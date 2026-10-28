@@ -54,7 +54,11 @@ export type Predicate =
    * 繋ぎ。このスキルの1つ前の手が、その属性・種類で、within ミリ秒以内に使ったもの。
    * 前の手はスキルを使った瞬間に決まるので、飛んでいる弾が当たるときも変わらない
    */
-  | { type: 'afterStep'; element?: ElementId; category?: string; within: number };
+  | { type: 'afterStep'; element?: ElementId; category?: string; within: number }
+  /** 自分が宿している儀式が min 個以上(max があれば max 個以下) */
+  | { type: 'selfRites'; min: number; max?: number }
+  /** このヒットを出した技に、儀式を min 個以上宿していた */
+  | { type: 'ritesReleased'; min: number };
 
 export type Action =
   /** 対象の状態を消す(凍結を砕くなど) */
@@ -156,6 +160,8 @@ export interface PredicateContext {
   useIndex?: number;
   /** このヒットを出したスキルの、1つ前の手と、その間(ミリ秒) */
   prevStep?: { element?: ElementId; category: string; gap: number };
+  attackerRites?: number;
+  ritesReleased?: number;
 }
 
 export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean {
@@ -208,6 +214,12 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return ctx.attackerLastSkill === p.skill;
     case 'hitElementIs':
       return ctx.hitElement === p.element;
+    case 'selfRites': {
+      const n = ctx.attackerRites ?? 0;
+      return n >= p.min && (p.max === undefined || n <= p.max);
+    }
+    case 'ritesReleased':
+      return (ctx.ritesReleased ?? 0) >= p.min;
     case 'afterStep': {
       const prev = ctx.prevStep;
       if (!prev || prev.gap > p.within) return false;

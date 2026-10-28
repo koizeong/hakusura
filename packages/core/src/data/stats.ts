@@ -6,6 +6,8 @@ export interface StatDef {
   name: string;
   kind: 'mult' | 'add';
   lowerIsBetter?: boolean;
+  /** 倍率の下限。被ダメージを積みすぎて傷を受けなくなるのを防ぐ */
+  min?: number;
 }
 
 export const STATS = {
@@ -13,7 +15,8 @@ export const STATS = {
   buildup: { name: '状態の蓄積', kind: 'mult' },
   maxHp: { name: '最大HP', kind: 'mult' },
   moveSpeed: { name: '移動速度', kind: 'mult' },
-  damageTaken: { name: '被ダメージ', kind: 'mult', lowerIsBetter: true },
+  // 被ダメージは7割減までしか下がらない
+  damageTaken: { name: '被ダメージ', kind: 'mult', lowerIsBetter: true, min: 0.3 },
   cooldown: { name: 'クールダウン', kind: 'mult', lowerIsBetter: true },
   meleeRange: { name: '近攻撃の射程', kind: 'mult' },
   projectiles: { name: '弾の数', kind: 'add' },

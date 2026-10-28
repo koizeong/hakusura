@@ -213,6 +213,8 @@ export class Hud {
       if (world.isActive(player, id)) parts.push(`<b style="color:#${STATUSES[id].color.toString(16).padStart(6, '0')}">${icon}${STATUSES[id].name}</b>`);
       else if (st.buildup > 1) parts.push(`<span>${icon}${STATUSES[id].name} ${Math.round((st.buildup / STATUSES[id].max) * 100)}%</span>`);
     }
+    const rites = player.rites.filter((r) => r.until > world.time);
+    if (rites.length > 0) parts.push(`<b class="rite">儀式 ${rites.length}:${rites.map((r) => r.name).join('・')}</b>`);
     for (const buff of player.buffs) {
       if (buff.until > world.time && buff.charges > 0) parts.push(`<b class="buff">${buff.label}</b>`);
     }

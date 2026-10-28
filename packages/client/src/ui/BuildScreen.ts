@@ -99,6 +99,7 @@ import {
   compareItem,
   contributionOf,
   lootFit,
+  RITE_TACTICS,
   measureLoadout,
   type Comparison,
 } from '@hakusura/core';
@@ -908,7 +909,34 @@ export class BuildScreen {
       forms: () => (isUnlocked(this.host.state, 'forms') ? learnedForms(this.host.state.learned) : []),
       onChange: () => this.host.onChange(),
     });
-    return h('div', {}, editor.el);
+    // 儀式の手本。覚えている儀式と技で、儀式を重ねてから大技で使い切る作戦に組み替える
+    const riteSkills = [...new Set(RITE_TACTICS.map((t) => t.skill))];
+    const learned = riteSkills.filter((id) => isLearned(this.host.state.learned, id));
+    const template = h(
+      'div',
+      { class: 'rite-template' },
+      h(
+        'button',
+        { disabled: learned.length < riteSkills.length, onclick: () => this.applyRiteTemplate() },
+        '儀式の手本にする',
+      ),
+      h(
+        'small',
+        { class: 'note' },
+        learned.length < riteSkills.length
+          ? `儀式の手本には ${riteSkills.filter((id) => !learned.includes(id)).map((id) => activeSkillDef(id).name).join('・')} が要る`
+          : `アクティブを ${riteSkills.map((id) => activeSkillDef(id).name).join('・')} にし、儀式を三つ重ねてから技で使い切る作戦にする`,
+      ),
+    );
+    return h('div', {}, template, editor.el);
+  }
+
+  /** 儀式の手本を当てる。アクティブと作戦を差し替える */
+  private applyRiteTemplate(): void {
+    const build = this.build;
+    build.actives = [...new Set(RITE_TACTICS.map((t) => t.skill))].slice(0, BUILD_LIMITS.actives);
+    build.tactics = RITE_TACTICS.map((t) => ({ ...t }));
+    this.changed();
   }
 
   // ---- 切り札 ----
