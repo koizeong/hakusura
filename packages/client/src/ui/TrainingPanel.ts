@@ -172,7 +172,7 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
       // 開いたレベルまで選べる。既定は一番上
       const pick = h('select', { class: 'battle-level', 'aria-label': 'レベル' }) as HTMLSelectElement;
       const button = h('button', { class: 'start-battle', onclick: blurAfter(() => host.startEncounter(id, Number(pick.value))) });
-      const label = () => (button.textContent = `${ENCOUNTERS[id].name}に挑む(Lv${pick.value}・${minutesText(ENCOUNTERS[id].duration)})`);
+      const label = () => (button.textContent = `${ENCOUNTERS[id].name}に挑む(${minutesText(ENCOUNTERS[id].duration)})`);
       const refresh = () => {
         const max = host.encounterLevel(id);
         pick.replaceChildren(...Array.from({ length: max }, (_, i) => h('option', { value: String(max - i) }, `Lv${max - i}`)));
