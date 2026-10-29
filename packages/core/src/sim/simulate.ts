@@ -57,6 +57,8 @@ export interface EncounterRun {
   taken: number;
   /** ステップを踏んだ回数(避けた・詰めた) */
   steps: { dodges: number; closes: number };
+  /** 大物の一戦なら、与えた傷のうち大物に当たった割合 */
+  bossShare?: number;
   /** 傷の多い順に、発動元・条件文・コンボの割合 */
   topSources: [string, number][];
   topVia: [string, number][];
@@ -96,6 +98,7 @@ function pilot(w: CombatWorld, p: Unit, reach: number, dt: number, state: PilotS
   let mx = 0;
   let my = 0;
   let danger = false;
+  let projDanger = false;
   const d = Math.hypot(focus.x - p.x, focus.y - p.y) || 1;
   const want = Math.max(40, reach * 0.8);
   if (d - focus.radius > want) {
@@ -120,7 +123,10 @@ function pilot(w: CombatWorld, p: Unit, reach: number, dt: number, state: PilotS
     mx += (-proj.vy / speed) * side * strength * 2.5;
     my += (proj.vx / speed) * side * strength * 2.5;
     const coming = (proj.vx * dx + proj.vy * dy) / (speed * dist) > 0.8;
-    if (coming && dist < 55) danger = true;
+    if (coming && dist < 55) {
+      danger = true;
+      projDanger = true;
+    }
   }
   // 振りかぶっている敵の届く所から離れる。満ちる直前なら、当たりそうとみなす。
   // ステップを使うときは歩いて離れず、満ちる直前にステップで抜ける(人が遊ぶときのように、寄ったまま殴る)
@@ -146,9 +152,13 @@ function pilot(w: CombatWorld, p: Unit, reach: number, dt: number, state: PilotS
     const committed = winding && (p.windupUntil - w.time < 200 || charged);
     const away = { x: mx + flee.x, y: my + flee.y };
     const awayLen = Math.hypot(away.x, away.y);
-    if ((danger && awayLen > 0.01 && !committed) || close) {
-      const ux = danger ? away.x / awayLen : (focus.x - p.x) / d;
-      const uy = danger ? away.y / awayLen : (focus.y - p.y) / d;
+    // 盾が張られていれば、振りかぶりは盾で受ける(受けてから返す)。弾は避ける
+    const shielded = p.shields.some((sh) => sh.ready) && !projDanger;
+    if ((danger && awayLen > 0.01 && !committed && !shielded) || close) {
+      // 振りかぶりから抜けるときは、画面と同じステップの向き(近接は回り込み、遠距離は離れる)。弾は横へ
+      const dir = danger && !projDanger ? w.stepDirection(p, near) : undefined;
+      const ux = dir ? dir.x : danger ? away.x / awayLen : (focus.x - p.x) / d;
+      const uy = dir ? dir.y : danger ? away.y / awayLen : (focus.y - p.y) / d;
       if (w.dodge(p.id, true)) {
         state.step = { vx: ux * STEP.speed, vy: uy * STEP.speed, until: w.time + STEP.duration };
         state.readyAt = w.time + STEP.cooldown;
@@ -177,7 +187,14 @@ function buildReach(w: CombatWorld, p: Unit): number {
 const share = (rows: { key: string; share: number }[], n = 4): [string, number][] => rows.slice(0, n).map((r) => [r.key, r.share]);
 
 /** 一戦を入力なし(操り手つき)で最後まで戦わせる。切り札は戻りしだい切る */
-export function runEncounter(build: Build, id: EncounterId, seed = 1, useStep = true): EncounterRun {
+export function runEncounter(
+  build: Build,
+  id: EncounterId,
+  seed = 1,
+  useStep = true,
+  /** 刻みごとに呼ぶ(調べもの用) */
+  trace?: (w: CombatWorld, p: Unit, e: Encounter) => void,
+): EncounterRun {
   const w = new CombatWorld({ seed, bounds: ARENA });
   const p = w.addUnit({ id: 'player', name: '巡礼者', team: 'player', x: ARENA.width / 2, y: ARENA.height / 2, ...SIM_PLAYER, autoBattle: true });
   applyBuild(w, p, build);
@@ -187,15 +204,21 @@ export function runEncounter(build: Build, id: EncounterId, seed = 1, useStep = 
   let taken = 0;
   const dt = 25;
   const state: PilotState = { readyAt: 0, dodges: 0, closes: 0 };
+  // 倒れて消えた者の種類も分かるよう、名前と種類を覚えておく
+  const kinds = new Map<string, string | undefined>();
   while (!e.result) {
     e.update();
     if (e.result) break;
     if (p.trump && w.canUseSkill(p.id, p.trump) && !p.queued) w.queueSkill(p.id, p.trump, 3000);
+    for (const u of w.units.values()) if (!kinds.has(u.id)) kinds.set(u.id, u.kind);
     pilot(w, p, reach, dt, state, useStep);
+    trace?.(w, p, e);
     w.update(dt);
     for (const ev of w.drainEvents()) if (ev.type === 'damage' && ev.record.targetId === p.id) taken += ev.record.amount;
   }
   const b = summarize(dealtBy(w.log, p.id), w.time);
+  const bossKind = e.def.boss;
+  const bossDamage = bossKind ? dealtBy(w.log, p.id).filter((r) => kinds.get(r.targetId) === bossKind).reduce((s, r) => s + r.amount, 0) : 0;
   return {
     result: e.result,
     seconds: e.elapsed / 1000,
@@ -205,6 +228,7 @@ export function runEncounter(build: Build, id: EncounterId, seed = 1, useStep = 
     dps: b.total / Math.max(1, e.elapsed / 1000),
     taken,
     steps: { dodges: state.dodges, closes: state.closes },
+    ...(bossKind ? { bossShare: bossDamage / Math.max(1, b.total) } : {}),
     topSources: share(b.bySource),
     topVia: share(b.byVia),
     topCombos: b.byCombo.slice(0, 4).map((r) => [comboDef(r.combo).name, r.share]),

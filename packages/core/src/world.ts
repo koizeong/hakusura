@@ -4,7 +4,7 @@ import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
 import { FLOOR_RULES, fieldDef, type FieldId } from './data/fields';
 import { STATUS_IDS, statusDef, statusForElement, type StatusDef, type StatusId } from './data/statuses';
 import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction, type RiteEmpower } from './data/skills';
-import { WEAPON_TYPES, toWeaponSpec, type WeaponRef, type WeaponSpec, type WeaponTypeDef } from './data/weapons';
+import { WEAPON_TYPES, toWeaponSpec, type WeaponRef, type WeaponSpec, type WeaponTypeDef, type WeaponTypeId } from './data/weapons';
 import { shieldBurstElement, shieldDef, shieldName, type ShieldSpec } from './data/shields';
 import type { SkillVariant } from './data/variations';
 import { enemyDef, type EnemyId } from './data/enemies';
@@ -160,6 +160,10 @@ export interface Unit {
   focusStacks: number;
   focusTargetId?: string;
   focusAt: number;
+  /** 回り込むステップの左右。踏むたびに入れ替わる */
+  stepSide?: number;
+  /** 最後に回避(ステップ)した時刻。短剣の返しの踏み込みで見る */
+  lastStepAt?: number;
   /** 宿している儀式。次の技で全て使い切る */
   rites: { skill: ActiveSkillId; name: string; empower: RiteEmpower; until: number }[];
 }
@@ -661,6 +665,28 @@ export class CombatWorld {
     return aloft === undefined || aloft === this.isAirborne(unit);
   }
 
+  /**
+   * 歩く向きを決めずにステップを踏んだときの向き。近接の武器が中心なら、相手の周りを回り込んで間合いに残り、
+   * 遠距離や持ち合わせなら相手から離れる。回り込む向きは踏むたびに左右を入れ替える
+   */
+  stepDirection(unit: Unit, from: Point | undefined): Point {
+    if (!from) return { x: -Math.cos(unit.facing), y: -Math.sin(unit.facing) };
+    const dx = unit.x - from.x;
+    const dy = unit.y - from.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const away = { x: dx / d, y: dy / d };
+    const kinds = unit.weapons.map((w) => (WEAPON_TYPES[w.type] as WeaponTypeDef).kind);
+    // 近接の武器だけ(または近接が多い)なら回り込む。剣と銃のような持ち合わせは、撃ちやすいよう離れる
+    const melee = kinds.length === 0 || kinds.filter((k) => k === 'melee').length > kinds.filter((k) => k === 'ranged').length;
+    if (!melee) return away;
+    unit.stepSide = -(unit.stepSide || 1);
+    // 横へ回り込みつつ、少しだけ相手へ寄せる(跳んだ後も近攻撃が届くように)
+    const x = -away.y * unit.stepSide * 0.9 - away.x * 0.35;
+    const y = away.x * unit.stepSide * 0.9 - away.y * 0.35;
+    const len = Math.hypot(x, y) || 1;
+    return { x: x / len, y: y / len };
+  }
+
   /** 回避できるか。振りかぶり中と昏倒中はできない。硬直は回避で抜けられる */
   canDodge(unitId: string): boolean {
     const unit = this.units.get(unitId);
@@ -683,6 +709,7 @@ export class CombatWorld {
     if (!this.canDodge(unitId)) return false;
     unit.busyUntil = this.time;
     unit.dodgeStartedAt = this.time;
+    unit.lastStepAt = this.time;
     unit.dodgeOrigin = { x: unit.x, y: unit.y };
     unit.justDodged = false;
     unit.invulnerableUntil = Math.max(unit.invulnerableUntil, this.time + DEFENSE.dodgeInvulnerable);
@@ -862,6 +889,13 @@ export class CombatWorld {
     return undefined;
   }
 
+  /** その技を出す武器に、今効いているステップの後の一撃(短剣の返しの踏み込み) */
+  stepStrikeFor(unit: Unit, def: { weapon?: WeaponTypeId; action: SkillAction }): NonNullable<WeaponTypeDef['stepStrike']> | undefined {
+    if (def.action.type !== 'melee' || !def.weapon || unit.lastStepAt === undefined) return undefined;
+    const t = (WEAPON_TYPES[def.weapon] as WeaponTypeDef).stepStrike;
+    return t && this.time - unit.lastStepAt <= t.window ? t : undefined;
+  }
+
   /** 今の狙いの締まり。途切れていれば0に戻す */
   focusStacksOf(unit: Unit): number {
     const g = this.focusGrowthOf(unit);
@@ -907,7 +941,7 @@ export class CombatWorld {
   private executeSkill(pending: PendingAction): void {
     const unit = this.units.get(pending.unitId);
     if (!unit || this.isIncapacitated(unit)) return;
-    const def = pending.resolved;
+    let def = pending.resolved;
     const target = pending.targetId ? this.units.get(pending.targetId) : undefined;
     const angle = target ? Math.atan2(target.y - unit.y, target.x - unit.x) : pending.angle;
     unit.facing = angle;
@@ -917,7 +951,13 @@ export class CombatWorld {
     unit.distanceSinceSkill = 0;
     switch (action.type) {
       case 'melee': {
-        const range = action.range * this.statOf(unit, 'meleeRange', def.tags);
+        // 短剣はステップの後の一撃だけ、遠くまで届いて重い。1回で使い切る
+        const strike = this.stepStrikeFor(unit, def);
+        if (strike) {
+          unit.lastStepAt = undefined;
+          def = { ...def, rules: [...(def.rules ?? []), { label: strike.label, on: 'damage', when: [{ type: 'hitHasTag', tag: 'attack' }], add: strike.add }] };
+        }
+        const range = action.range * this.statOf(unit, 'meleeRange', def.tags) * (strike?.range ?? 1);
         const minRange = this.traitsOf(unit).meleeMinRange;
         this.events.push({
           type: 'swing',
@@ -1169,7 +1209,7 @@ export class CombatWorld {
     if (!def) return undefined;
     const reach = actionReach(def.action);
     if (reach === undefined) return undefined;
-    if (def.action.type === 'melee') return reach * this.statOf(unit, 'meleeRange', def.tags);
+    if (def.action.type === 'melee') return reach * this.statOf(unit, 'meleeRange', def.tags) * (this.stepStrikeFor(unit, def)?.range ?? 1);
     // 砂嵐や霧の中では、弾が遠くへ届かない
     return def.action.type === 'projectile' || def.action.type === 'barrage' ? reach * this.projectileRangeScale() : reach;
   }

@@ -42,6 +42,11 @@ interface WeaponBase {
    * 別の相手に当てるか window の間当てなければ数え直す。溜まった数 × perStack を与ダメージに足す
    */
   focusGrowth?: { label: string; perStack: number; max: number; window: number; tag: string };
+  /**
+   * ステップの後の一撃(短剣の返しの踏み込み)。ステップから window の間に、この武器で出す最初の近攻撃は
+   * 届く距離が range 倍になり、与ダメージに add を足す。避けてすぐ刺せる
+   */
+  stepStrike?: { label: string; window: number; range: number; add: number };
 }
 
 export interface MeleeWeaponDef extends WeaponBase {
@@ -219,6 +224,7 @@ export const WEAPON_TYPES = {
     arc: 90,
     needs: { dex: 12 },
     tags: ['dagger', 'light'],
+    stepStrike: { label: '返しの踏み込み', window: 1000, range: 2, add: 0.5 },
   },
   warHammer: {
     name: '戦槌',

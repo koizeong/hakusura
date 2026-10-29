@@ -628,8 +628,8 @@ export class TrainingGroundScene extends Phaser.Scene {
     const stepPressed = input.consumePressed('step') || this.stepRequested;
     this.stepRequested = false;
     if (stepPressed && world.time >= this.dodgeReadyAt && world.dodge(player.id, true)) {
-      const away = target ? Math.atan2(player.y - target.y, player.x - target.x) : this.facing + Math.PI;
-      const dir = len > 0 ? { x: mx / len, y: my / len } : { x: Math.cos(away), y: Math.sin(away) };
+      // 歩いていればその向き。止まっていれば、近接は相手の周りを回り込み、遠距離は離れる
+      const dir = len > 0 ? { x: mx / len, y: my / len } : world.stepDirection(player, target);
       this.dodge = { vx: dir.x * STEP.speed, vy: dir.y * STEP.speed, until: world.time + STEP.duration };
       this.dodgeReadyAt = world.time + STEP.cooldown;
       this.moveTo = null;
