@@ -79,7 +79,7 @@ interface PilotState {
  * 近くの敵の弾と、自分に向いた振りかぶりから横へ逃げる。完璧ではなく、人が遊ぶときの粗い近似。
  * useStep なら、当たりそうな弾や振りかぶりをステップで避け、離れた相手へステップで詰める
  */
-function pilot(w: CombatWorld, p: Unit, reach: number, dt: number, state: PilotState, useStep: boolean): void {
+function pilot(w: CombatWorld, p: Unit, reach: BuildReach, dt: number, state: PilotState, useStep: boolean): void {
   if (w.isIncapacitated(p)) return;
   const move = (dx: number, dy: number) => {
     const nx = Math.min(ARENA.width - p.radius, Math.max(p.radius, p.x + dx));
@@ -100,11 +100,19 @@ function pilot(w: CombatWorld, p: Unit, reach: number, dt: number, state: PilotS
   let danger = false;
   let projDanger = false;
   const d = Math.hypot(focus.x - p.x, focus.y - p.y) || 1;
-  const want = Math.max(40, reach * 0.8);
-  if (d - focus.radius > want) {
+  // 寄る間合いは、作戦が次に出したい技の届く距離(人が遊ぶときの自動の歩みと同じ)。
+  // 何も出せないときは、近接を持つビルドは近接の間合い(飛んでいる相手には遠攻撃の間合い)、遠距離だけのビルドは遠い間合い
+  const goal = w.autoMoveGoal(p.id);
+  const fallback = reach.melee !== undefined && !w.isAirborne(focus) ? reach.melee : reach.max;
+  const want = goal ? Math.max(30, goal.stopAt - focus.radius) : Math.max(40, fallback * 0.8);
+  const gd = goal ? Math.hypot(goal.x - p.x, goal.y - p.y) || 1 : 0;
+  if (goal && gd > goal.stopAt) {
+    mx += (goal.x - p.x) / gd;
+    my += (goal.y - p.y) / gd;
+  } else if (!goal && d - focus.radius > want) {
     mx += (focus.x - p.x) / d;
     my += (focus.y - p.y) / d;
-  } else if (reach > 200 && d < reach * 0.45) {
+  } else if (reach.melee === undefined && reach.max > 200 && d < reach.max * 0.45) {
     mx -= (focus.x - p.x) / d;
     my -= (focus.y - p.y) / d;
   }
@@ -173,15 +181,21 @@ function pilot(w: CombatWorld, p: Unit, reach: number, dt: number, state: PilotS
   move((mx / len) * step, (my / len) * step);
 }
 
-/** そのビルドの攻撃の技の、一番長い届く距離 */
-function buildReach(w: CombatWorld, p: Unit): number {
+/** そのビルドの攻撃の技の届く距離。一番長いものと、近攻撃の一番長いもの */
+interface BuildReach {
+  max: number;
+  melee?: number;
+}
+
+function buildReach(w: CombatWorld, p: Unit): BuildReach {
   const reaches = p.actives.flatMap((id) => {
     const def = w.skillFor(p, id);
     if (!def || !def.tags.includes('attack')) return [];
     const r = actionReach(def.action);
-    return r === undefined ? [] : [r];
+    return r === undefined ? [] : [{ r, melee: def.action.type === 'melee' }];
   });
-  return reaches.length > 0 ? Math.max(...reaches) : 60;
+  const melee = reaches.filter((x) => x.melee).map((x) => x.r);
+  return { max: reaches.length > 0 ? Math.max(...reaches.map((x) => x.r)) : 60, ...(melee.length > 0 ? { melee: Math.max(...melee) } : {}) };
 }
 
 const share = (rows: { key: string; share: number }[], n = 4): [string, number][] => rows.slice(0, n).map((r) => [r.key, r.share]);

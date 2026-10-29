@@ -14,7 +14,8 @@ export const STATS = {
   damage: { name: '与ダメージ', kind: 'mult' },
   buildup: { name: '状態の蓄積', kind: 'mult' },
   maxHp: { name: '最大HP', kind: 'mult' },
-  moveSpeed: { name: '移動速度', kind: 'mult' },
+  // 移動速度は4割より下がらない(足を捨てて火力に積むと、立ち尽くして弾を浴びるだけになるので)
+  moveSpeed: { name: '移動速度', kind: 'mult', min: 0.4 },
   // 被ダメージは7割減までしか下がらない
   damageTaken: { name: '被ダメージ', kind: 'mult', lowerIsBetter: true, min: 0.3 },
   cooldown: { name: 'クールダウン', kind: 'mult', lowerIsBetter: true },

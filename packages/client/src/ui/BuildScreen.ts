@@ -202,6 +202,8 @@ export class BuildScreen {
         h('span', {}, head),
         h('b', { class: ratioClass(c.power) }, `火力 ${ratioText(c.power)}`),
         h('b', { class: ratioClass(c.toughness) }, `耐久 ${ratioText(c.toughness)}`),
+        // 足は変わるときだけ出す
+        Math.abs(c.mobility - 1) >= 0.03 ? h('b', { class: ratioClass(c.mobility) }, `足 ${ratioText(c.mobility)}`) : '',
         mode === 'wear' && c.verdict === 'worse' ? h('em', {}, '弱くなる') : '',
         mode === 'wear' && c.verdict === 'better' ? h('em', {}, '強くなる') : '',
       );

@@ -18,6 +18,8 @@ export const LOADOUT_RULES = {
   threshold: 0.03,
   /** 耐久を点に混ぜる重み。火力×耐久^weight */
   toughnessWeight: 0.5,
+  /** 足(移動速度の倍率)を点に混ぜる重み。素より遅いと点が下がる(案山子は動かないので、火力の測りには出ない) */
+  mobilityWeight: 1,
   /** 覚えておく測った結果の数 */
   cacheSize: 600,
 } as const;
@@ -27,6 +29,8 @@ export interface Measure {
   power: number;
   /** 耐久。最大HP ÷ 被ダメージの倍率 */
   toughness: number;
+  /** 足。移動速度の倍率 */
+  mobility: number;
 }
 
 const cache = new Map<string, Measure>();
@@ -47,7 +51,7 @@ export function measureLoadout(build: Build): Measure {
   const unit = w.addUnit({ id: 'p', name: '測り', team: 'player', x: 0, y: 0, maxHp: LOADOUT_RULES.baseHp });
   applyBuild(w, unit, build);
   const toughness = unit.maxHp / Math.max(0.05, w.statOf(unit, 'damageTaken'));
-  const m = { power, toughness };
+  const m = { power, toughness, mobility: w.statOf(unit, 'moveSpeed') };
   if (cache.size >= LOADOUT_RULES.cacheSize) cache.delete(cache.keys().next().value!);
   cache.set(key, m);
   return m;
@@ -55,7 +59,11 @@ export function measureLoadout(build: Build): Measure {
 
 /** 火力と耐久を1つの点にする */
 export function loadoutScore(m: Measure): number {
-  return m.power * Math.pow(Math.max(1, Math.min(LOADOUT_RULES.toughnessCap, m.toughness)), LOADOUT_RULES.toughnessWeight);
+  return (
+    m.power *
+    Math.pow(Math.max(1, Math.min(LOADOUT_RULES.toughnessCap, m.toughness)), LOADOUT_RULES.toughnessWeight) *
+    Math.pow(Math.min(1, m.mobility), LOADOUT_RULES.mobilityWeight)
+  );
 }
 
 export type Verdict = 'better' | 'worse' | 'same';
@@ -66,6 +74,7 @@ export interface Comparison {
   /** 今と比べた火力・耐久・点の倍率(1 で変わらない) */
   power: number;
   toughness: number;
+  mobility: number;
   score: number;
   verdict: Verdict;
 }
@@ -79,19 +88,20 @@ function withItem(build: Build, slot: EquipSlotId, item: Item | undefined): Buil
   return { ...build, equipment };
 }
 
-function verdictOf(power: number, toughness: number, score: number): Verdict {
+function verdictOf(power: number, toughness: number, mobility: number, score: number): Verdict {
   const t = LOADOUT_RULES.threshold;
   if (score > 1 + t) return 'better';
-  // 火力も耐久も上がらず、点が下がるものだけを「悪くなる」とする
-  if (score < 1 - t && power <= 1 + t && toughness <= 1 + t) return 'worse';
+  // 火力も耐久も足も上がらず、点が下がるものだけを「悪くなる」とする
+  if (score < 1 - t && power <= 1 + t && toughness <= 1 + t && mobility <= 1 + t) return 'worse';
   return 'same';
 }
 
 function compare(before: Measure, after: Measure, slot: EquipSlotId): Comparison {
   const power = after.power / Math.max(1e-6, before.power);
   const toughness = after.toughness / Math.max(1e-6, before.toughness);
+  const mobility = after.mobility / Math.max(1e-6, before.mobility);
   const score = loadoutScore(after) / Math.max(1e-6, loadoutScore(before));
-  return { slot, power, toughness, score, verdict: verdictOf(power, toughness, score) };
+  return { slot, power, toughness, mobility, score, verdict: verdictOf(power, toughness, mobility, score) };
 }
 
 /** 着けられる枠。装飾品と武器は、空いている枠を先に、なければ全ての枠を試す */

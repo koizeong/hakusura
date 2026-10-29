@@ -1,4 +1,8 @@
 import { describe, it } from 'vitest';
+import { CombatWorld } from '../world';
+import { applyBuild } from '../build';
+import { dealtBy, summarize } from '../breakdown';
+import { ENEMIES } from '../data/enemies';
 import { ARCHETYPES } from './archetypes';
 import { outfit, reportArchetype, runEncounter } from './simulate';
 import { conditionDef } from '../data/conditions';
@@ -135,5 +139,50 @@ describe.skipIf(!process.env.SIM_LEVEL)('レベルの上り', () => {
       rows.push(`| ${a.name} | ${best} | ${cells.slice(-3).join('、')} |`);
     }
     console.log(['<<<REPORT', '| ビルド | 討てた最高のLv | 最後の3段 |', '| --- | --- | --- |', ...rows, 'REPORT>>>'].join('\n'));
+  }, 3_600_000);
+});
+
+function dummy(build: Parameters<typeof applyBuild>[2], seconds = 60): number {
+  const w = new CombatWorld({ seed: 1 });
+  const p = w.addUnit({ id: 'p', name: '試し', team: 'player', x: 0, y: 0, maxHp: 1e9, autoBattle: true });
+  applyBuild(w, p, build);
+  w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 90, y: 0, maxHp: 1e9, radius: 46, resist: ENEMIES.wyvern.resist });
+  if (p.trump) w.queueSkill('p', p.trump, 5000);
+  for (let t = 0; t < seconds * 1000; t += 25) w.update(25);
+  return summarize(dealtBy(w.log, 'p'), w.time).total / seconds;
+}
+
+/**
+ * 操り手の働きの切り分け。`npm run sim:pilot`
+ * 飛竜と同じ耐性の動かない案山子を理想として、本物の飛竜の地上の間にどれだけ出せたか、離れていた・手が空いていた割合を出す。
+ * 案山子比が低く「遠い」が多ければ操り手の寄り方、「手が空く」が多ければ作戦か足の問題
+ */
+describe.skipIf(!process.env.SIM_PILOT)('操り手の働き', () => {
+  it('灰翼の巣で、地上の間の火力を案山子と比べる', () => {
+  const rows: string[] = [];
+  for (const a of Object.values(ARCHETYPES)) {
+    const g = outfit(a.build);
+    const ideal = dummy(g);
+    let ticks = 0, air = 0, groundDmg = 0, far = 0, idleNear = 0, last = 0;
+    const real = runEncounter(g, 'ashWyvern', 1, true, (w, p) => {
+      const b = [...w.units.values()].find((u) => u.kind === 'wyvern');
+      if (!b) return;
+      ticks++;
+      const dealt = w.log.filter((r) => r.targetId === b.id).reduce((s, r) => s + r.amount, 0);
+      const d = dealt - last; last = dealt;
+      if (w.isAirborne(b)) air++;
+      else {
+        groundDmg += d;
+        const gap = Math.hypot(b.x - p.x, b.y - p.y) - b.radius - p.radius;
+        if (gap > 120) far++;
+        else if (p.busyUntil <= w.time && p.windupUntil <= w.time) idleNear++;
+      }
+    });
+    const ground = ticks - air;
+    const pc = (v: number) => `${Math.round(v * 100)}%`;
+    const gdps = groundDmg / Math.max(1, (ground * 25) / 1000);
+    rows.push(`| ${a.name} | ${Math.round(ideal)} | ${pc(air / ticks)} | ${Math.round(gdps)} (${pc(gdps / ideal)}) | ${pc(far / Math.max(1, ground))} | ${pc(idleNear / Math.max(1, ground))} | ${real.result} ${Math.round(real.seconds)}秒 倒${real.falls} |`);
+  }
+  console.log(['<<<REPORT', '| ビルド | 案山子 | 飛ぶ間 | 地上のDPS(案山子比) | 地上で遠い | 近く手が空く | 結果 |', ...rows, 'REPORT>>>'].join('\n'));
   }, 3_600_000);
 });
