@@ -194,12 +194,14 @@ export function runEncounter(
   useStep = true,
   /** 刻みごとに呼ぶ(調べもの用) */
   trace?: (w: CombatWorld, p: Unit, e: Encounter) => void,
+  /** 一戦のレベル */
+  level = 1,
 ): EncounterRun {
   const w = new CombatWorld({ seed, bounds: ARENA });
   const p = w.addUnit({ id: 'player', name: '巡礼者', team: 'player', x: ARENA.width / 2, y: ARENA.height / 2, ...SIM_PLAYER, autoBattle: true });
   applyBuild(w, p, build);
   p.hp = p.maxHp;
-  const e = new Encounter(w, id, p);
+  const e = new Encounter(w, id, p, level);
   const reach = buildReach(w, p);
   let taken = 0;
   const dt = 25;

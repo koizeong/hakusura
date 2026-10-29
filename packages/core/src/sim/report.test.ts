@@ -110,3 +110,30 @@ describe.skipIf(!process.env.SIM_STEP)('ステップの有無', () => {
     );
   }, 3_600_000);
 });
+
+/**
+ * レベルを上げて、どこまで大物を討てるか。`npm run sim:level`
+ * 2回とも討てたレベルを上へ辿り、初めて討ち漏らしたところで止める。装備は Lv30 で揃えたまま(高いレベルの持ち帰りは入れない)
+ */
+describe.skipIf(!process.env.SIM_LEVEL)('レベルの上り', () => {
+  it('型どおりのビルドが、灰翼の巣を何レベルまで討てるか', () => {
+    const rows: string[] = [];
+    const LEVEL_SEEDS = [1, 2];
+    for (const a of Object.values(ARCHETYPES)) {
+      const geared = outfit(a.build);
+      const cells: string[] = [];
+      let best = 0;
+      for (let level = 1; level <= 15; level++) {
+        const runs = LEVEL_SEEDS.map((s) => runEncounter(geared, 'ashWyvern', s, true, undefined, level));
+        const wins = runs.filter((x) => x.result === 'cleared').length;
+        const time = runs.reduce((s, x) => s + x.seconds, 0) / runs.length;
+        const falls = runs.reduce((s, x) => s + x.falls, 0) / runs.length;
+        cells.push(`Lv${level} ${wins}/${runs.length} ${Math.round(time)}秒 倒${falls.toFixed(1)}`);
+        if (wins < runs.length) break;
+        best = level;
+      }
+      rows.push(`| ${a.name} | ${best} | ${cells.slice(-3).join('、')} |`);
+    }
+    console.log(['<<<REPORT', '| ビルド | 討てた最高のLv | 最後の3段 |', '| --- | --- | --- |', ...rows, 'REPORT>>>'].join('\n'));
+  }, 3_600_000);
+});

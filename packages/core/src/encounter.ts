@@ -6,6 +6,7 @@ import { FORM_IDS, type FormId } from './data/forms';
 import type { ActiveSkillId } from './data/skills';
 import type { PassiveId } from './data/passives';
 import type { SkillVariant } from './data/variations';
+import { LEVEL_RULES, levelReward } from './data/levels';
 import { addExp, lootFit, type Character } from './build';
 import { VARIANT_BASES, learnedForms, rollVariant, unlearnedSkills, type Learned } from './expedition';
 
@@ -34,6 +35,8 @@ export class Encounter {
     private readonly world: CombatWorld,
     readonly id: EncounterId,
     private readonly hero: Unit,
+    /** 一戦のレベル。敵はこのレベルで現れ、持ち帰りもレベルで増える */
+    readonly level = 1,
   ) {
     this.def = encounterDef(id);
     this.startedAt = world.time;
@@ -78,7 +81,7 @@ export class Encounter {
         for (let i = 0; i < count; i++) {
           const at = this.spawnPoint();
           const id = `${enemy}-${++this.serial}`;
-          this.world.spawnEnemy(enemy, id, at.x, at.y);
+          this.world.spawnEnemy(enemy, id, at.x, at.y, 'enemy', this.level);
           this.spawned.push(id);
         }
       }
@@ -122,6 +125,22 @@ export class Encounter {
   }
 }
 
+/** 一戦の今のレベル。まだ挑んでいなければ 1 */
+export function encounterLevel(levels: Partial<Record<EncounterId, number>> | undefined, id: EncounterId): number {
+  return Math.max(1, levels?.[id] ?? 1);
+}
+
+/**
+ * 一戦を終えたあとのレベル。討ち果たせば次のレベルが開き、時間切れならそのまま。
+ * 開いたレベルより下を選んで挑んでも、開いたレベルは下がらない
+ */
+export function advanceEncounterLevel(levels: Partial<Record<EncounterId, number>>, e: Encounter): boolean {
+  if (e.result !== 'cleared') return false;
+  if (e.level < encounterLevel(levels, e.id)) return false;
+  levels[e.id] = e.level + 1;
+  return true;
+}
+
 /** 一戦で持ち帰った物 */
 export interface EncounterSpoils {
   /** 持ち帰った割合。討ち果たせば 1、時間切れなら reward.partial */
@@ -142,10 +161,11 @@ export function claimEncounterReward(e: Encounter, c: Character, learned: Learne
   const reward = e.def.reward;
   if (!reward || !e.result) return undefined;
   const share = e.result === 'cleared' ? 1 : reward.partial;
-  const exp = Math.round(reward.exp * share);
+  const scale = levelReward(e.level);
+  const exp = Math.round(reward.exp * share * scale);
   const levelsGained = addExp(c, exp);
   const items: Item[] = [];
-  const count = Math.max(1, Math.round(reward.items * share));
+  const count = Math.max(1, Math.round(reward.items * share * scale));
   for (let i = 0; i < count; i++) {
     const kind = reward.itemKinds ? reward.itemKinds[Math.floor(random() * reward.itemKinds.length)] : undefined;
     items.push(
@@ -153,7 +173,7 @@ export function claimEncounterReward(e: Encounter, c: Character, learned: Learne
         ...(kind ? { kind, ...(kind === 'weapon' ? { slot: 'weapon1' as const } : {}) } : {}),
         preferElements: reward.preferElements,
         preferAffixes: reward.preferAffixes,
-        conditionChance: reward.conditionChance,
+        conditionChance: Math.min(1, reward.conditionChance + LEVEL_RULES.conditionChance * (e.level - 1)),
         fit: lootFit(c.build),
       }),
     );

@@ -32,6 +32,8 @@ export interface EnemyDef {
   };
   /** 生まれつき持つルール(棘の亡者の棘など) */
   rules?: readonly Rule[];
+  /** レベルが from 以上で増える技。skills より先に見る(凶悪になった大物の新しい攻め) */
+  levelSkills?: readonly { from: number; skill: ActiveSkillId }[];
   /** 寄るときの目安にする技。なければ skills の最初 */
   approach?: ActiveSkillId;
   /** 大物。1体で現れ、画面の上に大きな体力の棒が出る */
@@ -264,6 +266,11 @@ export const ENEMIES = {
     speed: 95,
     resist: { fire: 0.6, ash: 0.4, slash: 0.15, ice: -0.4, lightning: -0.2 },
     skills: ['fireRain', 'emberVolley', 'wyvernTakeOff', 'broodCall', 'flameBreath', 'tailSweep', 'wyvernBite'],
+    // 討つたびに凶悪になる。Lv3 から地上でも火の礫を撃ち、Lv5 から地を焼く火の嵐を放つ
+    levelSkills: [
+      { from: 5, skill: 'ashStorm' },
+      { from: 3, skill: 'groundEmbers' },
+    ],
     approach: 'wyvernBite',
     behavior: 'chase',
     boss: true,

@@ -21,6 +21,7 @@ import { passiveDef, type PassiveId } from './data/passives';
 import { conditionDef, type ConditionId } from './data/conditions';
 import { INTERACTIONS } from './data/interactions';
 import { DEFENSE_RULES } from './data/defense';
+import { levelHp, levelModifiers } from './data/levels';
 import { evaluatePredicate, ruleMatches, type Action, type Modifier, type Predicate, type PredicateContext, type Rule } from './rules';
 
 export type Team = 'player' | 'enemy';
@@ -145,6 +146,8 @@ export interface Unit {
   followUp?: { skills: ActiveSkillId[]; until: number };
   /** 生まれつき持つルール(敵の棘など) */
   innateRules: Rule[];
+  /** 敵のレベル(1 が素の強さ)。呼び出した取り巻きにも受け継ぐ */
+  level: number;
   /** 呼び出した者(屍術師が起こした屍喰いなど) */
   minions: string[];
   /** この時刻まで空を飛んでいる。飛んでいる間は近攻撃と周りに放つ技が届かず、床も踏まない */
@@ -405,9 +408,10 @@ export class CombatWorld {
     this.bounds = options.bounds;
   }
 
-  /** 敵を1体置く。数値と動き方は ENEMIES から */
-  spawnEnemy(kind: EnemyId, id: string, x: number, y: number, team: Team = 'enemy'): Unit {
+  /** 敵を1体置く。数値と動き方は ENEMIES から。level が高いほど硬く、重く、速く、技が増える */
+  spawnEnemy(kind: EnemyId, id: string, x: number, y: number, team: Team = 'enemy', level = 1): Unit {
     const def = enemyDef(kind);
+    const skills = [...(def.levelSkills ?? []).filter((s) => level >= s.from).map((s) => s.skill), ...def.skills];
     const unit = this.addUnit({
       id,
       name: def.name,
@@ -415,15 +419,16 @@ export class CombatWorld {
       x,
       y,
       radius: def.radius,
-      maxHp: def.maxHp,
+      maxHp: Math.round(def.maxHp * levelHp(level)),
       resist: def.resist,
-      ai: [...def.skills],
+      ai: skills,
       mortal: true,
       kind,
     });
     unit.innateRules = [...(def.rules ?? [])];
+    unit.level = level;
     // 現れてすぐ一斉に撃たないよう、最初の間を少しずらす。opening のある技は、その間だけ待つ
-    for (const skill of def.skills) {
+    for (const skill of skills) {
       const opening = (activeSkillDef(skill) as { opening?: number }).opening;
       unit.cooldowns[skill] = this.time + (opening ?? 600 + this.random() * 1400);
     }
@@ -502,6 +507,7 @@ export class CombatWorld {
       fervor: 0,
       recentCombos: [],
       innateRules: [],
+      level: 1,
       minions: [],
       airborneUntil: 0,
       enraged: false,
@@ -1650,7 +1656,7 @@ export class CombatWorld {
       const at = corpse ?? { x: unit.x + Math.cos(a) * (unit.radius + action.radius), y: unit.y + Math.sin(a) * (unit.radius + action.radius) };
       if (corpse) this.floors = this.floors.filter((f) => f !== corpse);
       const id = `${unit.id}:${action.enemy}-${this.nextId++}`;
-      this.spawnEnemy(action.enemy as EnemyId, id, at.x, at.y, unit.team);
+      this.spawnEnemy(action.enemy as EnemyId, id, at.x, at.y, unit.team, unit.level);
       unit.minions.push(id);
       this.events.push({ type: 'summoned', unitId: id, by: unit.id, x: at.x, y: at.y, skill });
     }
@@ -1882,6 +1888,8 @@ export class CombatWorld {
       ...unit.equipment.flatMap((item) => item.affixes.map(affixModifier)),
       ...unit.artifacts.flatMap((id) => artifactDef(id).modifiers ?? []),
       ...(unit.grip ? GRIPS[unit.grip].modifiers : []),
+      // 敵のレベル
+      ...levelModifiers(unit.level),
       ...unit.shields.flatMap((s) => shieldDef(s.type).modifiers ?? []),
       // 天候と、立っている床の補正(夜の闇、凍った床の滑りなど)
       ...(this.weather ? (fieldDef(this.weather).modifiers ?? []) : []),

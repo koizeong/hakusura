@@ -20,3 +20,4 @@ export * from './enemies';
 export * from './encounters';
 export * from './shields';
 export * from './forms';
+export * from './levels';

@@ -1530,6 +1530,27 @@ button.discard {
   border-color: #8a4a2f;
 }
 
+.battles .battle-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.battles .battle-row .start-battle {
+  flex: 1;
+  min-width: 0;
+}
+
+.battles .battle-level {
+  flex: none;
+  min-height: 44px;
+  min-width: 64px;
+}
+
+.encounter-result .level-up {
+  color: #d8a24a;
+}
+
 .encounter-bar {
   position: absolute;
   top: 12px;

@@ -18,6 +18,7 @@ import {
   type Attributes,
   type Build,
   type Character,
+  type EncounterId,
   type ConditionId,
   type Item,
 } from '@hakusura/core';
@@ -35,6 +36,8 @@ export interface BuildState {
    * 持たない古い保存は、全て開いているとみなす
    */
   unlocked?: Unlock[];
+  /** 一戦ごとに開いたレベル(討ち果たすたびに1つ上がる)。全キャラで共有する */
+  encounterLevels?: Partial<Record<EncounterId, number>>;
 }
 
 export type Unlock = 'expedition' | 'forms' | 'variants';

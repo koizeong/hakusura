@@ -917,6 +917,32 @@ export const ACTIVE_SKILLS = {
     aloft: true,
     action: { type: 'barrage', pattern: 'fan', count: 5, spread: 48, speed: 240, radius: 7, range: 700, power: 11, buildup: 25 },
   },
+  /** 地上の火の礫。Lv3 からの飛竜が、寄らずとも撃ってくる */
+  groundEmbers: {
+    name: '地を這う礫',
+    category: 'ranged',
+    element: 'fire',
+    tags: ['attack', 'enemy', 'boss', 'projectile'],
+    windup: 600,
+    recovery: 300,
+    cooldown: 4200,
+    opening: 5000,
+    aloft: false,
+    action: { type: 'barrage', pattern: 'fan', count: 7, spread: 70, speed: 220, radius: 7, range: 650, power: 11, buildup: 25 },
+  },
+  /** 火の嵐。Lv5 からの飛竜が地に伏せて、周り一面へ二重の火の輪を放つ */
+  ashStorm: {
+    name: '火の嵐',
+    category: 'ranged',
+    element: 'fire',
+    tags: ['attack', 'enemy', 'boss', 'projectile'],
+    windup: 1400,
+    recovery: 600,
+    cooldown: 16000,
+    opening: 20000,
+    aloft: false,
+    action: { type: 'barrage', pattern: 'ring', count: 28, spin: 7, speed: 170, radius: 9, range: 800, power: 16, buildup: 35 },
+  },
   /** 飛竜の急降下。飛ぶ時間が切れると、狙った所へ落ちて降りた周りを砕く。地に降りる */
   wyvernDive: {
     name: '急降下',

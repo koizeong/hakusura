@@ -39,8 +39,13 @@ export interface TrainingHost {
   resetMeasure(): void;
   spawnEnemy(kind: EnemyId): void;
   clearEnemies(): void;
-  startEncounter(id: EncounterId): void;
+  startEncounter(id: EncounterId, level: number): void;
+  /** 一戦の開いたレベル。討ち果たすたびに上がる */
+  encounterLevel(id: EncounterId): number;
 }
+
+/** 一戦のレベルが変わったとき、パネルに送る知らせ */
+export const LEVELS_CHANGED = 'levels-changed';
 
 const RESIST_STEPS = [-1, -0.5, 0, 0.25, 0.5, 0.75, 1];
 
@@ -159,17 +164,26 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
     ),
     concept,
   );
+  const levelRefreshers: (() => void)[] = [];
   const battles = h(
     'div',
     { class: 'battles' },
-    ...ENCOUNTER_IDS.map((id) =>
-      h(
-        'div',
-        {},
-        h('button', { class: 'start-battle', onclick: blurAfter(() => host.startEncounter(id)) }, `${ENCOUNTERS[id].name}に挑む(${minutesText(ENCOUNTERS[id].duration)})`),
-        h('small', {}, ENCOUNTERS[id].description),
-      ),
-    ),
+    ...ENCOUNTER_IDS.map((id) => {
+      // 開いたレベルまで選べる。既定は一番上
+      const pick = h('select', { class: 'battle-level', 'aria-label': 'レベル' }) as HTMLSelectElement;
+      const button = h('button', { class: 'start-battle', onclick: blurAfter(() => host.startEncounter(id, Number(pick.value))) });
+      const label = () => (button.textContent = `${ENCOUNTERS[id].name}に挑む(Lv${pick.value}・${minutesText(ENCOUNTERS[id].duration)})`);
+      const refresh = () => {
+        const max = host.encounterLevel(id);
+        pick.replaceChildren(...Array.from({ length: max }, (_, i) => h('option', { value: String(max - i) }, `Lv${max - i}`)));
+        pick.value = String(max);
+        label();
+      };
+      pick.addEventListener('change', blurAfter(label));
+      levelRefreshers.push(refresh);
+      refresh();
+      return h('div', {}, h('div', { class: 'battle-row' }, button, pick), h('small', {}, ENCOUNTERS[id].description));
+    }),
   );
 
   const body = h(
@@ -210,6 +224,7 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
   const panel = h('aside', { class: `panel${window.innerWidth < 760 ? ' closed' : ''}` });
   const title = h('h2', { onclick: () => panel.classList.toggle('closed') }, '試し斬り場', h('span', { class: 'fold' }, ''));
   panel.append(title, body);
+  panel.addEventListener(LEVELS_CHANGED, () => levelRefreshers.forEach((f) => f()));
   return panel;
 
   function checkbox(label: string, checked: boolean, onChange: (on: boolean) => void, color?: number, note?: string) {

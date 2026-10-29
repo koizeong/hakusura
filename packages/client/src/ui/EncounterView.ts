@@ -38,13 +38,13 @@ export class EncounterView {
     const next = e.nextWaveIn;
     const left = e.alive().length;
     if (e.def.boss) {
-      this.text.textContent = `${e.def.name} ${clock(e.elapsed)} / ${clock(e.def.duration)}`;
+      this.text.textContent = `${e.def.name} Lv${e.level} ${clock(e.elapsed)} / ${clock(e.def.duration)}`;
       const boss = e.boss();
       this.bossBar.style.display = boss ? '' : 'none';
       if (boss) {
         const ratio = Math.max(0, boss.hp) / boss.maxHp;
         this.lag = Math.max(ratio, this.lag - 0.004);
-        this.bossName.textContent = `${boss.name}${boss.enraged ? '・逆鱗' : ''}`;
+        this.bossName.textContent = `Lv${boss.level} ${boss.name}${boss.enraged ? '・逆鱗' : ''}`;
         this.bossBar.classList.toggle('enraged', boss.enraged);
         this.bossFill.style.width = `${ratio * 100}%`;
         this.bossLag.style.width = `${this.lag * 100}%`;
@@ -52,11 +52,11 @@ export class EncounterView {
       return;
     }
     this.text.textContent =
-      `${e.def.name} ${clock(e.elapsed)} / ${clock(e.def.duration)}・第${e.wave}波 / ${e.def.waves.length}・討った ${e.kills}・残る ${left}` +
+      `${e.def.name} Lv${e.level} ${clock(e.elapsed)} / ${clock(e.def.duration)}・第${e.wave}波 / ${e.def.waves.length}・討った ${e.kills}・残る ${left}` +
       (next !== undefined ? `・次の群れまで ${Math.ceil(next / 1000)}秒` : '');
   }
 
-  showResult(e: Encounter, breakdown: Breakdown, falls: number, onClose: () => void, spoils?: EncounterSpoils): void {
+  showResult(e: Encounter, breakdown: Breakdown, falls: number, onClose: () => void, spoils?: EncounterSpoils, levelUp = false): void {
     this.bar.style.display = 'none';
     this.bossBar.style.display = 'none';
     const boss = e.def.boss ? ENEMIES[e.def.boss].name : undefined;
@@ -76,8 +76,9 @@ export class EncounterView {
     for (const d of e.deadKinds()) kills.set(d, (kills.get(d) ?? 0) + 1);
     const seconds = e.elapsed / 1000;
     this.result.replaceChildren(
-      h('h2', {}, title),
+      h('h2', {}, `${title}(Lv${e.level})`),
       h('p', {}, lead),
+      levelUp ? h('p', { class: 'level-up' }, `Lv${e.level + 1}が開いた。敵はさらに硬く、重く、速くなる`) : '',
       h(
         'dl',
         {},

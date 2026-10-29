@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc -p packages/core --noEmit && tsc -p packages/client --noEmit",
     "sim": "SIM=1 vitest run --root packages/core src/sim/report.test.ts --silent=false",
-    "sim:step": "SIM_STEP=1 vitest run --root packages/core src/sim/report.test.ts --silent=false"
+    "sim:step": "SIM_STEP=1 vitest run --root packages/core src/sim/report.test.ts --silent=false",
+    "sim:level": "SIM_LEVEL=1 vitest run --root packages/core src/sim/report.test.ts --silent=false"
   },
   "devDependencies": {
     "typescript": "~5.9.3",

@@ -35,6 +35,8 @@ import {
   conditionDef,
   Encounter,
   claimEncounterReward,
+  advanceEncounterLevel,
+  encounterLevel,
   type EncounterId,
   type EnemyId,
 } from '@hakusura/core';
@@ -44,7 +46,7 @@ import { InputController } from '../input/InputController';
 import { ACTIVE_SLOT_ACTIONS, loadKeybinds, type Keybinds } from '../input/keybinds';
 import { BreakdownView } from '../ui/BreakdownView';
 import { Hud } from '../ui/Hud';
-import { createTrainingPanel, type BattleMode, type EnemyAttack } from '../ui/TrainingPanel';
+import { LEVELS_CHANGED, createTrainingPanel, type BattleMode, type EnemyAttack } from '../ui/TrainingPanel';
 import { ComboView } from '../ui/ComboView';
 import { BuildScreen } from '../ui/BuildScreen';
 import { UNLOCK_NAMES, currentBuild, currentCharacter, loadBuildState, resetBuildState, saveBuildState, unlock, type BuildState, type Unlock } from '../ui/buildStore';
@@ -159,6 +161,7 @@ export class TrainingGroundScene extends Phaser.Scene {
   /** 一戦の最中なら、その進み具合 */
   private encounter: Encounter | null = null;
   private encounterView!: EncounterView;
+  private panel!: HTMLElement;
   private enemySerial = 0;
   /** 最後に被弾した時刻(画面の時刻)。当たった瞬間に白く光らせる */
   private hurtAt = new Map<string, number>();
@@ -284,9 +287,11 @@ export class TrainingGroundScene extends Phaser.Scene {
       resetMeasure: () => this.world.resetLog(),
       spawnEnemy: (kind: EnemyId) => this.spawnEnemy(kind),
       clearEnemies: () => this.clearEnemies(),
-      startEncounter: (id: EncounterId) => this.startEncounter(id),
+      startEncounter: (id: EncounterId, level: number) => this.startEncounter(id, level),
+      encounterLevel: (id: EncounterId) => encounterLevel(this.buildState.encounterLevels, id),
     };
     const panel = createTrainingPanel(host);
+    this.panel = panel;
     // キー設定が変わったら枠の表示も変える
     panel.addEventListener('click', () => setTimeout(() => this.hud.setKeybinds(this.keybinds), 50));
     panel.addEventListener('mousedown', () => setTimeout(() => this.hud.setKeybinds(this.keybinds), 50));
@@ -346,7 +351,7 @@ export class TrainingGroundScene extends Phaser.Scene {
   }
 
   /** 一戦を始める。案山子を片付け、場をまっさらにして群れを待つ */
-  private startEncounter(id: EncounterId): void {
+  private startEncounter(id: EncounterId, level = 1): void {
     if (this.encounter) return;
     this.clearEnemies();
     for (const s of this.scarecrows) this.world.units.delete(s.id);
@@ -362,8 +367,8 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.world.moveUnit(p.id, ARENA.width / 2, ARENA.height / 2);
     this.lockTarget = null;
     p.focusId = undefined;
-    this.encounter = new Encounter(this.world, id, p);
-    this.callout(p, this.encounter.def.name, '#c9b79c');
+    this.encounter = new Encounter(this.world, id, p, level);
+    this.callout(p, `${this.encounter.def.name} Lv${level}`, '#c9b79c');
   }
 
   /** 一戦をやめるか終えて、試し斬り場に戻す */
@@ -550,10 +555,14 @@ export class TrainingGroundScene extends Phaser.Scene {
           this.buildState.techniques.unshift(...spoils.variants);
           if (spoils.variants.length > 0) this.openUnlock('variants');
         }
+        // 討ち果たせば次のレベルが開く
+        this.buildState.encounterLevels ??= {};
+        const levelUp = advanceEncounterLevel(this.buildState.encounterLevels, e);
+        if (levelUp) this.panel.dispatchEvent(new Event(LEVELS_CHANGED));
         // 一戦を終えたら遠征が開く
         this.openUnlock('expedition');
         this.onBuildChange();
-        this.encounterView.showResult(e, summarize(dealtBy(world.log, player.id), world.time), player.falls, () => this.endEncounter(), spoils);
+        this.encounterView.showResult(e, summarize(dealtBy(world.log, player.id), world.time), player.falls, () => this.endEncounter(), spoils, levelUp);
       } else this.encounterView.update(e);
     }
     for (const event of world.drainEvents()) this.showEvent(event);
