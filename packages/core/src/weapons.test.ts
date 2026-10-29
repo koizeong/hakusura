@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld } from './world';
 import { resolveSkill } from './data/skills';
-import { WEAPON_TYPES, weaponName, type WeaponTypeId } from './data/weapons';
+import { WEAPON_TYPES, weaponName, type WeaponTypeId, WEAPON_KIND_POWER } from './data/weapons';
 import { generateItem, itemWeapon } from './data/equipment';
 import { applyBuild, buildWeapons, unusableActives, type Build } from './build';
 
@@ -23,7 +23,7 @@ describe('武器と技', () => {
     expect(sweep.name).toBe('鉄の剣の薙ぎ払い');
     expect(sweep.element).toBe('slash');
     expect(sweep.cooldown).toBeCloseTo(sword.interval * 1.3);
-    expect(sweep.action).toMatchObject({ type: 'melee', arc: 180, range: sword.range, power: sword.power * 0.9 });
+    expect(sweep.action).toMatchObject({ type: 'melee', arc: 180, range: sword.range, power: sword.power * WEAPON_KIND_POWER.melee * 0.9 });
     expect(sweep.category).toBe('melee');
   });
 

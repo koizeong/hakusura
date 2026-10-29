@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld } from './world';
 import { resolveSkill } from './data/skills';
-import { WEAPON_TYPES } from './data/weapons';
+import { WEAPON_TYPES, WEAPON_KIND_POWER } from './data/weapons';
 import { ATTRIBUTE_RULES, baseAttributes, expToNext, missingPoints, pointsAtLevel, shortfallPenalty, type Attributes } from './data/attributes';
 import { addExp, applyBuild, buildProblems, characterPoints, decodeBuild, encodeBuild, levelForPoints, newCharacter, unspentPoints, type Build } from './build';
 
@@ -12,13 +12,13 @@ describe('能力値の足りなさ', () => {
   it('足りていれば威力も間隔も変わらない', () => {
     const r = resolveSkill('slash', 'rustGreatsword', attrs({ str: 18 }))!;
     expect(r.missing).toBe(0);
-    expect(power(r)).toBe(WEAPON_TYPES.rustGreatsword.power);
+    expect(power(r)).toBe((WEAPON_TYPES.rustGreatsword.power * WEAPON_KIND_POWER.melee));
   });
 
   it('足りない1点ごとに威力-8%、間隔+4%', () => {
     const r = resolveSkill('slash', 'rustGreatsword', attrs({ str: 14 }))!;
     expect(r.missing).toBe(4);
-    expect(power(r)).toBeCloseTo(WEAPON_TYPES.rustGreatsword.power * 0.68);
+    expect(power(r)).toBeCloseTo((WEAPON_TYPES.rustGreatsword.power * WEAPON_KIND_POWER.melee) * 0.68);
     expect(r.cooldown).toBeCloseTo(WEAPON_TYPES.rustGreatsword.interval * 1.16);
   });
 
@@ -26,7 +26,7 @@ describe('能力値の足りなさ', () => {
     // 叩き割りは筋力20、錆びた大剣は筋力18。筋力14なら 6 + 4
     const r = resolveSkill('cleave', 'rustGreatsword', attrs({ str: 14 }))!;
     expect(r.missing).toBe(10);
-    expect(power(r)).toBeCloseTo(WEAPON_TYPES.rustGreatsword.power * 2.2 * 0.2);
+    expect(power(r)).toBeCloseTo((WEAPON_TYPES.rustGreatsword.power * WEAPON_KIND_POWER.melee) * 2.2 * 0.2);
   });
 
   it('威力は0を下回らない', () => {

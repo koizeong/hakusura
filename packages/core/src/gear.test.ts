@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CombatWorld } from './world';
 import { applyBuild, decodeBuild, encodeBuild, type Build } from './build';
 import { resolveSkill, activeSkillDef, isTechnique, techniqueFits } from './data/skills';
-import { WEAPON_TYPES, rollWeapon, weaponDef, weaponName } from './data/weapons';
+import { WEAPON_TYPES, rollWeapon, weaponDef, weaponName, WEAPON_KIND_POWER } from './data/weapons';
 import { SHIELD_TYPES } from './data/shields';
 import { generateItem, type Item } from './data/equipment';
 
@@ -40,7 +40,7 @@ describe('武器の形・属性・性質', () => {
   it('性質は数値を傾け、名前の頭に付く', () => {
     const heavy = weaponDef({ type: 'ironSword', tempers: ['heavy'] });
     expect(heavy.name).toBe('重い鉄の剣');
-    expect(heavy.power).toBeCloseTo(WEAPON_TYPES.ironSword.power * 1.2);
+    expect(heavy.power).toBeCloseTo((WEAPON_TYPES.ironSword.power * WEAPON_KIND_POWER.melee) * 1.2);
     expect(heavy.needs).toMatchObject({ str: 14 });
     const rusted = weaponDef({ type: 'rustGreatsword', tempers: ['rusted'] });
     expect(rusted.needs).toMatchObject({ str: Math.round(18 * 0.6) });
