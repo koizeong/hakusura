@@ -31,3 +31,9 @@ export const STATUS_RULES = {
   /** 死の宣告のまま倒れたとき、呪縛を撒く範囲 */
   doomSpreadRadius: 160,
 } as const;
+
+/**
+ * 手数。武器の技は1回の当たりを split 回に分けて当てる(1回ごとの威力と蓄積は 1/split)。
+ * 素の火力と1手で溜まる状態は変わらず、当てたときの効果(条件文・繋ぎ・連鎖・魔力の高まり・狙いの締まり・コンボ)が split 倍出る
+ */
+export const WEAPON_HITS = { split: 2 } as const;

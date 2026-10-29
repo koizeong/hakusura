@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld, type Unit } from './world';
 import { resolveSkill, type ActiveSkillId } from './data/skills';
-import { SWORD, GUN, pw, TEST_WEAPONS, withoutAttributes } from './testkit';
+import { SWORD, GUN, pw, hitPw, TEST_WEAPONS, withoutAttributes } from './testkit';
+import { WEAPON_HITS } from './constants';
 import { applyBuild, type Build } from './build';
 import type { Item } from './data/equipment';
 import type { ConditionId } from './data/conditions';
@@ -47,7 +48,7 @@ describe('武器の持ち方', () => {
   it('両手持ちは近攻撃のダメージ+25%、二刀流はクールダウン-15%', () => {
     const two = setup({ weapons: [weapon('a', [])] });
     swing(two.w, two.p, 'slash');
-    expect(two.w.log[0]!.amount).toBeCloseTo(pw(SWORD) * 1.25);
+    expect(two.w.log[0]!.amount).toBeCloseTo(hitPw(SWORD) * 1.25);
     const dual = setup({ weapons: [weapon('a', []), weapon('b', [])] });
     expect(dual.w.statOf(dual.p, 'cooldown')).toBeCloseTo(0.85);
   });
@@ -57,7 +58,7 @@ describe('武器の条件文', () => {
   it('32: 両手持ちのとき、攻撃範囲が2倍', () => {
     const { w, p } = setup({ weapons: [weapon('a')], conditions: ['twoHandedReach'], enemies: [{ x: 180, y: 0 }] });
     swing(w, p, 'slash', { x: 180, y: 0 });
-    expect(w.log.length).toBe(1);
+    expect(w.log.length).toBe(WEAPON_HITS.split);
     const unarmed = setup({ conditions: ['twoHandedReach'], enemies: [{ x: 180, y: 0 }] });
     swing(unarmed.w, unarmed.p, 'slash', { x: 180, y: 0 });
     expect(unarmed.w.log.length).toBe(0);
@@ -66,17 +67,17 @@ describe('武器の条件文', () => {
   it('176: 両手持ちのとき、二刀流向けのスキルの威力が2倍', () => {
     const { w, p } = setup({ weapons: [weapon('a', [])], conditions: ['twoHandedDual'] });
     swing(w, p, 'whirlwind');
-    expect(w.log[0]!.amount).toBeCloseTo(pw(resolveSkill('whirlwind', 'rustGreatsword')!) * 1.25 * 2);
+    expect(w.log[0]!.amount).toBeCloseTo(hitPw(resolveSkill('whirlwind', 'rustGreatsword')!) * 1.25 * 2);
     expect(w.log[0]!.combos).toContain('oddGrip');
   });
 
   it('177: 二刀流で左右の補正値の合計が同じなら、近攻撃が左右同時に出る', () => {
     const same = setup({ weapons: [weapon('a'), weapon('b')], conditions: ['mirroredBlades'] });
     swing(same.w, same.p, 'slash');
-    expect(same.w.log.filter((r) => r.source === '大剣の斬りつけ').length).toBe(2);
+    expect(same.w.log.filter((r) => r.source === '大剣の斬りつけ').length).toBe(2 * WEAPON_HITS.split);
     const differ = setup({ weapons: [weapon('a'), weapon('b', [])], conditions: ['mirroredBlades'] });
     swing(differ.w, differ.p, 'slash');
-    expect(differ.w.log.filter((r) => r.source === '大剣の斬りつけ').length).toBe(1);
+    expect(differ.w.log.filter((r) => r.source === '大剣の斬りつけ').length).toBe(WEAPON_HITS.split);
   });
 });
 
@@ -98,7 +99,7 @@ describe('追加した条件文', () => {
     w.moveUnit('p', 0, 0);
     swing(w, p, 'slash');
     // 600 歩いたので +100%(上限)
-    expect(w.log[0]!.amount).toBeCloseTo(pw(SWORD) * 2);
+    expect(w.log[0]!.amount).toBeCloseTo(hitPw(SWORD) * 2);
     swing(w, p, 'slash');
     expect(w.log.filter((r) => r.depth === 0)[1]!.amount).toBeCloseTo(pw(SWORD));
   });
@@ -141,7 +142,7 @@ describe('追加したパッシブ', () => {
     w.forceStatus('p', 'oiled', true);
     p.weapons = [{ type: 'cinderAxe' }];
     swing(w, p, 'slash');
-    expect(w.log[0]!.amount).toBeCloseTo(pw(resolveSkill('slash', 'cinderAxe')!) * 1.6);
+    expect(w.log[0]!.amount).toBeCloseTo(hitPw(resolveSkill('slash', 'cinderAxe')!) * 1.6);
     expect(w.log[0]!.combos).toContain('selfImmolation');
   });
 });

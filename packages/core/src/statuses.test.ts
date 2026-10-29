@@ -1,3 +1,4 @@
+import { WEAPON_HITS } from './constants';
 import { describe, expect, it } from 'vitest';
 import { CombatWorld, type Unit } from './world';
 import { applyBuild, buildWeight, weightCapacity, type Build } from './build';
@@ -128,7 +129,7 @@ describe('属性の状態', () => {
     w.forceStatus('e', 'bleed', true);
     strike(w, p, e, { type: 'ironSword', element: 'blood' });
     // 払った分(最大HPの2%)より、吸った分が多い
-    expect(p.hp).toBeGreaterThan(500 - 20);
+    expect(p.hp).toBeGreaterThan(500 - 20 * WEAPON_HITS.split);
   });
 });
 

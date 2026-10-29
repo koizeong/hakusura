@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld, type UnitSpec } from './world';
-import { DEFENSE, MAX_TRIGGER_DEPTH } from './constants';
+import { DEFENSE, MAX_TRIGGER_DEPTH, WEAPON_HITS } from './constants';
 import { ACTIVE_SKILLS, resolveSkill, type ActiveSkillId } from './data/skills';
 import { STATUSES } from './data/statuses';
 import { summarize, dealtBy } from './breakdown';
-import { SWORD, GUN, pw, TEST_WEAPONS } from './testkit';
+import { SWORD, GUN, hitPw, pw, TEST_WEAPONS } from './testkit';
 
 const player = (extra: Partial<UnitSpec> = {}): UnitSpec => ({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1e9, weapons: TEST_WEAPONS, ...extra });
 const dummy = (id: string, x: number, y = 0, extra: Partial<UnitSpec> = {}): UnitSpec => ({
@@ -17,7 +17,11 @@ const dummy = (id: string, x: number, y = 0, extra: Partial<UnitSpec> = {}): Uni
   ...extra,
 });
 
-const power = (id: ActiveSkillId) => (id === 'slash' ? pw(SWORD) : id === 'shoot' ? pw(GUN) : pw(resolveSkill(id)!));
+/** 1ヒットの威力(武器の技は手数で分けて当てる) */
+const power = (id: ActiveSkillId) => {
+  const r = id === 'slash' ? SWORD : id === 'shoot' ? GUN : resolveSkill(id)!;
+  return r.weapon ? hitPw(r) : pw(r);
+};
 
 /** 振りかぶりと弾の飛翔が済むまで進める */
 function use(w: CombatWorld, skill: ActiveSkillId, at: { x: number; y: number }, targetId?: string, unitId = 'p') {
@@ -40,7 +44,7 @@ describe('振りかぶりと硬直', () => {
     w.update(SWORD.windup - 10);
     expect(w.log.length).toBe(0);
     w.update(20);
-    expect(w.log.length).toBe(1);
+    expect(w.log.length).toBe(WEAPON_HITS.split);
   });
 
   it('硬直中は次のスキルを使えないが、回避で抜けられる', () => {
@@ -230,9 +234,11 @@ describe('条件文', () => {
     w.forceStatus('d', 'burn', true);
     slash(w, d);
     const swords = w.log.filter((r) => r.source === '大剣の斬りつけ');
-    expect(swords.length).toBe(2);
-    expect(swords[1]!.via).toContain('炎への二撃');
-    expect(swords[1]!.emphasized).toBe(true);
+    // 手数で分けたヒットのそれぞれに、二撃目が付く
+    expect(swords.length).toBe(2 * WEAPON_HITS.split);
+    const twins = swords.filter((r) => r.via.includes('炎への二撃'));
+    expect(twins).toHaveLength(WEAPON_HITS.split);
+    expect(twins[0]!.emphasized).toBe(true);
   });
 
   it('11: 直前と違う属性で攻撃すると、与ダメージ+80%', () => {
@@ -242,12 +248,14 @@ describe('条件文', () => {
     slash(w, d); // 初撃は比べる相手がない
     shoot(w, d); // 斬 → 雷
     shoot(w, d); // 雷 → 雷
-    const [first, second, third] = w.log.filter((r) => r.depth === 0);
+    // 手数で分けたヒットのうち、それぞれの手の最初のヒットを見る
+    const direct = w.log.filter((r) => r.depth === 0);
+    const [first, second, third] = [direct[0], direct[WEAPON_HITS.split], direct[WEAPON_HITS.split * 2]];
     expect(first!.amount).toBeCloseTo(power('slash'));
     expect(second!.amount).toBeCloseTo(power('shoot') * 1.8);
     expect(second!.via).toContain('移ろう属性');
-    // 3発目は同じ相手への2発目の射撃なので、狙いの締まりが1つ乗る
-    expect(third!.amount).toBeCloseTo(power('shoot') * 1.03);
+    // 3発目は同じ相手への2発目の射撃なので、1発目のヒットの数だけ狙いの締まりが乗る
+    expect(third!.amount).toBeCloseTo(power('shoot') * (1 + 0.03 * WEAPON_HITS.split));
     expect(third!.via).not.toContain('移ろう属性');
   });
 
@@ -261,7 +269,8 @@ describe('条件文', () => {
     const before = d.statuses.wet.buildup;
     slash(w, d);
     // 雨そのものでも溜まるので、攻撃の分だけ多く溜まっていればよい
-    expect(d.statuses.wet.buildup - before).toBeGreaterThan(50);
+    // 手数で分けたヒットごとに溜まり、満ちて濡れたなら溜まりは0に戻る
+    expect(d.statuses.wet.buildup - before > 50 || w.isActive(d, 'wet')).toBe(true);
   });
 });
 
@@ -314,7 +323,9 @@ describe('回避とガード', () => {
     expect(hit.via).toContain('見切り');
     // 見切りは1回で消える
     slash(w, { x: 60, y: 0 });
-    expect(w.log.filter((r) => r.targetId === 'e')[1]!.amount).toBeCloseTo(power('slash'));
+    // 1回の斬りを手数で分けたヒットには全て乗り、次の斬りには乗らない
+    expect(w.log.filter((r) => r.targetId === 'e')[WEAPON_HITS.split - 1]!.via).toContain('見切り');
+    expect(w.log.filter((r) => r.targetId === 'e')[WEAPON_HITS.split]!.amount).toBeCloseTo(power('slash'));
   });
 
   it('回避で範囲の外へ抜けても、避け始めた位置に当たる攻撃ならジャスト回避', () => {

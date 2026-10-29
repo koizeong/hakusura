@@ -1,4 +1,4 @@
-import { DEFENSE, MAX_TRIGGER_DEPTH, STATUS_RULES } from './constants';
+import { DEFENSE, MAX_TRIGGER_DEPTH, STATUS_RULES, WEAPON_HITS } from './constants';
 import { computeDamage, type RuleBonus } from './damage';
 import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
 import { FLOOR_RULES, fieldDef, type FieldId } from './data/fields';
@@ -177,6 +177,8 @@ export interface Buff {
   tags: readonly string[];
   until: number;
   charges: number;
+  /** 最後に回数を使った当たり。手数で分けた同じ当たりには、回数を使わずに乗る */
+  strike?: number;
 }
 
 export interface UnitSpec {
@@ -221,6 +223,8 @@ export interface Hit {
   rules?: readonly Rule[];
   /** 技を何回目に使ったか */
   useIndex?: number;
+  /** 1回の当たりの番号。手数で分けたヒットは同じ番号を持つ */
+  strike?: number;
   /** このヒットを出したスキルの、1つ前の手(繋ぎの条件文で見る) */
   prev?: PrevStep;
   /** このヒットを出した技に宿した儀式の数 */
@@ -1803,14 +1807,17 @@ export class CombatWorld {
     if (action.type !== 'melee' && action.type !== 'projectile' && action.type !== 'barrage' && action.type !== 'nova') return;
     const element = skillElement(def);
     // 連撃のように、1回で何度も当たる技がある
-    const hits = action.type === 'melee' || action.type === 'nova' ? Math.max(1, action.hits ?? 1) : 1;
+    // 武器の技は手数を増やし、1回の当たりを分けて当てる(当てたときの効果が多く出る)
+    const split = def.weapon ? WEAPON_HITS.split : 1;
+    const hits = (action.type === 'melee' || action.type === 'nova' ? Math.max(1, action.hits ?? 1) : 1) * split;
+    const strike = this.nextId++;
     for (let i = 0; i < hits; i++) {
       this.enqueue({
         attackerId: attacker.id,
         targetId: target.id,
         element,
-        power: action.power * scale,
-        buildup: action.buildup * scale,
+        power: (action.power * scale) / split,
+        buildup: (action.buildup * scale) / split,
         // 2回目からは multi を付ける。1回の技につき1度だけ効かせたいルールが見分ける
         tags: hitTags(element, [...def.tags, def.category, 'weapon', skillId, ...(i > 0 ? ['multi'] : [])]),
         skill: def.name,
@@ -1820,6 +1827,7 @@ export class CombatWorld {
         charge,
         rules: def.rules,
         useIndex: def.useIndex,
+        strike,
         prev: def.prev,
         rites: def.rites,
       });
@@ -2018,8 +2026,14 @@ export class CombatWorld {
       attacker.focusAt = this.time;
     }
     for (const buff of attacker?.buffs ?? []) {
-      if (buff.until <= this.time || buff.charges <= 0 || !buff.tags.every((t) => hit.tags.has(t))) continue;
-      buff.charges -= 1;
+      if (buff.until <= this.time || !buff.tags.every((t) => hit.tags.has(t))) continue;
+      // 回数は1回の当たりにつき1つ。手数で分けた残りのヒットにも乗る
+      const sameStrike = hit.strike !== undefined && buff.strike === hit.strike;
+      if (!sameStrike) {
+        if (buff.charges <= 0) continue;
+        buff.charges -= 1;
+        buff.strike = hit.strike;
+      }
       bonuses.push({ label: buff.label, add: buff.add });
       via.push(buff.label);
     }

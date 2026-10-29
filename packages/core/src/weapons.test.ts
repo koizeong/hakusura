@@ -1,3 +1,4 @@
+import { WEAPON_HITS } from './constants';
 import { describe, expect, it } from 'vitest';
 import { CombatWorld } from './world';
 import { resolveSkill } from './data/skills';
@@ -56,7 +57,7 @@ describe('武器と技', () => {
       run(w, 600);
     }
     expect(used).toEqual(['ironSword', 'cinderAxe', 'ironSword', 'cinderAxe']);
-    expect(w.log.filter((r) => r.depth === 0).map((r) => r.element)).toEqual(['slash', 'fire', 'slash', 'fire']);
+    expect(w.log.filter((r) => r.depth === 0).map((r) => r.element)).toEqual(['slash', 'fire', 'slash', 'fire'].flatMap((e) => Array(WEAPON_HITS.split).fill(e)));
   });
 
   it('武器がなければ素手で出る', () => {

@@ -1,3 +1,4 @@
+import { WEAPON_HITS } from './constants';
 import { describe, expect, it } from 'vitest';
 import { CombatWorld } from './world';
 import { activeSkillDef, isTechnique, resolveSkill, type ActiveSkillId } from './data/skills';
@@ -62,7 +63,7 @@ describe('技の変化', () => {
   it('連撃は1回で3度当たる', () => {
     const { w, p } = duel('ironSword');
     useNow(w, p, 'flurry');
-    expect(w.log.filter((r) => r.depth === 0 && r.skill.includes('連撃'))).toHaveLength(3);
+    expect(w.log.filter((r) => r.depth === 0 && r.skill.includes('連撃'))).toHaveLength(3 * WEAPON_HITS.split);
   });
 
   it('貫き撃ちは、並んだ相手を貫いて当たる', () => {

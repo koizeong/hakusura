@@ -3,7 +3,8 @@ import { CombatWorld, type Unit } from './world';
 import { ACTIVE_SKILLS } from './data/skills';
 import { AFFIXES, EQUIP_RULES, generateItem, itemTotal, type AffixDef, type Item } from './data/equipment';
 import { applyBuild, buildProblems, canEquip, decodeBuild, encodeBuild, type Build } from './build';
-import { withoutAttributes, TEST_WEAPONS, SWORD, GUN, pw } from './testkit';
+import { withoutAttributes, TEST_WEAPONS, SWORD, GUN, pw, hitPw } from './testkit';
+import { WEAPON_HITS } from './constants';
 
 const run = (w: CombatWorld, ms: number) => {
   for (let t = 0; t < ms; t += 10) w.update(10);
@@ -128,7 +129,7 @@ describe('追加した条件文', () => {
     w.useSkill('p', 'slash', e);
     run(w, 400);
     // 昏倒に追撃 ×1.5 と掛け合わさる
-    expect(w.log[0]!.amount).toBeCloseTo(pw(SWORD) * 2 * 1.5);
+    expect(w.log[0]!.amount).toBeCloseTo(hitPw(SWORD) * 2 * 1.5);
   });
 
   it('10: 自分がどの状態にもかかっていないとき、被ダメージ-40%', () => {
@@ -142,13 +143,13 @@ describe('追加した条件文', () => {
     const { w, p, e } = withCondition('unscathed');
     w.useSkill('p', 'slash', e);
     run(w, 400);
-    expect(w.log[0]!.amount).toBeCloseTo(pw(SWORD) * 1.5);
+    expect(w.log[0]!.amount).toBeCloseTo(hitPw(SWORD) * 1.5);
     p.hp -= 1;
     p.cooldowns = {};
     p.busyUntil = 0;
     w.useSkill('p', 'slash', e);
     run(w, 400);
-    expect(w.log.filter((r) => r.depth === 0)[1]!.amount).toBeCloseTo(pw(SWORD));
+    expect(w.log.filter((r) => r.depth === 0)[WEAPON_HITS.split]!.amount).toBeCloseTo(hitPw(SWORD));
   });
 
   it('48: 被弾するたびに、攻撃してきた相手に出血を付与', () => {
@@ -203,7 +204,7 @@ describe('アーティファクト', () => {
     run(w, GUN.windup + 10);
     expect(w.projectiles.length).toBe(2);
     run(w, 500);
-    expect(w.log[0]!.amount).toBeCloseTo(pw(GUN) * 0.6);
+    expect(w.log[0]!.amount).toBeCloseTo(hitPw(GUN) * 0.6);
   });
 
   it('半分の命: 最大HPが半分、与ダメージ+50%', () => {
@@ -211,7 +212,7 @@ describe('アーティファクト', () => {
     expect(p.maxHp).toBe(150);
     w.useSkill('p', 'slash', e);
     run(w, 400);
-    expect(w.log[0]!.amount).toBeCloseTo(pw(SWORD) * 1.5);
+    expect(w.log[0]!.amount).toBeCloseTo(hitPw(SWORD) * 1.5);
   });
 
   it('煤けた聖火: 濡れている敵にも炎上を付与する', () => {
@@ -272,7 +273,7 @@ describe('アーティファクト', () => {
     p.busyUntil = 0;
     w.useSkill('p', 'slash', e);
     run(w, 400);
-    expect(w.log.length).toBe(1);
+    expect(w.log.length).toBe(WEAPON_HITS.split);
   });
 });
 
