@@ -3,6 +3,7 @@ import {
   ACTIVE_SKILLS,
   CombatWorld,
   DEFENSE,
+  STEP,
   applyBuild,
   expeditionDone,
   unspentPoints,
@@ -74,8 +75,7 @@ const SWING_MS = 170;
 /** 浮きスティック。押した所から引いた向きへ動く(画面のピクセル) */
 const STICK = { deadzone: 10, full: 56, tapMs: 260 };
 const DODGE = { speed: 900, duration: 170, cooldown: 650 };
-/** 自動のときのステップ。手動の回避より戻りが遅く、振りかぶりを潰して避ける */
-const STEP = { speed: 900, duration: 170, cooldown: 1100 };
+
 /** 振りかぶり・硬直中、ガード中の移動の速さ(倍率) */
 const BUSY_MOVE = 0.25;
 const GUARD_MOVE = 0.45;

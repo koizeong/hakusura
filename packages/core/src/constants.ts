@@ -17,6 +17,9 @@ export const DEFENSE = {
   guardArc: 75,
 } as const;
 
+/** 自動のときのステップ。跳ぶ速さ(1秒あたり)・跳ぶ間・戻り(ミリ秒)。画面とシミュレーターで同じものを使う */
+export const STEP = { speed: 900, duration: 170, cooldown: 1100 } as const;
+
 /** 状態の決まり */
 export const STATUS_RULES = {
   /** HPがこの割合以下で瀕死 */

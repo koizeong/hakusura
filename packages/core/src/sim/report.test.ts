@@ -1,6 +1,6 @@
 import { describe, it } from 'vitest';
 import { ARCHETYPES } from './archetypes';
-import { reportArchetype } from './simulate';
+import { outfit, reportArchetype, runEncounter } from './simulate';
 import { conditionDef } from '../data/conditions';
 import type { EncounterId } from '../data/encounters';
 
@@ -71,5 +71,42 @@ describe.skipIf(!process.env.SIM)('ビルドの強さの報告', () => {
       ...lines,
     ];
     console.log(['<<<REPORT', ...out, 'REPORT>>>'].join('\n'));
+  }, 3_600_000);
+});
+
+/**
+ * ステップの有無で一戦を比べる。`npm run sim:step`
+ * 近接は射手や支援役に追いつけず、群れを討ち尽くせなかったので、ステップで詰め・避けたときを測る
+ */
+describe.skipIf(!process.env.SIM_STEP)('ステップの有無', () => {
+  it('近接を中心に、歩くだけとステップを比べる', () => {
+    const ids = ['greatsword', 'bleedDual', 'shieldWall', 'hammer', 'oilFire', 'starter', 'archer'];
+    const waves: EncounterId[] = ['ashNight', 'fogVigil', 'plagueMarch', 'ashWyvern'];
+    const rows: string[] = [];
+    for (const id of ids) {
+      const geared = outfit(ARCHETYPES[id]!.build);
+      for (const useStep of [false, true]) {
+        const cells = waves.map((e) => {
+          const runs = SEEDS.map((s) => runEncounter(geared, e, s, useStep));
+          const wins = runs.filter((x) => x.result === 'cleared').length;
+          const kills = runs.reduce((s, x) => s + x.kills / x.spawned, 0) / runs.length;
+          const time = runs.reduce((s, x) => s + x.seconds, 0) / runs.length;
+          const falls = runs.reduce((s, x) => s + x.falls, 0) / runs.length;
+          const taken = runs.reduce((s, x) => s + x.taken, 0) / runs.length;
+          const steps = runs.reduce((s, x) => s + x.steps.dodges + x.steps.closes, 0) / runs.length;
+          return `${wins}/3 討${pct(kills)} ${Math.round(time)}秒 倒${falls.toFixed(1)} 受${n0(taken)}${useStep ? ` 踏${Math.round(steps)}` : ''}`;
+        });
+        rows.push(`| ${ARCHETYPES[id]!.name} | ${useStep ? 'ステップ' : '歩くだけ'} | ${cells.join(' | ')} |`);
+      }
+    }
+    console.log(
+      [
+        '<<<REPORT',
+        '| ビルド | 足 | ' + waves.join(' | ') + ' |',
+        '| --- | --- | ' + waves.map(() => '---').join(' | ') + ' |',
+        ...rows,
+        'REPORT>>>',
+      ].join('\n'),
+    );
   }, 3_600_000);
 });

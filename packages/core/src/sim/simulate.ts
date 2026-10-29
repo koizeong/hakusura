@@ -8,6 +8,7 @@ import { comboDef } from '../data/combos';
 import { measureBuildPower } from '../expedition';
 import { measureLoadout, recommendNow } from '../loadout';
 import { actionReach } from '../data/skills';
+import { STEP } from '../constants';
 
 /**
  * 調整用のシミュレーター。ビルドを入力なしで戦わせ、強さの傾向を数字で見る。
@@ -54,24 +55,47 @@ export interface EncounterRun {
   dps: number;
   /** 受けた傷の合計 */
   taken: number;
+  /** ステップを踏んだ回数(避けた・詰めた) */
+  steps: { dodges: number; closes: number };
   /** 傷の多い順に、発動元・条件文・コンボの割合 */
   topSources: [string, number][];
   topVia: [string, number][];
   topCombos: [string, number][];
 }
 
+/** 操り手のステップの状態。跳んでいる間の速さと、次に踏めるようになる時刻 */
+interface PilotState {
+  step?: { vx: number; vy: number; until: number };
+  readyAt: number;
+  /** ステップを踏んだ回数(避け・詰め) */
+  dodges: number;
+  closes: number;
+}
+
 /**
  * 操り手。届く間合いへ寄り(近攻撃なら寄せ、遠攻撃なら離れ気味)、
- * 近くの敵の弾と、自分に向いた振りかぶりから横へ逃げる。完璧ではなく、人が遊ぶときの粗い近似
+ * 近くの敵の弾と、自分に向いた振りかぶりから横へ逃げる。完璧ではなく、人が遊ぶときの粗い近似。
+ * useStep なら、当たりそうな弾や振りかぶりをステップで避け、離れた相手へステップで詰める
  */
-function pilot(w: CombatWorld, p: Unit, reach: number, dt: number): void {
+function pilot(w: CombatWorld, p: Unit, reach: number, dt: number, state: PilotState, useStep: boolean): void {
   if (w.isIncapacitated(p)) return;
+  const move = (dx: number, dy: number) => {
+    const nx = Math.min(ARENA.width - p.radius, Math.max(p.radius, p.x + dx));
+    const ny = Math.min(ARENA.height - p.radius, Math.max(p.radius, p.y + dy));
+    w.moveUnit(p.id, nx, ny);
+  };
+  // 跳んでいる間は、跳ぶ向きへ進むだけ
+  if (state.step) {
+    if (w.time < state.step.until) return move((state.step.vx * dt) / 1000, (state.step.vy * dt) / 1000);
+    state.step = undefined;
+  }
   const foes = [...w.units.values()].filter((u) => u.team !== p.team && u.hp > 0);
   if (foes.length === 0) return;
   const near = foes.reduce((a, b) => (Math.hypot(a.x - p.x, a.y - p.y) < Math.hypot(b.x - p.x, b.y - p.y) ? a : b));
   const focus = (p.focusId && w.units.get(p.focusId)) || near;
   let mx = 0;
   let my = 0;
+  let danger = false;
   const d = Math.hypot(focus.x - p.x, focus.y - p.y) || 1;
   const want = Math.max(40, reach * 0.8);
   if (d - focus.radius > want) {
@@ -81,7 +105,7 @@ function pilot(w: CombatWorld, p: Unit, reach: number, dt: number): void {
     mx -= (focus.x - p.x) / d;
     my -= (focus.y - p.y) / d;
   }
-  // 弾から横へ逃げる
+  // 弾から横へ逃げる。こちらへ向かってくる近い弾は、当たりそうとみなす
   for (const proj of w.projectiles) {
     const owner = w.units.get(proj.ownerId);
     if (!owner || owner.team === p.team) continue;
@@ -95,21 +119,46 @@ function pilot(w: CombatWorld, p: Unit, reach: number, dt: number): void {
     const strength = (110 - dist) / 110;
     mx += (-proj.vy / speed) * side * strength * 2.5;
     my += (proj.vx / speed) * side * strength * 2.5;
+    const coming = (proj.vx * dx + proj.vy * dy) / (speed * dist) > 0.8;
+    if (coming && dist < 55) danger = true;
   }
-  // 振りかぶっている敵の届く所から離れる
+  // 振りかぶっている敵の届く所から離れる。満ちる直前なら、当たりそうとみなす。
+  // ステップを使うときは歩いて離れず、満ちる直前にステップで抜ける(人が遊ぶときのように、寄ったまま殴る)
+  let flee = { x: 0, y: 0 };
   for (const u of foes) {
     if (u.windupUntil <= w.time) continue;
     const dist = Math.hypot(p.x - u.x, p.y - u.y) || 1;
     if (dist > u.radius + 190) continue;
-    mx += ((p.x - u.x) / dist) * 2;
-    my += ((p.y - u.y) / dist) * 2;
+    flee = { x: flee.x + ((p.x - u.x) / dist) * 2, y: flee.y + ((p.y - u.y) / dist) * 2 };
+    if (u.windupUntil - w.time < 220 && dist < u.radius + 150) danger = true;
+  }
+  if (!useStep) {
+    mx += flee.x;
+    my += flee.y;
   }
   const len = Math.hypot(mx, my);
+  if (useStep && w.time >= state.readyAt) {
+    // 避けるステップ:逃げる向きへ。詰めるステップ:遠い相手へ(自分が振りかぶっていないときだけ)
+    const close = !danger && d - focus.radius > want + 160 && p.windupUntil <= w.time;
+    // 自分の技がもうすぐ出るなら、潰さずに受ける
+    const committed = p.windupUntil > w.time && p.windupUntil - w.time < 200;
+    const away = { x: mx + flee.x, y: my + flee.y };
+    const awayLen = Math.hypot(away.x, away.y);
+    if ((danger && awayLen > 0.01 && !committed) || close) {
+      const ux = danger ? away.x / awayLen : (focus.x - p.x) / d;
+      const uy = danger ? away.y / awayLen : (focus.y - p.y) / d;
+      if (w.dodge(p.id, true)) {
+        state.step = { vx: ux * STEP.speed, vy: uy * STEP.speed, until: w.time + STEP.duration };
+        state.readyAt = w.time + STEP.cooldown;
+        if (danger) state.dodges++;
+        else state.closes++;
+        return move((state.step.vx * dt) / 1000, (state.step.vy * dt) / 1000);
+      }
+    }
+  }
   if (len < 0.01) return;
   const step = (SIM_PLAYER.moveSpeed * w.statOf(p, 'moveSpeed') * dt) / 1000;
-  const nx = Math.min(ARENA.width - p.radius, Math.max(p.radius, p.x + (mx / len) * step));
-  const ny = Math.min(ARENA.height - p.radius, Math.max(p.radius, p.y + (my / len) * step));
-  w.moveUnit(p.id, nx, ny);
+  move((mx / len) * step, (my / len) * step);
 }
 
 /** そのビルドの攻撃の技の、一番長い届く距離 */
@@ -126,7 +175,7 @@ function buildReach(w: CombatWorld, p: Unit): number {
 const share = (rows: { key: string; share: number }[], n = 4): [string, number][] => rows.slice(0, n).map((r) => [r.key, r.share]);
 
 /** 一戦を入力なし(操り手つき)で最後まで戦わせる。切り札は戻りしだい切る */
-export function runEncounter(build: Build, id: EncounterId, seed = 1, dodge = true): EncounterRun {
+export function runEncounter(build: Build, id: EncounterId, seed = 1, useStep = true): EncounterRun {
   const w = new CombatWorld({ seed, bounds: ARENA });
   const p = w.addUnit({ id: 'player', name: '巡礼者', team: 'player', x: ARENA.width / 2, y: ARENA.height / 2, ...SIM_PLAYER, autoBattle: true });
   applyBuild(w, p, build);
@@ -135,11 +184,12 @@ export function runEncounter(build: Build, id: EncounterId, seed = 1, dodge = tr
   const reach = buildReach(w, p);
   let taken = 0;
   const dt = 25;
+  const state: PilotState = { readyAt: 0, dodges: 0, closes: 0 };
   while (!e.result) {
     e.update();
     if (e.result) break;
     if (p.trump && w.canUseSkill(p.id, p.trump) && !p.queued) w.queueSkill(p.id, p.trump, 3000);
-    if (dodge) pilot(w, p, reach, dt);
+    pilot(w, p, reach, dt, state, useStep);
     w.update(dt);
     for (const ev of w.drainEvents()) if (ev.type === 'damage' && ev.record.targetId === p.id) taken += ev.record.amount;
   }
@@ -152,6 +202,7 @@ export function runEncounter(build: Build, id: EncounterId, seed = 1, dodge = tr
     falls: p.falls,
     dps: b.total / Math.max(1, e.elapsed / 1000),
     taken,
+    steps: { dodges: state.dodges, closes: state.closes },
     topSources: share(b.bySource),
     topVia: share(b.byVia),
     topCombos: b.byCombo.slice(0, 4).map((r) => [comboDef(r.combo).name, r.share]),
