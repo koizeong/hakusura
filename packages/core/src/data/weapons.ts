@@ -32,6 +32,11 @@ interface WeaponBase {
   weight: number;
   /** この形で当てたときに効くルール(戦槌の昏倒など) */
   rules?: readonly Rule[];
+  /**
+   * コンボが続くほど伸びる力(杖)。コンボのヒットごとに1つ溜まり、window の間コンボがなければ消える。
+   * 溜まった数 × perStack を、tag を持つヒットの与ダメージに足す
+   */
+  comboGrowth?: { label: string; perStack: number; max: number; window: number; tag: string };
 }
 
 export interface MeleeWeaponDef extends WeaponBase {
@@ -234,9 +239,12 @@ export const WEAPON_TYPES = {
     range: 620,
     speed: 430,
     radius: 11,
-    explode: { radius: 70, ratio: 0.35 },
+    // 速射になったので、弾ける分は控えめにする
+    explode: { radius: 70, ratio: 0.2 },
     needs: { int: 12 },
     tags: ['staff', 'magic'],
+    // 術はコンボで伸びる。連鎖や雷雨が続くほど、魔弾が重くなる
+    comboGrowth: { label: '魔力の高まり', perStack: 0.05, max: 30, window: 8000, tag: 'magic' },
   },
 } as const satisfies Record<string, WeaponTypeDef>;
 
@@ -302,7 +310,13 @@ export type ResolvedWeapon = WeaponTypeDef & { id: WeaponTypeId; tempers: readon
  * 近接か遠距離かで、武器の威力に掛ける倍率。近接は敵に寄る危うさを負うので、ここで火力を上乗せする。
  * 近接と遠距離の釣り合いは、まずこの数字で整える(balance.test.ts が確かめる)
  */
-export const WEAPON_KIND_POWER = { melee: 1.5, ranged: 1 } as const;
+export const WEAPON_KIND_POWER = { melee: 1.5, ranged: 0.55 } as const;
+
+/**
+ * 近接か遠距離かで、間隔と振りかぶり・硬直に掛ける倍率。遠距離は速射で戦う:1発は軽いが、
+ * 間隔が半分なので、付与の追撃・条件文・繋ぎが多く出る。1発の蓄積も半分にして、状態の溜まる速さはほぼ据え置く
+ */
+export const WEAPON_KIND_PACE = { melee: { interval: 1, windup: 1, buildup: 1 }, ranged: { interval: 0.45, windup: 0.6, buildup: 0.5 } } as const;
 
 /** 形に属性と性質を重ねた、実際の武器の数値 */
 export function weaponDef(ref: WeaponRef): ResolvedWeapon {
@@ -310,12 +324,13 @@ export function weaponDef(ref: WeaponRef): ResolvedWeapon {
   const base: WeaponTypeDef = WEAPON_TYPES[spec.type];
   const element = spec.element ?? base.element;
   const tempers = spec.tempers ?? [];
+  const pace = WEAPON_KIND_PACE[base.kind];
   let power = base.power * WEAPON_KIND_POWER[base.kind];
-  let interval = base.interval;
+  let interval = base.interval * pace.interval;
   let range = base.range;
-  let buildup = base.buildup;
-  let windup = base.windup;
-  let recovery = base.recovery;
+  let buildup = base.buildup * pace.buildup;
+  let windup = base.windup * pace.windup;
+  let recovery = base.recovery * pace.windup;
   let arc = base.kind === 'melee' ? base.arc : 0;
   // 属性の必要な能力値(火は信仰、雷は理力)は、形の必要な能力値に足す
   const needs: Record<string, number> = { ...(base.needs ?? {}) };

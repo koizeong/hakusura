@@ -234,6 +234,10 @@ export class Hud {
       if (world.isActive(player, id)) parts.push(`<b style="color:#${STATUSES[id].color.toString(16).padStart(6, '0')}">${icon}${STATUSES[id].name}</b>`);
       else if (st.buildup > 1) parts.push(`<span>${icon}${STATUSES[id].name} ${Math.round((st.buildup / STATUSES[id].max) * 100)}%</span>`);
     }
+    // 杖の魔力の高まり。コンボが続くほど溜まる
+    const growth = world.comboGrowthOf(player);
+    const stacks = world.comboStacksOf(player);
+    if (growth && stacks > 0) parts.push(`<b class="rite">${growth.label} ${stacks}(+${Math.round(stacks * growth.perStack * 100)}%)</b>`);
     const rites = player.rites.filter((r) => r.until > world.time);
     if (rites.length > 0) parts.push(`<b class="rite">儀式 ${rites.length}:${rites.map((r) => r.name).join('・')}</b>`);
     for (const buff of player.buffs) {

@@ -84,7 +84,7 @@ describe('杖', () => {
     expect(new Set(direct.map((r) => r.targetId))).toEqual(new Set(['a', 'b']));
     const a = direct.find((r) => r.targetId === 'a')!.amount;
     const b = direct.find((r) => r.targetId === 'b')!.amount;
-    expect(b).toBeCloseTo(a * 0.35);
+    expect(b).toBeCloseTo(a * WEAPON_TYPES.staff.explode.ratio);
   });
 });
 

@@ -4,7 +4,7 @@ import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
 import { FLOOR_RULES, fieldDef, type FieldId } from './data/fields';
 import { STATUS_IDS, statusDef, statusForElement, type StatusDef, type StatusId } from './data/statuses';
 import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction, type RiteEmpower } from './data/skills';
-import { toWeaponSpec, type WeaponRef, type WeaponSpec } from './data/weapons';
+import { WEAPON_TYPES, toWeaponSpec, type WeaponRef, type WeaponSpec, type WeaponTypeDef } from './data/weapons';
 import { shieldBurstElement, shieldDef, shieldName, type ShieldSpec } from './data/shields';
 import type { SkillVariant } from './data/variations';
 import { enemyDef, type EnemyId } from './data/enemies';
@@ -153,6 +153,9 @@ export interface Unit {
   enraged: boolean;
   /** 飛ぶ時間が切れたとき、降りるのに使う技 */
   landWith?: ActiveSkillId;
+  /** コンボで溜まる力(杖の魔力の高まり)。最後に溜まった時刻から window を過ぎると消える */
+  comboStacks: number;
+  comboStackAt: number;
   /** 宿している儀式。次の技で全て使い切る */
   rites: { skill: ActiveSkillId; name: string; empower: RiteEmpower; until: number }[];
 }
@@ -493,6 +496,8 @@ export class CombatWorld {
       airborneUntil: 0,
       enraged: false,
       rites: [],
+      comboStacks: 0,
+      comboStackAt: -Infinity,
       attributes: spec.attributes ? { ...spec.attributes } : undefined,
     };
     this.units.set(unit.id, unit);
@@ -820,7 +825,29 @@ export class CombatWorld {
   }
 
   /** コンボのヒットで昂りが溜まる。同じコンボが続くほど溜まりにくい */
+  /** 着けている武器のうち、コンボで伸びる力を持つもの(杖) */
+  comboGrowthOf(unit: Unit): NonNullable<WeaponTypeDef['comboGrowth']> | undefined {
+    for (const w of unit.weapons) {
+      const g = (WEAPON_TYPES[w.type] as WeaponTypeDef).comboGrowth;
+      if (g) return g;
+    }
+    return undefined;
+  }
+
+  /** 今の魔力の高まり。コンボが途切れていれば0に戻す */
+  comboStacksOf(unit: Unit): number {
+    const g = this.comboGrowthOf(unit);
+    if (!g || this.time - unit.comboStackAt > g.window) unit.comboStacks = 0;
+    return unit.comboStacks;
+  }
+
   private onCombo(unit: Unit, combos: readonly string[]): void {
+    // 杖はコンボのヒットごとに力が溜まる
+    const growth = this.comboGrowthOf(unit);
+    if (growth && combos.length > 0) {
+      unit.comboStacks = Math.min(growth.max, this.comboStacksOf(unit) + 1);
+      unit.comboStackAt = this.time;
+    }
     for (const c of combos) {
       const same = unit.recentCombos.filter((r) => r === c).length;
       unit.recentCombos.push(c);
@@ -1878,6 +1905,15 @@ export class CombatWorld {
       bonuses.push({ label: rule.label, add });
       if (kind === 'interaction') qualifiers.push(rule.label);
       else via.push(rule.label);
+    }
+    // 杖の魔力の高まり。コンボが続くほど、術のヒットが重くなる
+    const growth = attacker ? this.comboGrowthOf(attacker) : undefined;
+    if (attacker && growth && hit.tags.has(growth.tag)) {
+      const stacks = this.comboStacksOf(attacker);
+      if (stacks > 0) {
+        bonuses.push({ label: growth.label, add: stacks * growth.perStack });
+        via.push(growth.label);
+      }
     }
     for (const buff of attacker?.buffs ?? []) {
       if (buff.until <= this.time || buff.charges <= 0 || !buff.tags.every((t) => hit.tags.has(t))) continue;
