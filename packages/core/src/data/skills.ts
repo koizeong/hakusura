@@ -135,6 +135,8 @@ export interface FixedSkillDef extends SkillBase {
   aloft?: boolean;
   /** 現れてから最初に使えるまで(ミリ秒)。なければすぐ(少しずらして)使う */
   opening?: number;
+  /** この距離より近い相手には使わない(狙い撃ちは、離れた相手を狙う) */
+  minRange?: number;
 }
 
 /**
@@ -784,6 +786,18 @@ export const ACTIVE_SKILLS = {
     recovery: 450,
     cooldown: 1500,
     action: { type: 'melee', range: 58, arc: 120, power: 14, buildup: 45 },
+  },
+  /** 弩の射手の狙い撃ち。長く狙ってから、遠くまで届く速い矢を1本放つ。離れた相手を狙い、近くの相手には撃たない */
+  snipeBolt: {
+    name: '狙い撃ちの矢',
+    category: 'ranged',
+    element: 'pierce',
+    tags: ['attack', 'enemy', 'projectile', 'snipe'],
+    windup: 1400,
+    recovery: 500,
+    cooldown: 4200,
+    minRange: 280,
+    action: { type: 'barrage', pattern: 'fan', count: 1, speed: 650, radius: 6, range: 1200, power: 38, buildup: 45 },
   },
   /** 巣袋。屍喰いを産む */
   spawnBrood: {

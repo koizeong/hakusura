@@ -15,8 +15,8 @@ function arena() {
 }
 
 describe('敵の一覧', () => {
-  it('雑魚14種と大物。どれも問うこと(concept)を持ち、一戦のどこかに出る', () => {
-    expect(ENEMY_IDS.filter((id) => !('boss' in ENEMIES[id]))).toHaveLength(14);
+  it('雑魚15種と大物。どれも問うこと(concept)を持ち、一戦のどこかに出る', () => {
+    expect(ENEMY_IDS.filter((id) => !('boss' in ENEMIES[id]))).toHaveLength(15);
     const used = new Set<string>(ENCOUNTER_IDS.flatMap((id) => ENCOUNTERS[id].waves.flatMap((w) => w.spawn.map((s) => s.enemy))));
     for (const id of ENEMY_IDS) {
       expect(ENEMIES[id].concept.length).toBeGreaterThan(0);
@@ -133,5 +133,41 @@ describe('新しい一戦', () => {
     const p2 = w2.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0 });
     new Encounter(w2, 'plagueMarch', p2);
     expect(w2.weather).toBe('calm');
+  });
+});
+
+describe('弩の射手', () => {
+  it('離れた相手を狙い撃つ。近すぎる相手には狙い撃ちを使わない', () => {
+    for (const far of [true, false]) {
+      const { w } = arena();
+      const s = w.spawnEnemy('boltSniper', 's', far ? 1300 : 900, 500);
+      s.cooldowns = {};
+      const winds: string[] = [];
+      for (let t = 0; t < 3000; t += 25) {
+        w.update(25);
+        for (const e of w.drainEvents()) if (e.type === 'windup' && e.unitId === 's') winds.push(e.skill);
+        // 歩かせず、間合いを保たせる
+        w.moveUnit('s', far ? 1300 : 900, 500);
+      }
+      expect(winds.includes('snipeBolt')).toBe(far);
+    }
+  });
+
+  it('狙いは振りかぶったときに決まる。動かなければ当たり、横へ外れれば当たらない', () => {
+    for (const dodge of [false, true]) {
+      const { w, p } = arena();
+      const s = w.spawnEnemy('boltSniper', 's', 1300, 500);
+      s.cooldowns = { huskClaw: 1e9 };
+      let shot = false;
+      for (let t = 0; t < 4000; t += 25) {
+        w.update(25);
+        w.moveUnit('s', 1300, 500);
+        for (const e of w.drainEvents()) if (e.type === 'windup' && e.unitId === 's' && e.skill === 'snipeBolt') shot = true;
+        // 狙われたら横へ外れる
+        if (shot && dodge) w.moveUnit('p', 800, 380);
+      }
+      expect(shot).toBe(true);
+      expect(w.log.some((r) => r.targetId === p.id && r.skill === '狙い撃ちの矢')).toBe(!dodge);
+    }
   });
 });

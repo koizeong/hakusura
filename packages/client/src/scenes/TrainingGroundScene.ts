@@ -774,6 +774,15 @@ export class TrainingGroundScene extends Phaser.Scene {
         const color = ELEMENTS[t.element ?? 'slash'].color;
         g.lineStyle(2, 0xa83228, 0.5 + progress * 0.4).strokeCircle(unit.x, unit.y, 46 - progress * 22);
         g.fillStyle(color, 0.15 + progress * 0.25).fillCircle(unit.x, unit.y, 24);
+        if ((ACTIVE_SKILLS[t.skill].tags as readonly string[]).includes('snipe')) {
+          // 狙い撃ちの予兆。矢の通る線を引き、満ちるほど濃く太くする。線から外れれば当たらない
+          const len = action.range;
+          const ex = unit.x + Math.cos(t.angle) * len;
+          const ey = unit.y + Math.sin(t.angle) * len;
+          g.lineStyle(10, 0xa83228, 0.06 + progress * 0.12).lineBetween(unit.x, unit.y, ex, ey);
+          g.lineStyle(1 + progress * 2, 0xff5a3a, 0.35 + progress * 0.55).lineBetween(unit.x, unit.y, ex, ey);
+          continue;
+        }
         if (action.pattern === 'fan') {
           const half = Phaser.Math.DegToRad((action.spread ?? 0) / 2);
           g.lineStyle(1, 0xa83228, 0.5);

@@ -1221,10 +1221,12 @@ export class CombatWorld {
           if (near && this.useSkill(unit.id, skill, near)) break;
           continue;
         }
+        // 狙い撃ちのように、近すぎる相手には使わない技がある。その技は一番遠い相手を狙う
+        const minRange = (activeSkillDef(skill) as { minRange?: number }).minRange;
         const target = this.opponentsOf(unit)
           .map((u) => ({ u, d: Math.hypot(u.x - unit.x, u.y - unit.y) - u.radius }))
-          .filter(({ d }) => d <= reach * 0.9)
-          .sort((a, b) => a.d - b.d)[0]?.u;
+          .filter(({ d }) => d <= reach * 0.9 && (minRange === undefined || d >= minRange))
+          .sort((a, b) => (minRange === undefined ? a.d - b.d : b.d - a.d))[0]?.u;
         // 敵の振りかぶりは向きを決め打ちにする。見てから横へ避けられるように
         // 影渡りのように相手のそばへ移るものだけは、相手を追う
         const follows = this.skillFor(unit, skill)?.action.type === 'blink';

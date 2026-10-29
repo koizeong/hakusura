@@ -5,8 +5,11 @@ import { ELEMENT_IDS } from './data/elements';
 import type { ActiveSkillId } from './data/skills';
 import { dealtBy, summarize } from './breakdown';
 
-/** 近接の武器のDPSは、遠距離の武器のDPSのこの倍以上にする。遠攻撃は弾を避けながら撃てて楽なので */
-const MELEE_OVER_RANGED = 1.6;
+/**
+ * 近接の武器のDPSは、遠距離の武器のDPSのこの倍以上にする。遠攻撃は弾を避けながら撃てて楽なので。
+ * 近接の倍率(WEAPON_KIND_POWER)を上げたので、目安も2.2倍に上げた
+ */
+const MELEE_OVER_RANGED = 2.2;
 
 /** 寄ってきた5体に囲まれた所。近攻撃が本来戦う間合い */
 const GROUP = [

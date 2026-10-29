@@ -301,6 +301,37 @@ const ART: Record<ArtId, { size: 32 | 48 | 80; draw: Painter; shadow: number }> 
       g.ellipse(10, 20 + (f === 2 ? -6 : 0), 1.5, 1.5, C.necroGlow);
     },
   },
+  boltSniper: {
+    size: 32,
+    shadow: 7,
+    draw: (g, f) => {
+      // 弩の射手。痩せた体に擦り切れた外套、肩に大弩。振りかぶりで構えて狙う
+      const bob = f === 1 ? 1 : 0;
+      g.rect(13, 24, 2, 5, C.leather);
+      g.rect(17, 24, 2, 5, C.leather);
+      for (let r = 0; r < 11; r++) g.rect(12 - Math.floor(r / 5), 13 + r + bob, 8 + 2 * Math.floor(r / 5), 1, C.burlapDark);
+      g.rect(13, 14 + bob, 3, 8, C.burlap);
+      // 頭巾と、奥で光る片目
+      g.ellipse(15.5, 9 + bob, 4, 4, C.burlapDark);
+      g.rect(13, 9 + bob, 5, 3, C.mouth);
+      g.set(16, 10 + bob, C.eyeGlow);
+      if (f === 2) {
+        // 構えた大弩。弓を横に張り、矢先を光らせる
+        g.rect(8, 15, 17, 2, C.wood);
+        g.line(22, 10, 22, 21, C.iron);
+        g.line(23, 10, 23, 21, C.rustLight);
+        g.line(22, 10, 9, 15, C.pale);
+        g.line(22, 21, 9, 16, C.pale);
+        g.rect(24, 15, 3, 1, C.monkLight);
+        g.set(27, 15, C.eyeGlow);
+      } else {
+        // 肩に担いだ大弩
+        g.line(9, 8 + bob, 22, 18 + bob, C.wood);
+        g.line(7, 11 + bob, 12, 5 + bob, C.iron);
+        g.set(23, 19 + bob, C.monkLight);
+      }
+    },
+  },
   thornHusk: {
     size: 48,
     shadow: 11,
