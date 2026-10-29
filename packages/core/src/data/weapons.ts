@@ -331,9 +331,10 @@ export const WEAPON_KIND_POWER = { melee: 1.5, ranged: 0.55 } as const;
 
 /**
  * 近接か遠距離かで、間隔と振りかぶり・硬直に掛ける倍率。遠距離は速射で戦う:1発は軽いが、
- * 間隔が半分なので、付与の追撃・条件文・繋ぎが多く出る。1発の蓄積も半分にして、状態の溜まる速さはほぼ据え置く
+ * 間隔が半分なので、付与の追撃・条件文・繋ぎが多く出る。1発の蓄積は4分の1。手数(WEAPON_HITS)で蓄積は分けないので、
+ * 遠距離の状態の溜まる速さは手数を増やす前と同じ。近接は手数の分だけ早く満ちる(雷の杖の群れへの連鎖が近接を大きく超えないように)
  */
-export const WEAPON_KIND_PACE = { melee: { interval: 1, windup: 1, buildup: 1 }, ranged: { interval: 0.45, windup: 0.6, buildup: 0.5 } } as const;
+export const WEAPON_KIND_PACE = { melee: { interval: 1, windup: 1, buildup: 1 }, ranged: { interval: 0.45, windup: 0.6, buildup: 0.25 } } as const;
 
 /** 形に属性と性質を重ねた、実際の武器の数値 */
 export function weaponDef(ref: WeaponRef): ResolvedWeapon {

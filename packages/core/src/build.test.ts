@@ -273,7 +273,7 @@ describe('アーティファクト', () => {
     p.busyUntil = 0;
     w.useSkill('p', 'slash', e);
     run(w, 400);
-    expect(w.log.length).toBe(WEAPON_HITS.split);
+    expect(w.log.filter((r) => r.depth === 0)).toHaveLength(WEAPON_HITS.split);
   });
 });
 

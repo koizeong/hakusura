@@ -1807,7 +1807,7 @@ export class CombatWorld {
     if (action.type !== 'melee' && action.type !== 'projectile' && action.type !== 'barrage' && action.type !== 'nova') return;
     const element = skillElement(def);
     // 連撃のように、1回で何度も当たる技がある
-    // 武器の技は手数を増やし、1回の当たりを分けて当てる(当てたときの効果が多く出る)
+    // 武器の技は手数を増やし、1回の当たりを分けて当てる(威力は分け、当てたときの効果が多く出る)
     const split = def.weapon ? WEAPON_HITS.split : 1;
     const hits = (action.type === 'melee' || action.type === 'nova' ? Math.max(1, action.hits ?? 1) : 1) * split;
     const strike = this.nextId++;
@@ -1817,7 +1817,8 @@ export class CombatWorld {
         targetId: target.id,
         element,
         power: (action.power * scale) / split,
-        buildup: (action.buildup * scale) / split,
+        // 蓄積は分けない。手数の分だけ状態が早く満ち、連鎖や燃え広がりが多く起きる
+        buildup: action.buildup * scale,
         // 2回目からは multi を付ける。1回の技につき1度だけ効かせたいルールが見分ける
         tags: hitTags(element, [...def.tags, def.category, 'weapon', skillId, ...(i > 0 ? ['multi'] : [])]),
         skill: def.name,

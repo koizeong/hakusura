@@ -44,7 +44,7 @@ describe('振りかぶりと硬直', () => {
     w.update(SWORD.windup - 10);
     expect(w.log.length).toBe(0);
     w.update(20);
-    expect(w.log.length).toBe(WEAPON_HITS.split);
+    expect(w.log.filter((r) => r.depth === 0)).toHaveLength(WEAPON_HITS.split);
   });
 
   it('硬直中は次のスキルを使えないが、回避で抜けられる', () => {
@@ -74,8 +74,8 @@ describe('状態の蓄積', () => {
     const w = new CombatWorld();
     w.addUnit(player());
     const d = w.addUnit(dummy('d', 50));
-    slash(w, d);
-    expect(w.isActive(d, 'bleed')).toBe(false);
+    // 大剣の1ヒットでは満ちず、手数で分けた2ヒット目で満ちる
+    expect(SWORD.action.type === 'melee' && SWORD.action.buildup < STATUSES.bleed.max).toBe(true);
     slash(w, d);
     expect(w.isActive(d, 'bleed')).toBe(true);
     w.update(STATUSES.bleed.duration + 1);
@@ -324,8 +324,9 @@ describe('回避とガード', () => {
     // 見切りは1回で消える
     slash(w, { x: 60, y: 0 });
     // 1回の斬りを手数で分けたヒットには全て乗り、次の斬りには乗らない
-    expect(w.log.filter((r) => r.targetId === 'e')[WEAPON_HITS.split - 1]!.via).toContain('見切り');
-    expect(w.log.filter((r) => r.targetId === 'e')[WEAPON_HITS.split]!.amount).toBeCloseTo(power('slash'));
+    const direct = w.log.filter((r) => r.targetId === 'e' && r.depth === 0);
+    expect(direct[WEAPON_HITS.split - 1]!.via).toContain('見切り');
+    expect(direct[WEAPON_HITS.split]!.amount).toBeCloseTo(power('slash'));
   });
 
   it('回避で範囲の外へ抜けても、避け始めた位置に当たる攻撃ならジャスト回避', () => {

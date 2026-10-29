@@ -58,7 +58,7 @@ describe('武器の条件文', () => {
   it('32: 両手持ちのとき、攻撃範囲が2倍', () => {
     const { w, p } = setup({ weapons: [weapon('a')], conditions: ['twoHandedReach'], enemies: [{ x: 180, y: 0 }] });
     swing(w, p, 'slash', { x: 180, y: 0 });
-    expect(w.log.length).toBe(WEAPON_HITS.split);
+    expect(w.log.filter((r) => r.depth === 0)).toHaveLength(WEAPON_HITS.split);
     const unarmed = setup({ conditions: ['twoHandedReach'], enemies: [{ x: 180, y: 0 }] });
     swing(unarmed.w, unarmed.p, 'slash', { x: 180, y: 0 });
     expect(unarmed.w.log.length).toBe(0);
@@ -128,9 +128,7 @@ describe('追加したパッシブ', () => {
 
   it('血の昂り: 出血が発動すると、近攻撃のクールダウンが縮む', () => {
     const { w, p } = setup({ passives: ['bloodRush'] });
-    swing(w, p, 'slash');
-    p.cooldowns = {};
-    p.busyUntil = 0;
+    // 1回の斬りの、手数で分けた2ヒット目で出血が満ちる
     w.useSkill('p', 'slash', { x: 60, y: 0 });
     const before = p.cooldowns.slash!;
     run(w, SWORD.windup + 20);
