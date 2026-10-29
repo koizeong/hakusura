@@ -7,9 +7,10 @@ import { dealtBy, summarize } from './breakdown';
 
 /**
  * 近接の武器のDPSは、遠距離の武器のDPSのこの倍以上にする。遠攻撃は弾を避けながら撃てて楽なので。
- * 近接の倍率(WEAPON_KIND_POWER)を上げたので、目安も2.2倍に上げた
+ * 遠距離は同じ相手に当て続けるほど伸びる(狙いの締まり)。動かない案山子を60秒撃ち続けるこの測りは
+ * 遠距離に一番有利な場なので、目安は1.8倍にしている(近接の倍率 WEAPON_KIND_POWER で整える)
  */
-const MELEE_OVER_RANGED = 2.2;
+const MELEE_OVER_RANGED = 1.8;
 
 /** 寄ってきた5体に囲まれた所。近攻撃が本来戦う間合い */
 const GROUP = [

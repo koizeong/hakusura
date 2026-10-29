@@ -238,6 +238,10 @@ export class Hud {
     const growth = world.comboGrowthOf(player);
     const stacks = world.comboStacksOf(player);
     if (growth && stacks > 0) parts.push(`<b class="rite">${growth.label} ${stacks}(+${Math.round(stacks * growth.perStack * 100)}%)</b>`);
+    // 弓・銃・投石紐の狙いの締まり。同じ相手に当て続けるほど溜まる
+    const focus = world.focusGrowthOf(player);
+    const focusStacks = world.focusStacksOf(player);
+    if (focus && focusStacks > 1) parts.push(`<b class="rite">${focus.label} ${focusStacks}(+${Math.round(focusStacks * focus.perStack * 100)}%)</b>`);
     const rites = player.rites.filter((r) => r.until > world.time);
     if (rites.length > 0) parts.push(`<b class="rite">儀式 ${rites.length}:${rites.map((r) => r.name).join('・')}</b>`);
     for (const buff of player.buffs) {

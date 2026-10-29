@@ -156,6 +156,10 @@ export interface Unit {
   /** コンボで溜まる力(杖の魔力の高まり)。最後に溜まった時刻から window を過ぎると消える */
   comboStacks: number;
   comboStackAt: number;
+  /** 同じ相手に当て続けた数(弓・銃・投石紐の狙いの締まり)。focusId は当て続けている相手 */
+  focusStacks: number;
+  focusTargetId?: string;
+  focusAt: number;
   /** 宿している儀式。次の技で全て使い切る */
   rites: { skill: ActiveSkillId; name: string; empower: RiteEmpower; until: number }[];
 }
@@ -498,6 +502,8 @@ export class CombatWorld {
       rites: [],
       comboStacks: 0,
       comboStackAt: -Infinity,
+      focusStacks: 0,
+      focusAt: -Infinity,
       attributes: spec.attributes ? { ...spec.attributes } : undefined,
     };
     this.units.set(unit.id, unit);
@@ -832,6 +838,22 @@ export class CombatWorld {
       if (g) return g;
     }
     return undefined;
+  }
+
+  /** 着けている武器の、同じ相手に当て続けるほど伸びる力(弓・銃・投石紐)。ヒットのタグに合うもの */
+  focusGrowthOf(unit: Unit, tags?: ReadonlySet<string>): NonNullable<WeaponTypeDef['focusGrowth']> | undefined {
+    for (const w of unit.weapons) {
+      const g = (WEAPON_TYPES[w.type] as WeaponTypeDef).focusGrowth;
+      if (g && (!tags || tags.has(g.tag))) return g;
+    }
+    return undefined;
+  }
+
+  /** 今の狙いの締まり。途切れていれば0に戻す */
+  focusStacksOf(unit: Unit): number {
+    const g = this.focusGrowthOf(unit);
+    if (!g || this.time - unit.focusAt > g.window) unit.focusStacks = 0;
+    return unit.focusStacks;
   }
 
   /** 今の魔力の高まり。コンボが途切れていれば0に戻す */
@@ -1914,6 +1936,19 @@ export class CombatWorld {
         bonuses.push({ label: growth.label, add: stacks * growth.perStack });
         via.push(growth.label);
       }
+    }
+    // 弓・銃・投石紐の狙いの締まり。同じ相手への直撃が続くほど重くなる(この一撃の後に1つ溜まる)
+    const focus = attacker && hit.depth === 0 ? this.focusGrowthOf(attacker, hit.tags) : undefined;
+    if (attacker && focus) {
+      const same = attacker.focusTargetId === target.id && this.time - attacker.focusAt <= focus.window;
+      if (!same) attacker.focusStacks = 0;
+      if (attacker.focusStacks > 0) {
+        bonuses.push({ label: focus.label, add: attacker.focusStacks * focus.perStack });
+        via.push(focus.label);
+      }
+      attacker.focusStacks = Math.min(focus.max, attacker.focusStacks + 1);
+      attacker.focusTargetId = target.id;
+      attacker.focusAt = this.time;
     }
     for (const buff of attacker?.buffs ?? []) {
       if (buff.until <= this.time || buff.charges <= 0 || !buff.tags.every((t) => hit.tags.has(t))) continue;

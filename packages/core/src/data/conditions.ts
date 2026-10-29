@@ -10,6 +10,8 @@ export interface ConditionDef {
   rule: Rule;
   /** 1つの条件文で、いくつかの効き目を持つとき */
   extraRules?: readonly Rule[];
+  /** 当てる数が多いほど得をする(速射の遠距離に向く)。遠距離のビルドの拾い物に出やすい */
+  rapid?: boolean;
   /** 繋ぎの条件文なら、前の手と今の手 */
   link?: LinkConditionDef['link'];
 }
@@ -17,6 +19,7 @@ export interface ConditionDef {
 /** 手で書いた条件文 */
 const HANDMADE = {
   twinStrikeOnBurning: {
+    rapid: true,
     no: 1,
     text: '炎上状態の敵に攻撃すると、2回攻撃になる',
     cost: 70,
@@ -32,6 +35,7 @@ const HANDMADE = {
     },
   },
   shiftingElement: {
+    rapid: true,
     no: 11,
     text: '直前と違う属性で攻撃すると、与ダメージ+80%',
     cost: 40,
@@ -43,6 +47,7 @@ const HANDMADE = {
     },
   },
   rainSoaked: {
+    rapid: true,
     no: 51,
     text: '雨の間、全ての攻撃が濡れを付与する',
     cost: 30,
@@ -172,6 +177,7 @@ const HANDMADE = {
     },
   },
   mirroredBlades: {
+    rapid: true,
     no: 177,
     text: '二刀流で左右の武器の補正値の合計が同じなら、攻撃が左右同時に出る',
     cost: 60,

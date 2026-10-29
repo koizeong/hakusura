@@ -146,7 +146,10 @@ export function lootFit(build: Build): LootFit {
     } else if (def.element) elements.add(def.element);
     if (def.category === 'melee' || def.category === 'ranged' || def.category === 'imbue' || def.category === 'rite') categories.add(def.category);
   }
-  return { elements: [...elements], categories: [...categories] };
+  // 遠距離の武器が近接の武器より多ければ(弓だけ・杖だけなど)、速射のビルドとみなす。剣と銃のような持ち合わせは含めない
+  const kinds = weapons.map((w) => weaponDef(w).kind);
+  const rapid = kinds.filter((k) => k === 'ranged').length > kinds.filter((k) => k === 'melee').length;
+  return { elements: [...elements], categories: [...categories], ...(rapid ? { rapid } : {}) };
 }
 
 /** 重さの決まり。担える重さは base に筋力1点ごとに perStr を足したもの */

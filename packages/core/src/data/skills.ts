@@ -870,6 +870,29 @@ export const ACTIVE_SKILLS = {
     aloft: false,
     action: { type: 'takeOff', duration: 11000, land: 'wyvernDive' },
   },
+  /** 飛竜が灰の雛を呼ぶ。雛は群がって噛み、倒せば連鎖や燃え広がりの的になる */
+  broodCall: {
+    name: '雛呼びの咆哮',
+    category: 'summon',
+    tags: ['enemy', 'boss'],
+    windup: 1200,
+    recovery: 500,
+    cooldown: 28000,
+    opening: 12000,
+    aloft: false,
+    action: { type: 'summon', enemy: 'ashWhelp', count: 3, max: 4, radius: 140 },
+  },
+  /** 灰の雛の噛みつき。火で、燃やす */
+  whelpBite: {
+    name: '雛の噛みつき',
+    category: 'melee',
+    element: 'fire',
+    tags: ['attack', 'enemy'],
+    windup: 450,
+    recovery: 400,
+    cooldown: 1600,
+    action: { type: 'melee', range: 50, arc: 100, power: 14, buildup: 30 },
+  },
   /** 飛んでいる間の火の雨。回る輪で全方位に火を撒く */
   fireRain: {
     name: '火の雨',

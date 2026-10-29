@@ -246,7 +246,9 @@ describe('条件文', () => {
     expect(first!.amount).toBeCloseTo(power('slash'));
     expect(second!.amount).toBeCloseTo(power('shoot') * 1.8);
     expect(second!.via).toContain('移ろう属性');
-    expect(third!.amount).toBeCloseTo(power('shoot'));
+    // 3発目は同じ相手への2発目の射撃なので、狙いの締まりが1つ乗る
+    expect(third!.amount).toBeCloseTo(power('shoot') * 1.03);
+    expect(third!.via).not.toContain('移ろう属性');
   });
 
   it('51: 雨の間、全ての攻撃が濡れを付与する', () => {

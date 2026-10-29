@@ -253,6 +253,8 @@ export interface GenerateOptions {
 export interface LootFit {
   elements: readonly ElementId[];
   categories: readonly string[];
+  /** 遠距離の武器が中心のビルド。当てる数で伸びる条件文(rapid)を寄せる */
+  rapid?: boolean;
 }
 
 /** その補正値の項目がビルドに合うか。タグのない項目(与ダメージ・クールダウンなど)はどのビルドにも合う */
@@ -265,8 +267,10 @@ export function affixFits(id: AffixId, fit: LootFit): boolean {
 
 /** その条件文がビルドに合うか。繋ぎなら、前の手と今の手がどちらもビルドにあるもの */
 export function conditionFits(id: ConditionId, fit: LootFit): boolean {
-  const link = conditionDef(id).link;
-  if (!link) return true;
+  const def = conditionDef(id);
+  const link = def.link;
+  // 速射のビルドには、当てる数で伸びる手書きの条件文を寄せる
+  if (!link) return !fit.rapid || !!def.rapid;
   const has = (step: { element: ElementId } | { category: string }) =>
     'element' in step ? fit.elements.includes(step.element) : fit.categories.includes(step.category);
   return has(link.prev) && has(link.now);

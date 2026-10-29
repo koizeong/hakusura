@@ -37,6 +37,11 @@ interface WeaponBase {
    * 溜まった数 × perStack を、tag を持つヒットの与ダメージに足す
    */
   comboGrowth?: { label: string; perStack: number; max: number; window: number; tag: string };
+  /**
+   * 同じ相手に当て続けるほど伸びる力(弓・銃・投石紐)。武器のタグ tag を持つ直撃が同じ相手に当たるたびに1つ溜まり、
+   * 別の相手に当てるか window の間当てなければ数え直す。溜まった数 × perStack を与ダメージに足す
+   */
+  focusGrowth?: { label: string; perStack: number; max: number; window: number; tag: string };
 }
 
 export interface MeleeWeaponDef extends WeaponBase {
@@ -161,6 +166,8 @@ export const WEAPON_TYPES = {
     radius: 7,
     needs: { dex: 12 },
     tags: ['gun'],
+    // 速射で同じ相手に当て続けるほど、狙いが締まって重くなる
+    focusGrowth: { label: '狙いの締まり', perStack: 0.03, max: 20, window: 2500, tag: 'gun' },
   },
   emberSling: {
     name: '投石紐',
@@ -177,6 +184,8 @@ export const WEAPON_TYPES = {
     radius: 8,
     needs: { dex: 8 },
     tags: ['sling'],
+    // 速射で同じ相手に当て続けるほど、狙いが締まって重くなる
+    focusGrowth: { label: '狙いの締まり', perStack: 0.03, max: 20, window: 2500, tag: 'sling' },
   },
   boneBow: {
     name: '骨の短弓',
@@ -193,6 +202,8 @@ export const WEAPON_TYPES = {
     radius: 5,
     needs: { dex: 14 },
     tags: ['bow'],
+    // 速射で同じ相手に当て続けるほど、狙いが締まって重くなる
+    focusGrowth: { label: '狙いの締まり', perStack: 0.03, max: 20, window: 2500, tag: 'bow' },
   },
   dagger: {
     name: '短剣',

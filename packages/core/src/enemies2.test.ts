@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld } from './world';
 import { ENEMIES, ENEMY_IDS } from './data/enemies';
+import { ACTIVE_SKILLS } from './data/skills';
 import { ENCOUNTERS, ENCOUNTER_IDS } from './data/encounters';
 import { Encounter } from './encounter';
 
@@ -15,12 +16,15 @@ function arena() {
 }
 
 describe('敵の一覧', () => {
-  it('雑魚15種と大物。どれも問うこと(concept)を持ち、一戦のどこかに出る', () => {
-    expect(ENEMY_IDS.filter((id) => !('boss' in ENEMIES[id]))).toHaveLength(15);
+  it('雑魚15種と大物と取り巻き。どれも問うこと(concept)を持ち、一戦に出るか、誰かに呼ばれる', () => {
+    expect(ENEMY_IDS.filter((id) => !('boss' in ENEMIES[id]) && !('minion' in ENEMIES[id]))).toHaveLength(15);
     const used = new Set<string>(ENCOUNTER_IDS.flatMap((id) => ENCOUNTERS[id].waves.flatMap((w) => w.spawn.map((s) => s.enemy))));
+    const summoned = new Set<string>(
+      Object.values(ACTIVE_SKILLS).flatMap((d) => ('action' in d && d.action.type === 'summon' ? [d.action.enemy] : [])),
+    );
     for (const id of ENEMY_IDS) {
       expect(ENEMIES[id].concept.length).toBeGreaterThan(0);
-      expect(used.has(id)).toBe(true);
+      expect('minion' in ENEMIES[id] ? summoned.has(id) : used.has(id)).toBe(true);
     }
   });
 });

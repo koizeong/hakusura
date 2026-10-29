@@ -36,6 +36,8 @@ export interface EnemyDef {
   approach?: ActiveSkillId;
   /** 大物。1体で現れ、画面の上に大きな体力の棒が出る */
   boss?: boolean;
+  /** 取り巻き。一戦の群れには出ず、他の敵に呼ばれて出る */
+  minion?: boolean;
   /** 昏倒・凍結のように動きを止める状態の溜まりやすさ(1 が普通)。大物は止まりにくい */
   poise?: number;
   /** 体力が below を割ると怒る。間隔が cooldown 倍、歩みが speed 倍になる */
@@ -237,17 +239,31 @@ export const ENEMIES = {
     keepAt: 560,
     look: { shape: 'hood', color: 0x6a5a48 },
   },
+  ashWhelp: {
+    name: '灰の雛',
+    concept: '取り巻き:飛竜が呼ぶ雛。群がって噛む。雷を通しやすく、連鎖や燃え広がりの的になる',
+    description: '飛竜の巣で孵った灰色の雛。群がって火の牙で噛む。脆いが数で来る',
+    // 揃えたビルドの火力に合わせ、数秒は生き残って連鎖の的になる硬さ
+    maxHp: 4000,
+    radius: 12,
+    speed: 160,
+    resist: { fire: 0.5, lightning: -0.3 },
+    skills: ['whelpBite'],
+    behavior: 'swarm',
+    minion: true,
+    look: { shape: 'wing', color: 0x7a6a5a },
+  },
   wyvern: {
     name: '灰翼の飛竜',
     concept: '大物:長い体力と苛烈な攻め。飛び上がれば近攻撃は届かず、火を降らせてから急降下する。遠攻撃の備えと、炎を雨で鈍らせる知恵が要る',
     description:
-      '灰の峰に棲む飛竜。顎と尾で寄る者を払い、長く溜めて炎を吐く。時に空へ上がって火の雨を降らせ、狙った所へ急降下する。傷が深まると逆鱗に触れ、攻めが速まる',
+      '灰の峰に棲む飛竜。顎と尾で寄る者を払い、長く溜めて炎を吐く。時に空へ上がって火の雨を降らせ、狙った所へ急降下する。咆哮で灰の雛を呼ぶ。傷が深まると逆鱗に触れ、攻めが速まる',
     // 装備を揃えたビルドに合わせる(シミュレーターの中央値で毎秒約1,400、最初の巡礼者で約800)。3分半に収まる
     maxHp: 160000,
     radius: 46,
     speed: 95,
     resist: { fire: 0.6, ash: 0.4, slash: 0.15, ice: -0.4, lightning: -0.2 },
-    skills: ['fireRain', 'emberVolley', 'wyvernTakeOff', 'flameBreath', 'tailSweep', 'wyvernBite'],
+    skills: ['fireRain', 'emberVolley', 'wyvernTakeOff', 'broodCall', 'flameBreath', 'tailSweep', 'wyvernBite'],
     approach: 'wyvernBite',
     behavior: 'chase',
     boss: true,

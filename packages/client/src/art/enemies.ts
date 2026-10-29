@@ -301,6 +301,29 @@ const ART: Record<ArtId, { size: 32 | 48 | 80; draw: Painter; shadow: number }> 
       g.ellipse(10, 20 + (f === 2 ? -6 : 0), 1.5, 1.5, C.necroGlow);
     },
   },
+  ashWhelp: {
+    size: 32,
+    shadow: 7,
+    draw: (g, f) => {
+      // 灰の雛。小さな飛竜。羽をばたつかせ、振りかぶりで口が熾火に光る
+      const cx = 15.5;
+      const flap = f === 1 ? 3 : 0;
+      for (const side of [-1, 1] as const) {
+        polygon(g, [[cx + side * 3, 17], [cx + side * 13, 9 + flap], [cx + side * 11, 18 + flap], [cx + side * 5, 21]], W.wing);
+        g.line(cx + side * 3, 17, cx + side * 13, 9 + flap, W.wingBone);
+      }
+      g.ellipse(cx, 20, 5, 6, W.scale);
+      g.ellipse(cx, 22, 3, 3.5, W.belly);
+      for (let i = 0; i <= 6; i++) g.set(cx + Math.sin(i / 2) * 2, 26 + i * 0.7, W.scaleDark);
+      const hy = f === 2 ? 9 : 11;
+      g.ellipse(cx, hy, 3.5, 3, W.scale);
+      g.set(cx - 1.5, hy - 1, W.ember);
+      g.set(cx + 1.5, hy - 1, W.ember);
+      g.line(cx - 2, hy - 2, cx - 4, hy - 5, W.horn);
+      g.line(cx + 2, hy - 2, cx + 4, hy - 5, W.horn);
+      if (f === 2) g.rect(cx - 1, hy + 2, 3, 2, W.ember);
+    },
+  },
   boltSniper: {
     size: 32,
     shadow: 7,
