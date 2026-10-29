@@ -140,8 +140,10 @@ function pilot(w: CombatWorld, p: Unit, reach: number, dt: number, state: PilotS
   if (useStep && w.time >= state.readyAt) {
     // 避けるステップ:逃げる向きへ。詰めるステップ:遠い相手へ(自分が振りかぶっていないときだけ)
     const close = !danger && d - focus.radius > want + 160 && p.windupUntil <= w.time;
-    // 自分の技がもうすぐ出るなら、潰さずに受ける
-    const committed = p.windupUntil > w.time && p.windupUntil - w.time < 200;
+    // 自分の技がもうすぐ出るなら、潰さずに受ける。儀式を重ねて溜めた一撃も、潰さずに打ち切る
+    const winding = p.windupUntil > w.time;
+    const charged = p.rites.filter((r) => r.until > w.time).length >= 2;
+    const committed = winding && (p.windupUntil - w.time < 200 || charged);
     const away = { x: mx + flee.x, y: my + flee.y };
     const awayLen = Math.hypot(away.x, away.y);
     if ((danger && awayLen > 0.01 && !committed) || close) {

@@ -146,3 +146,42 @@ describe('ステップ(自動の回避)', () => {
     expect(w.log.filter((r) => r.targetId === 't')).toHaveLength(0);
   });
 });
+
+describe('儀式は潰れても失われない', () => {
+  it('宿した儀式を乗せた技がステップで潰れたら、儀式は戻る', () => {
+    const { w, p } = duel();
+    const t = w.units.get('t')!;
+    w.useSkill('p', 'stillPrayer', t);
+    run(w, 600);
+    p.busyUntil = 0;
+    w.useSkill('p', 'bloodOath', t);
+    run(w, 800);
+    expect(p.rites).toHaveLength(2);
+    p.busyUntil = 0;
+    w.useSkill('p', 'slash', t, 't');
+    expect(p.rites).toHaveLength(0);
+    run(w, 50);
+    expect(w.dodge('p', true)).toBe(true);
+    expect(p.rites.map((r) => r.name)).toEqual(['黙祷', '血の誓い']);
+    // 戻った儀式は、次の技に乗る
+    run(w, 400);
+    p.cooldowns = {};
+    p.busyUntil = 0;
+    const before = w.log.length;
+    w.useSkill('p', 'slash', t, 't');
+    run(w, 800);
+    expect(w.log.slice(before).some((r) => r.via.includes('黙祷') && r.via.includes('血の誓い'))).toBe(true);
+  });
+
+  it('唱えている儀式が潰れたら、その儀式のクールダウンは戻る', () => {
+    const { w, p } = duel();
+    const t = w.units.get('t')!;
+    w.useSkill('p', 'pyreOffering', t);
+    run(w, 100);
+    expect(w.canUseSkill('p', 'pyreOffering')).toBe(false);
+    w.dodge('p', true);
+    run(w, 300);
+    expect(p.rites).toHaveLength(0);
+    expect(p.cooldowns.pyreOffering).toBeLessThanOrEqual(w.time);
+  });
+});

@@ -355,6 +355,8 @@ interface PendingAction {
   targetId?: string;
   /** 振りかぶったときに狙った所(急降下の降りる所) */
   aim: Point;
+  /** この技に宿して使い切った儀式。技が潰れたら戻す */
+  releasedRites?: Unit['rites'];
 }
 interface OwnedRule {
   rule: Rule;
@@ -720,8 +722,10 @@ export class CombatWorld {
     const last = unit.history.at(-1);
     const prev: PrevStep | undefined = last ? { element: last.element, category: last.category, gap: this.time - last.at } : undefined;
     let def: ResolvedSkill = { ...this.skillFor(unit, skillId)!, useIndex: uses, prev };
-    // 宿した儀式は、攻撃の技(近攻撃・遠攻撃)で全て使い切る
+    // 宿した儀式は、攻撃の技(近攻撃・遠攻撃)で全て使い切る。潰れたら戻せるよう覚えておく
+    const riteBefore = unit.rites.filter((r) => r.until > this.time);
     def = this.releaseRites(unit, def);
+    const released = def.rites ? riteBefore : undefined;
     // 型。直近の手順と合えば決まり、この一手が強くなる
     const form = this.recordStep(unit, skillId, def);
     if (form) {
@@ -743,7 +747,16 @@ export class CombatWorld {
     if (def.weapon) unit.hand += 1;
     const angle = Math.atan2(aim.y - unit.y, aim.x - unit.x);
     unit.facing = angle;
-    const action: PendingAction = { unitId, skill: skillId, resolved: def, at: this.time + def.windup, angle, targetId, aim: { x: aim.x, y: aim.y } };
+    const action: PendingAction = {
+      unitId,
+      skill: skillId,
+      resolved: def,
+      at: this.time + def.windup,
+      angle,
+      targetId,
+      aim: { x: aim.x, y: aim.y },
+      releasedRites: released,
+    };
     this.events.push({ type: 'windup', unitId, skill: skillId, angle, at: action.at, action: def.action, element: def.element, aim: action.aim });
     if (def.windup <= 0) this.executeSkill(action);
     else this.pending.push(action);
@@ -1115,6 +1128,12 @@ export class CombatWorld {
   /** 振りかぶり中の行動を潰す */
   private interrupt(unit: Unit): void {
     const before = this.pending.length;
+    // 儀式は潰れても失われない。潰れた技に宿した儀式は戻り、潰れた儀式はクールダウンが戻る
+    for (const p of this.pending) {
+      if (p.unitId !== unit.id) continue;
+      if (p.releasedRites?.length) unit.rites = [...p.releasedRites, ...unit.rites].slice(-CombatWorld.RITE_LIMIT);
+      if (p.resolved.action.type === 'rite') unit.cooldowns[p.skill] = this.time;
+    }
     this.pending = this.pending.filter((p) => p.unitId !== unit.id);
     unit.windupUntil = this.time;
     unit.guardSince = null;
