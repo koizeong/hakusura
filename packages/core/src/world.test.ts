@@ -227,6 +227,14 @@ describe('トリガー連鎖の上限', () => {
 });
 
 describe('条件文', () => {
+  it('同じ条件文を幾つ着けても同じ種類なので足し算(+50%を3つで+150%。掛け算にはしない)', () => {
+    const w = new CombatWorld();
+    w.addUnit(player({ conditions: ['unscathed', 'unscathed', 'unscathed'] }));
+    const d = w.addUnit(dummy('d', 50));
+    slash(w, d);
+    expect(w.log[0]!.amount).toBeCloseTo(power('slash') * (1 + 0.5 * 3));
+  });
+
   it('1: 炎上状態の敵に攻撃すると、2回攻撃になる', () => {
     const w = new CombatWorld();
     w.addUnit(player({ conditions: ['twinStrikeOnBurning'] }));
