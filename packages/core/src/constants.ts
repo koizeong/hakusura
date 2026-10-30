@@ -44,3 +44,9 @@ export const WEAPON_HITS = { split: 2 } as const;
  * 倒れてもすぐ満タンで起き上がるだけでは、最大HPを捨てたガラスの大砲が損をしないので
  */
 export const FALL = { downtime: 3000 } as const;
+
+/**
+ * 同じ条件文(同じ名前の力)を重ねたとき。2つ目からは repeatWeight の割合しか効かない。
+ * 一番強い条件文を何枚重ねられるかで火力が決まらないように(3倍を5つで11倍→7倍)
+ */
+export const STACKING = { repeatWeight: 0.5 } as const;

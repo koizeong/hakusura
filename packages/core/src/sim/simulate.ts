@@ -140,7 +140,8 @@ function pilot(w: CombatWorld, p: Unit, reach: BuildReach, dt: number, state: Pi
   } else if (!goal && d - focus.radius > want) {
     mx += (focus.x - p.x) / d;
     my += (focus.y - p.y) / d;
-  } else if (reach.melee === undefined && reach.max > 200 && d < reach.max * 0.45) {
+  } else if (reach.melee === undefined && reach.max > 200 && d < reach.max * 0.6) {
+    // 遠距離だけのビルドは、人が遊ぶときのように間合いを保って下がる
     mx -= (focus.x - p.x) / d;
     my -= (focus.y - p.y) / d;
   }

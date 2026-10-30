@@ -1,3 +1,4 @@
+import { STACKING } from './constants';
 import { modifierGroup, type Modifier } from './rules';
 
 /** ルールから来た補正。ルールごとに別の種類として扱う */
@@ -36,9 +37,14 @@ export function multiplierOf(modifiers: readonly Modifier[], ruleBonuses: readon
     const key = modifierGroup(mod);
     groups.set(key, (groups.get(key) ?? 0) + mod.value);
   }
+  // 同じ名前の力を重ねたら、2つ目からは一部しか効かない(得の向きだけ。損は重ねた分だけ効く)
+  const seen = new Map<string, number>();
   for (const bonus of ruleBonuses) {
     const key = `rule:${bonus.group ?? bonus.label}`;
-    groups.set(key, (groups.get(key) ?? 0) + bonus.add);
+    const n = seen.get(bonus.label) ?? 0;
+    seen.set(bonus.label, n + 1);
+    const add = n > 0 && bonus.add > 0 ? bonus.add * STACKING.repeatWeight : bonus.add;
+    groups.set(key, (groups.get(key) ?? 0) + add);
   }
   let multiplier = 1;
   for (const sum of groups.values()) multiplier *= Math.max(0, 1 + sum);

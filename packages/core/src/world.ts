@@ -1,4 +1,4 @@
-import { DEFENSE, FALL, MAX_TRIGGER_DEPTH, STATUS_RULES, WEAPON_HITS } from './constants';
+import { DEFENSE, FALL, MAX_TRIGGER_DEPTH, STACKING, STATUS_RULES, WEAPON_HITS } from './constants';
 import { computeDamage, type RuleBonus } from './damage';
 import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
 import { FLOOR_RULES, fieldDef, type FieldId } from './data/fields';
@@ -1891,9 +1891,13 @@ export class CombatWorld {
     for (const id of attacker.passives) {
       for (const rule of passiveDef(id).rules ?? []) out.push({ rule, kind: 'passive' });
     }
+    // 同じ条件文の2つ目からは、増えるヒットの威力も一部だけにする(与ダメージは multiplierOf で同じ名前ごとに割り引く)
+    const copies = new Map<ConditionId, number>();
     for (const id of attacker.conditions) {
       const def = conditionDef(id);
-      for (const rule of [def.rule, ...(def.extraRules ?? [])]) out.push({ rule, kind: 'condition' });
+      const n = copies.get(id) ?? 0;
+      copies.set(id, n + 1);
+      for (const rule of [def.rule, ...(def.extraRules ?? [])]) out.push({ rule: n > 0 ? repeatedRule(rule) : rule, kind: 'condition' });
     }
     for (const id of attacker.artifacts) {
       for (const rule of artifactDef(id).rules ?? []) out.push({ rule, kind: 'artifact' });
@@ -2468,4 +2472,17 @@ function hashOf(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
   return Math.abs(h);
+}
+
+const repeatedRules = new WeakMap<Rule, Rule>();
+
+/** 重ねた条件文のルール。増えるヒットの威力を STACKING.repeatWeight 倍にする */
+function repeatedRule(rule: Rule): Rule {
+  if (rule.on !== 'hit') return rule;
+  let r = repeatedRules.get(rule);
+  if (!r) {
+    r = { ...rule, do: rule.do.map((a) => (a.type === 'repeatHit' ? { ...a, power: (a.power ?? 1) * STACKING.repeatWeight } : a)) };
+    repeatedRules.set(rule, r);
+  }
+  return r;
 }

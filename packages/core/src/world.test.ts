@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld, type UnitSpec } from './world';
-import { DEFENSE, MAX_TRIGGER_DEPTH, WEAPON_HITS } from './constants';
+import { DEFENSE, MAX_TRIGGER_DEPTH, STACKING, WEAPON_HITS } from './constants';
 import { ACTIVE_SKILLS, resolveSkill, type ActiveSkillId } from './data/skills';
 import { STATUSES } from './data/statuses';
 import { summarize, dealtBy } from './breakdown';
@@ -227,12 +227,12 @@ describe('トリガー連鎖の上限', () => {
 });
 
 describe('条件文', () => {
-  it('同じ条件文を幾つ着けても同じ種類なので足し算(+25%を3つで+75%。掛け算にはしない)', () => {
+  it('同じ条件文は足し算で、2つ目からは半分しか効かない(+25%を3つで+50%。掛け算にはしない)', () => {
     const w = new CombatWorld();
     w.addUnit(player({ conditions: ['unscathed', 'unscathed', 'unscathed'] }));
     const d = w.addUnit(dummy('d', 50));
     slash(w, d);
-    expect(w.log[0]!.amount).toBeCloseTo(power('slash') * (1 + 0.25 * 3));
+    expect(w.log[0]!.amount).toBeCloseTo(power('slash') * (1 + 0.25 * (1 + STACKING.repeatWeight * 2)));
   });
 
   it('1: 炎上状態の敵に攻撃すると、2回攻撃になる', () => {
