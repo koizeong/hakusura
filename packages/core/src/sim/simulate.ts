@@ -72,6 +72,23 @@ interface PilotState {
   /** ステップを踏んだ回数(避け・詰め) */
   dodges: number;
   closes: number;
+  /**
+   * 気づく確率(1 で全て気づく)。迫る弾や振りかぶりに気づかなければ、blindUntil まで避けない。
+   * 人は全ての攻めに気づけないので、実戦に近い場では1より小さくする
+   */
+  awareness?: number;
+  blindUntil?: number;
+  nextLook?: number;
+  /** 気づくかを決める乱数の種(戦いの乱数とは別にする) */
+  rngSeed?: number;
+}
+
+/** 操り手の乱数。戦いの乱数の並びを変えないよう、操り手だけで持つ */
+function pilotRandom(state: PilotState): number {
+  let t = (state.rngSeed = ((state.rngSeed ?? 1) + 0x6d2b79f5) | 0);
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
 /**
@@ -95,6 +112,17 @@ function pilot(w: CombatWorld, p: Unit, reach: BuildReach, dt: number, state: Pi
   if (foes.length === 0) return;
   const near = foes.reduce((a, b) => (Math.hypot(a.x - p.x, a.y - p.y) < Math.hypot(b.x - p.x, b.y - p.y) ? a : b));
   const focus = (p.focusId && w.units.get(p.focusId)) || near;
+  // 迫る攻めに気づくか。気づかなければしばらく避けない
+  if (state.awareness !== undefined && state.awareness < 1 && w.time >= (state.nextLook ?? 0)) {
+    const threat =
+      w.projectiles.some((pr) => w.units.get(pr.ownerId)?.team !== p.team && Math.hypot(pr.x - p.x, pr.y - p.y) < 160) ||
+      foes.some((u) => u.windupUntil > w.time && Math.hypot(u.x - p.x, u.y - p.y) < u.radius + 190);
+    if (threat) {
+      state.nextLook = w.time + FIELD.lookEvery;
+      if (pilotRandom(state) > state.awareness) state.blindUntil = w.time + FIELD.lookEvery;
+    }
+  }
+  const blind = w.time < (state.blindUntil ?? 0);
   let mx = 0;
   let my = 0;
   let danger = false;
@@ -117,7 +145,7 @@ function pilot(w: CombatWorld, p: Unit, reach: BuildReach, dt: number, state: Pi
     my -= (focus.y - p.y) / d;
   }
   // 弾から横へ逃げる。こちらへ向かってくる近い弾は、当たりそうとみなす
-  for (const proj of w.projectiles) {
+  for (const proj of blind ? [] : w.projectiles) {
     const owner = w.units.get(proj.ownerId);
     if (!owner || owner.team === p.team) continue;
     const dx = p.x - proj.x;
@@ -144,7 +172,7 @@ function pilot(w: CombatWorld, p: Unit, reach: BuildReach, dt: number, state: Pi
     const dist = Math.hypot(p.x - u.x, p.y - u.y) || 1;
     if (dist > u.radius + 190) continue;
     flee = { x: flee.x + ((p.x - u.x) / dist) * 2, y: flee.y + ((p.y - u.y) / dist) * 2 };
-    if (u.windupUntil - w.time < 220 && dist < u.radius + 150) danger = true;
+    if (!blind && u.windupUntil - w.time < 220 && dist < u.radius + 150) danger = true;
   }
   if (!useStep) {
     mx += flee.x;
@@ -251,29 +279,49 @@ export function runEncounter(
   };
 }
 
-/** 実戦に近い場の決まり。案山子は寄ってきて(1秒に speed)、薙ぎとゆるい弾幕で攻めてくる */
-export const FIELD = { speed: 90, skills: ['strawSwipe', 'strawScatter'] as ActiveSkillId[] } as const;
+/**
+ * 実戦に近い場の決まり。count 体の倒れない案山子が別々の向きから寄ってきて(1秒に speed)、薙ぎと弾幕で攻めてくる。
+ * 1体の薙ぎとゆるい弾幕では操り手に避け切られ、最大HPを捨てても倒れなかったので、群れで囲む
+ */
+export const FIELD = {
+  speed: 90,
+  count: 3,
+  /** 操り手が迫る攻めに気づく確率と、気づき直すまでの間 */
+  awareness: 0.7,
+  lookEvery: 600,
+  skills: ['strawSwipe', 'strawScatter', 'emberFan', 'sootSpit'] as ActiveSkillId[],
+} as const;
 
 /**
- * 実戦に近い場で測る。歩いて攻めてくる倒れない案山子を、操り手つきで seconds 秒戦う。
- * 止まって撃つ・離れて撃つ・盾で受けるといった条件は、ここで初めて正しく効く(動かない案山子では測れない)
+ * 実戦に近い場で測る。寄ってきて攻める倒れない案山子の群れを、操り手つきで seconds 秒戦う。DPS は案山子全てへの合計。
+ * 止まって撃つ・離れて撃つ・盾で受ける・最大HPを捨てるといったことは、ここで初めて正しく測れる(動かない案山子では測れない)
  */
-export function measureField(build: Build, seconds = 30, seed = 1): { dps: number; maxHit: number; maxHitVia: string; falls: number } {
+export function measureField(
+  build: Build,
+  seconds = 30,
+  seed = 1,
+  skills: readonly ActiveSkillId[] = FIELD.skills,
+  count: number = FIELD.count,
+): { dps: number; maxHit: number; maxHitVia: string; falls: number; hitsTaken: number } {
   const w = new CombatWorld({ seed, bounds: ARENA });
   const cx = ARENA.width / 2;
   const cy = ARENA.height / 2;
-  const p = w.addUnit({ id: 'player', name: '巡礼者', team: 'player', x: cx - 250, y: cy, ...SIM_PLAYER, autoBattle: true });
+  const p = w.addUnit({ id: 'player', name: '巡礼者', team: 'player', x: cx, y: cy, ...SIM_PLAYER, autoBattle: true });
   applyBuild(w, p, build);
   p.hp = p.maxHp;
-  const t = w.addUnit({ id: 'dummy', name: '案山子', team: 'enemy', x: cx + 250, y: cy, maxHp: 1e15, ai: [...FIELD.skills] });
+  const dummies = Array.from({ length: count }, (_, i) => {
+    const a = (i / count) * Math.PI * 2;
+    return w.addUnit({ id: `dummy${i}`, name: '案山子', team: 'enemy', x: cx + Math.cos(a) * 300, y: cy + Math.sin(a) * 300, maxHp: 1e15, ai: [...skills] });
+  });
   const reach = buildReach(w, p);
-  const state: PilotState = { readyAt: 0, dodges: 0, closes: 0 };
+  const state: PilotState = { readyAt: 0, dodges: 0, closes: 0, awareness: FIELD.awareness, rngSeed: seed };
   const dt = 25;
   for (let time = 0; time < seconds * 1000; time += dt) {
     if (p.trump && w.canUseSkill(p.id, p.trump) && !p.queued) w.queueSkill(p.id, p.trump, 3000);
     // 案山子は寄ってくる。振りかぶり中と動けない間は止まる
-    const gap = Math.hypot(p.x - t.x, p.y - t.y);
-    if (!w.isBusy(t) && !w.isIncapacitated(t) && gap > t.radius + p.radius + 20) {
+    for (const t of dummies) {
+      const gap = Math.hypot(p.x - t.x, p.y - t.y);
+      if (w.isBusy(t) || w.isIncapacitated(t) || gap <= t.radius + p.radius + 20) continue;
       const step = (FIELD.speed * w.statOf(t, 'moveSpeed') * dt) / 1000 / gap;
       w.moveUnit(t.id, t.x + (p.x - t.x) * step, t.y + (p.y - t.y) * step);
     }
@@ -282,7 +330,8 @@ export function measureField(build: Build, seconds = 30, seed = 1): { dps: numbe
   }
   const log = dealtBy(w.log, p.id);
   const top = log.reduce((a, b) => (b.amount > (a?.amount ?? 0) ? b : a), log[0]);
-  return { dps: summarize(log, w.time).total / seconds, maxHit: top?.amount ?? 0, maxHitVia: top ? [top.skill, ...top.via].join('・') : '', falls: p.falls };
+  const hitsTaken = w.log.filter((r) => r.targetId === p.id && r.attackerId?.startsWith('dummy') && r.depth === 0).length;
+  return { dps: summarize(log, w.time).total / seconds, maxHit: top?.amount ?? 0, maxHitVia: top ? [top.skill, ...top.via].join('・') : '', falls: p.falls, hitsTaken };
 }
 
 export interface ArchetypeReport {
