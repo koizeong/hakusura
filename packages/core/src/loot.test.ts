@@ -253,7 +253,7 @@ describe('持ち味の条件文', () => {
     expect(once(gun, 'shoot', 'stormConduit', 200) / once(gun, 'shoot', undefined, 200)).toBeCloseTo(1, 1);
   });
 
-  it('火葬の讃歌:炎上している敵への杖の術は3倍', () => {
+  it('火葬の讃歌:炎上している敵への火の攻撃は3倍', () => {
     const burning = (w: CombatWorld) => w.forceStatus('t', 'burn', true);
     const staff = [{ type: 'staff' as const, element: 'fire' as const }];
     expect(once(staff, 'shoot', 'pyreHymn', 200, burning) / once(staff, 'shoot', undefined, 200, burning)).toBeGreaterThan(2.5);

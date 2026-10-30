@@ -270,9 +270,10 @@ const HANDMADE = {
   pyreHymn: {
     rapid: true,
     no: 211,
-    text: '炎上している敵への杖の術は、与ダメージ3倍',
+    // 雷の通い路と揃え、炎上の燃える傷にも効く
+    text: '炎上している敵への火の攻撃は、与ダメージ3倍',
     cost: 50,
-    rule: { label: '火葬の讃歌', on: 'damage', when: [{ type: 'hitHasTag', tag: 'staff' }, { type: 'targetHas', status: 'burn' }], add: 2 },
+    rule: { label: '火葬の讃歌', on: 'damage', when: [{ type: 'hitElementIs', element: 'fire' }, { type: 'targetHas', status: 'burn' }], add: 2 },
   },
   spearEdge: {
     no: 212,
