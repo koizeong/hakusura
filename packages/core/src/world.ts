@@ -1,4 +1,4 @@
-import { DEFENSE, MAX_TRIGGER_DEPTH, STATUS_RULES, WEAPON_HITS } from './constants';
+import { DEFENSE, FALL, MAX_TRIGGER_DEPTH, STATUS_RULES, WEAPON_HITS } from './constants';
 import { computeDamage, type RuleBonus } from './damage';
 import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
 import { FLOOR_RULES, fieldDef, type FieldId } from './data/fields';
@@ -132,6 +132,8 @@ export interface Unit {
   mortal: boolean;
   /** 倒れて起き上がった回数 */
   falls: number;
+  /** 倒れて起き上がるまでの時刻。それまでは動けない */
+  downUntil: number;
   /** 最後にスキルを使った時刻。戦っている間かどうかを見る */
   lastAttackAt: number;
   /** 直近に使ったスキル。型と「直前の手」の条件で見る */
@@ -505,6 +507,7 @@ export class CombatWorld {
       kind: spec.kind,
       mortal: spec.mortal ?? false,
       falls: 0,
+      downUntil: 0,
       lastAttackAt: -Infinity,
       history: [],
       forms: [...STARTING_FORMS],
@@ -641,7 +644,7 @@ export class CombatWorld {
 
   /** 昏倒のように行動できない状態にかかっている */
   isIncapacitated(unit: Unit): boolean {
-    return STATUS_IDS.some((s) => statusDef(s).incapacitates && this.isActive(unit, s));
+    return unit.downUntil > this.time || STATUS_IDS.some((s) => statusDef(s).incapacitates && this.isActive(unit, s));
   }
 
   /** 振りかぶりか硬直の最中 */
@@ -1599,6 +1602,18 @@ export class CombatWorld {
     unit.hp = unit.maxHp;
     unit.lastHurtAt = -Infinity;
     unit.falls += 1;
+    // 自分の側は、起き上がるまで動けない。宿した儀式と力は失う(案山子はすぐ起き上がる。試し斬りの的なので)
+    if (unit.team !== 'player') {
+      this.events.push({ type: 'fell', unitId: unit.id });
+      return;
+    }
+    unit.downUntil = this.time + FALL.downtime;
+    unit.invulnerableUntil = Math.max(unit.invulnerableUntil, unit.downUntil);
+    unit.rites = [];
+    unit.buffs = [];
+    this.pending = this.pending.filter((p) => p.unitId !== unit.id);
+    unit.busyUntil = 0;
+    unit.windupUntil = 0;
     this.events.push({ type: 'fell', unitId: unit.id });
   }
 

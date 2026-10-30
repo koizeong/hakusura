@@ -185,3 +185,41 @@ describe('儀式は潰れても失われない', () => {
     expect(p.cooldowns.pyreOffering).toBeLessThanOrEqual(w.time);
   });
 });
+
+describe('倒れたとき', () => {
+  it('起き上がるまで3秒動けず、宿した儀式を失う', () => {
+    const { w, p } = duel();
+    const t = w.units.get('t')!;
+    w.useSkill('p', 'stillPrayer', t);
+    run(w, 800);
+    expect(p.rites).toHaveLength(1);
+    p.hp = 1;
+    w.addUnit({ id: 'e', name: '敵', team: 'enemy', x: 40, y: 0, maxHp: 100, ai: ['strawSwipe'] });
+    let fellAt = -1;
+    for (let i = 0; i < 200 && fellAt < 0; i++) {
+      w.update(25);
+      if (p.falls > 0) fellAt = w.time;
+    }
+    expect(fellAt).toBeGreaterThan(0);
+    expect(p.rites).toHaveLength(0);
+    expect(p.hp).toBe(p.maxHp);
+    // 起き上がるまでは技を出せない
+    p.busyUntil = 0;
+    p.cooldowns = {};
+    expect(w.isIncapacitated(p)).toBe(true);
+    expect(w.canUseSkill('p', 'slash')).toBe(false);
+    run(w, 3100);
+    expect(w.isIncapacitated(p)).toBe(false);
+  });
+
+  it('案山子は倒れてもすぐ起き上がる', () => {
+    const { w } = duel();
+    const t = w.units.get('t')!;
+    t.maxHp = 10;
+    t.hp = 1;
+    w.useSkill('p', 'slash', t, 't');
+    run(w, 800);
+    expect(t.falls).toBeGreaterThan(0);
+    expect(w.isIncapacitated(t)).toBe(false);
+  });
+});

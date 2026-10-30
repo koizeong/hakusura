@@ -38,3 +38,9 @@ export const STATUS_RULES = {
  * 当てたときの効果(条件文・繋ぎ・魔力の高まり・狙いの締まり・コンボ)も split 倍出る
  */
 export const WEAPON_HITS = { split: 2 } as const;
+
+/**
+ * 倒れたとき。起き上がるまで downtime の間は動けず(その間は直撃を受けない)、宿した儀式と力(見切りなど)を失う。
+ * 倒れてもすぐ満タンで起き上がるだけでは、最大HPを捨てたガラスの大砲が損をしないので
+ */
+export const FALL = { downtime: 3000 } as const;
