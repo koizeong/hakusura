@@ -1,4 +1,5 @@
 import type { Rule } from '../rules';
+import type { MarkId } from './marks';
 import { LINK_CONDITIONS, type LinkConditionDef } from './links';
 
 export interface ConditionDef {
@@ -14,6 +15,8 @@ export interface ConditionDef {
   rapid?: boolean;
   /** 繋ぎの条件文なら、前の手と今の手 */
   link?: LinkConditionDef['link'];
+  /** 印の条件文の役割。生む・変える・使う印(札に出して、揃っているかを見せる) */
+  marks?: { gives?: readonly MarkId[]; uses?: readonly MarkId[] };
 }
 
 /** 手で書いた条件文 */
@@ -330,6 +333,162 @@ const HANDMADE = {
     text: '魔力の高まりが10以上のとき、与ダメージ3倍',
     cost: 50,
     rule: { label: '溢れる魔力', on: 'damage', when: [{ type: 'selfCombo', min: 10 }], add: 2 },
+  },
+  // ---- 印の条件文。生む札・変える札・使う札を揃えて初めて働く ----
+  // 生む
+  kindleEmber: {
+    no: 301,
+    text: '火で当てると〈熾り〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['ember'] },
+    rule: { label: '熾し', on: 'hit', when: [{ type: 'hitElementIs', element: 'fire' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'ember', amount: 1 }] },
+  },
+  sparkEmber: {
+    no: 302,
+    text: '雷で当てると〈熾り〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['ember'] },
+    rule: { label: '火花', on: 'hit', when: [{ type: 'hitElementIs', element: 'lightning' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'ember', amount: 1 }] },
+  },
+  honeEdge: {
+    no: 303,
+    text: '近攻撃を当てると〈研ぎ〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['edge'] },
+    rule: { label: '研ぎ重ね', on: 'hit', when: [{ type: 'hitHasTag', tag: 'melee' }, { type: 'hitHasTag', tag: 'attack' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'edge', amount: 1 }] },
+  },
+  bloodTithe: {
+    no: 304,
+    text: '攻撃を受けると〈血潮〉を2つ得る',
+    cost: 10,
+    marks: { gives: ['blood'] },
+    rule: { label: '血の十分の一', on: 'hurt', when: [], do: [{ type: 'gainMark', mark: 'blood', amount: 2 }] },
+  },
+  bloodHarvest: {
+    no: 305,
+    text: '出血している敵に当てると〈血潮〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['blood'] },
+    rule: { label: '血の刈り入れ', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'targetHas', status: 'bleed' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'blood', amount: 1 }] },
+  },
+  holdBreath: {
+    no: 306,
+    text: '1秒以上足を止めて当てると〈静寂〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['stillness'] },
+    rule: { label: '息を殺す', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfStill', ms: 1000 }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'stillness', amount: 1 }] },
+  },
+  distantQuiet: {
+    no: 307,
+    text: '離れた相手(200以上)に遠攻撃を当てると〈静寂〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['stillness'] },
+    rule: { label: '遠い静けさ', on: 'hit', when: [{ type: 'hitHasTag', tag: 'ranged' }, { type: 'targetFar', min: 200 }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'stillness', amount: 1 }] },
+  },
+  riteEcho: {
+    no: 308,
+    text: '儀式を宿した技を当てると〈祈り〉を2つ得る',
+    cost: 15,
+    marks: { gives: ['prayer'] },
+    rule: { label: '祈りの残響', on: 'hit', when: [{ type: 'ritesReleased', min: 1 }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'prayer', amount: 2 }] },
+  },
+  // 変える
+  bloodWhetstone: {
+    no: 311,
+    text: '〈血潮〉を得るたび、〈研ぎ〉も1つ得る',
+    cost: 20,
+    marks: { gives: ['edge'], uses: ['blood'] },
+    rule: { label: '血砥ぎ', on: 'markGained', mark: 'blood', when: [], do: [{ type: 'gainMark', mark: 'edge', amount: 1 }] },
+  },
+  quietPrayer: {
+    no: 312,
+    text: '〈静寂〉を得るたび、〈祈り〉も1つ得る',
+    cost: 20,
+    marks: { gives: ['prayer'], uses: ['stillness'] },
+    rule: { label: '黙した祈り', on: 'markGained', mark: 'stillness', when: [], do: [{ type: 'gainMark', mark: 'prayer', amount: 1 }] },
+  },
+  prayerKindling: {
+    no: 313,
+    text: '〈祈り〉を得るたび、〈熾り〉も1つ得る',
+    cost: 20,
+    marks: { gives: ['ember'], uses: ['prayer'] },
+    rule: { label: '祈りの火種', on: 'markGained', mark: 'prayer', when: [], do: [{ type: 'gainMark', mark: 'ember', amount: 1 }] },
+  },
+  // 使う(溜めて保つ)
+  emberBlaze: {
+    no: 321,
+    text: '〈熾り〉が3つ以上のとき、与ダメージ+60%',
+    cost: 40,
+    marks: { uses: ['ember'] },
+    rule: { label: '熾火の昂り', on: 'damage', when: [{ type: 'selfMarks', mark: 'ember', min: 3 }], add: 0.6 },
+  },
+  keenEdge: {
+    no: 322,
+    text: '〈研ぎ〉1つにつき、近攻撃の与ダメージ+15%',
+    cost: 40,
+    marks: { uses: ['edge'] },
+    rule: { label: '研ぎ澄まし', on: 'damage', when: [{ type: 'hitHasTag', tag: 'melee' }], add: 0.15, perMark: 'edge' },
+  },
+  bloodFrenzy: {
+    no: 323,
+    text: '〈血潮〉が3つ以上のとき、攻撃が1回多く当たる',
+    cost: 40,
+    marks: { uses: ['blood'] },
+    rule: { label: '血の狂乱', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'blood', min: 3 }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'repeatHit', power: 1, times: 1 }] },
+  },
+  stillAim: {
+    no: 324,
+    text: '〈静寂〉1つにつき、遠攻撃の与ダメージ+20%',
+    cost: 40,
+    marks: { uses: ['stillness'] },
+    rule: { label: '静かな狙い', on: 'damage', when: [{ type: 'hitHasTag', tag: 'ranged' }], add: 0.2, perMark: 'stillness' },
+  },
+  prayerHalo: {
+    no: 325,
+    text: '〈祈り〉が3つ以上のとき、被ダメージ-30%',
+    cost: 30,
+    marks: { uses: ['prayer'] },
+    rule: { label: '祈りの光輪', on: 'stat', stat: 'damageTaken', when: [{ type: 'selfMarks', mark: 'prayer', min: 3 }], add: -0.3 },
+  },
+  // 使う(溜めて吐く)
+  emberBurst: {
+    no: 331,
+    text: '〈熾り〉が5つ溜まると、次に当てたとき全て使い、1つにつき火の追撃を落とす',
+    cost: 40,
+    marks: { uses: ['ember'] },
+    rule: {
+      label: '熾火の破裂',
+      on: 'hit',
+      when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'ember', min: 5 }],
+      do: [{ type: 'spendMarks', mark: 'ember', min: 5, each: [{ type: 'strike', element: 'fire', power: 40, buildup: 30 }] }],
+    },
+  },
+  edgeRelease: {
+    no: 332,
+    text: '〈研ぎ〉が5つ溜まると、次に当てた技が全て使い、5回多く当たる',
+    cost: 40,
+    marks: { uses: ['edge'] },
+    rule: {
+      label: '研ぎ放ち',
+      on: 'hit',
+      when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'edge', min: 5 }, { type: 'hitLacksTag', tag: 'repeat' }],
+      do: [{ type: 'spendMarks', mark: 'edge', min: 5, each: [{ type: 'repeatHit', power: 0.8, times: 1 }] }],
+    },
+  },
+  bloodOffering: {
+    no: 333,
+    text: '〈血潮〉が5つ溜まると、全て使い、1つにつき最大HPの4%を回復する',
+    cost: 30,
+    marks: { uses: ['blood'] },
+    rule: { label: '血の捧げ', on: 'hit', when: [{ type: 'selfMarks', mark: 'blood', min: 5 }], do: [{ type: 'spendMarks', mark: 'blood', min: 5, each: [{ type: 'heal', ratio: 0.04 }] }] },
+  },
+  prayerJudgement: {
+    no: 334,
+    text: '〈祈り〉が5つ溜まると、次に当てた攻撃が3倍になり、全て使う',
+    cost: 40,
+    marks: { uses: ['prayer'] },
+    rule: { label: '祈りの裁き', on: 'damage', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'prayer', min: 5 }], add: 2 },
+    extraRules: [{ label: '祈りの裁き', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'prayer', min: 5 }], do: [{ type: 'spendMarks', mark: 'prayer', min: 5 }] }],
   },
 } as const satisfies Record<string, ConditionDef>;
 

@@ -22,6 +22,7 @@ import { conditionDef, type ConditionId } from './data/conditions';
 import { INTERACTIONS } from './data/interactions';
 import { DEFENSE_RULES } from './data/defense';
 import { levelHp, levelModifiers } from './data/levels';
+import { markDef, type MarkId } from './data/marks';
 import { evaluatePredicate, ruleMatches, type Action, type Modifier, type Predicate, type PredicateContext, type Rule } from './rules';
 
 export type Team = 'player' | 'enemy';
@@ -134,6 +135,8 @@ export interface Unit {
   falls: number;
   /** 倒れて起き上がるまでの時刻。それまでは動けない */
   downUntil: number;
+  /** 自分に溜まった印 */
+  marks: Partial<Record<MarkId, { count: number; until: number }>>;
   /** 同じ技を続けて出した数(連用の疲れ) */
   streak: { skill?: ActiveSkillId; count: number };
   /** 最後にスキルを使った時刻。戦っている間かどうかを見る */
@@ -305,6 +308,8 @@ export type CombatEvent =
   | { type: 'form'; unitId: string; form: FormId; name: string }
   /** 昂りが満ちた */
   | { type: 'fervor'; unitId: string }
+  /** 印が増えた・使われた(spent は使った数) */
+  | { type: 'marks'; unitId: string; mark: MarkId; count: number; spent?: number; label?: string }
   /** 床が別の床に変わった */
   | { type: 'floorChanged'; id: number; from: FieldId; to: FieldId; x: number; y: number }
   /** 盲目で攻撃が外れた */
@@ -511,6 +516,7 @@ export class CombatWorld {
       falls: 0,
       downUntil: 0,
       streak: { count: 0 },
+      marks: {},
       lastAttackAt: -Infinity,
       history: [],
       forms: [...STARTING_FORMS],
@@ -1626,6 +1632,7 @@ export class CombatWorld {
     unit.invulnerableUntil = Math.max(unit.invulnerableUntil, unit.downUntil);
     unit.rites = [];
     unit.buffs = [];
+    unit.marks = {};
     this.pending = this.pending.filter((p) => p.unitId !== unit.id);
     unit.busyUntil = 0;
     unit.windupUntil = 0;
@@ -1995,6 +2002,7 @@ export class CombatWorld {
       attackerHpRatio: attacker ? attacker.hp / attacker.maxHp : 0,
       attackerStillFor: attacker ? this.time - attacker.lastMovedAt : 0,
       attackerFocus: attacker ? this.focusStacksOf(attacker) : 0,
+      attackerMarks: (mark) => (attacker ? this.marksOf(attacker, mark) : 0),
       attackerCombo: attacker ? this.comboStacksOf(attacker) : 0,
       targetGap: attacker && attacker !== target ? Math.hypot(attacker.x - target.x, attacker.y - target.y) - attacker.radius - target.radius : 0,
       attackerTags: attacker?.tags ?? [],
@@ -2035,7 +2043,11 @@ export class CombatWorld {
     const via = [...hit.via];
     for (const { rule, kind } of rules) {
       if (rule.on !== 'damage' || !ruleMatches(rule, damageCtx)) continue;
-      const add = rule.perCharge ? rule.add * Math.min(rule.perCharge.max, Math.floor((hit.charge ?? 0) / rule.perCharge.every)) : rule.add;
+      const add = rule.perCharge
+        ? rule.add * Math.min(rule.perCharge.max, Math.floor((hit.charge ?? 0) / rule.perCharge.every))
+        : rule.perMark
+          ? rule.add * (attacker ? this.marksOf(attacker, rule.perMark) : 0)
+          : rule.add;
       if (add === 0) continue;
       bonuses.push({ label: rule.label, add, group: rule.group });
       if (kind === 'interaction') qualifiers.push(rule.label);
@@ -2253,6 +2265,31 @@ export class CombatWorld {
     }
   }
 
+  /** 今の印の数。最後に得てから時間が経っていれば0 */
+  marksOf(unit: Unit, mark: MarkId): number {
+    const m = unit.marks[mark];
+    if (!m) return 0;
+    if (m.until <= this.time) {
+      delete unit.marks[mark];
+      return 0;
+    }
+    return m.count;
+  }
+
+  /** 印を得る。得たときのルール(別の印に変える札など)も働く。連鎖は上限の段まで */
+  gainMark(unit: Unit, mark: MarkId, amount: number, depth = 0): void {
+    const def = markDef(mark);
+    const count = Math.min(def.max, this.marksOf(unit, mark) + amount);
+    unit.marks[mark] = { count, until: this.time + def.duration };
+    this.events.push({ type: 'marks', unitId: unit.id, mark, count });
+    if (depth >= this.maxTriggerDepth) return;
+    const ctx = this.context(unit, unit, {});
+    for (const { rule } of this.rulesFor(unit)) {
+      if (rule.on !== 'markGained' || rule.mark !== mark || !ruleMatches(rule, ctx)) continue;
+      for (const action of rule.do) this.runAction(action, rule.label, unit, { attacker: unit, skill: rule.label, via: [rule.label], depth: depth + 1 });
+    }
+  }
+
   private runAction(action: Action, label: string, target: Unit, src: Source): void {
     const via = [...src.via, label];
     switch (action.type) {
@@ -2323,6 +2360,19 @@ export class CombatWorld {
           if (!(action.tags ?? []).every((t) => tags.has(t))) continue;
           owner.cooldowns[id] = Math.max(this.time, (owner.cooldowns[id] ?? 0) - action.ms);
         }
+        break;
+      }
+      case 'gainMark':
+        if (src.attacker) this.gainMark(src.attacker, action.mark, action.amount, src.depth);
+        break;
+      case 'spendMarks': {
+        const owner = src.attacker;
+        if (!owner) break;
+        const n = this.marksOf(owner, action.mark);
+        if (n < (action.min ?? 1)) break;
+        delete owner.marks[action.mark];
+        this.events.push({ type: 'marks', unitId: owner.id, mark: action.mark, count: 0, spent: n, label });
+        for (let i = 0; i < n; i++) for (const a of action.each ?? []) this.runAction(a, label, target, { ...src, via });
         break;
       }
       case 'grantBuff':

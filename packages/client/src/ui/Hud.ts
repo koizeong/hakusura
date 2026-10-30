@@ -1,4 +1,4 @@
-import { ACTIVE_SKILLS, FERVOR, FIELDS, SKILL_CATEGORIES, STATUSES, STATUS_IDS, type ActiveSkillId, type CombatWorld, type Unit } from '@hakusura/core';
+import { ACTIVE_SKILLS, FERVOR, FIELDS, MARKS, MARK_IDS, SKILL_CATEGORIES, STATUSES, STATUS_IDS, type ActiveSkillId, type CombatWorld, type Unit } from '@hakusura/core';
 import { ACTIVE_SLOT_ACTIONS, bindingLabel, type Keybinds } from '../input/keybinds';
 import { statusIconUrl } from '../art/icons';
 import { h } from './dom';
@@ -242,6 +242,11 @@ export class Hud {
     const focus = world.focusGrowthOf(player);
     const focusStacks = world.focusStacksOf(player);
     if (focus && focusStacks > 1) parts.push(`<b class="rite">${focus.label} ${focusStacks}(+${Math.round(focusStacks * focus.perStack * 100)}%)</b>`);
+    // 印。生む札で溜まり、使う札で効く
+    for (const id of MARK_IDS) {
+      const n = world.marksOf(player, id);
+      if (n > 0) parts.push(`<b style="color:#${MARKS[id].color.toString(16).padStart(6, '0')}">〈${MARKS[id].name}〉${n}</b>`);
+    }
     const rites = player.rites.filter((r) => r.until > world.time);
     if (rites.length > 0) parts.push(`<b class="rite">儀式 ${rites.length}:${rites.map((r) => r.name).join('・')}</b>`);
     for (const buff of player.buffs) {

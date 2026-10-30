@@ -39,6 +39,8 @@ import {
   type WeaponTypeId,
   type WeaponRef,
   FORMS,
+  MARKS,
+  type MarkId,
   formDef,
   learnedForms,
   ELEMENT_IDS,
@@ -379,7 +381,30 @@ export class BuildScreen {
         (e): [string, string] => [ELEMENTS[e].name, pct(world.statOf(player, 'damage', [e]))],
       ),
     ];
-    return h('div', { class: 'build-stats' }, ...rows.map(([k, v]) => h('span', {}, h('small', {}, k), v)));
+    return h('div', {}, h('div', { class: 'build-stats' }, ...rows.map(([k, v]) => h('span', {}, h('small', {}, k), v))), this.renderMarks());
+  }
+
+  /** 着けている条件文の印の役割。生む札と使う札が揃っているかを見せる */
+  private renderMarks(): HTMLElement | string {
+    const count = new Map<MarkId, { gives: number; uses: number }>();
+    for (const item of Object.values(this.build.equipment)) {
+      const m = item?.condition ? conditionDef(item.condition).marks : undefined;
+      for (const id of m?.gives ?? []) count.set(id, { gives: (count.get(id)?.gives ?? 0) + 1, uses: count.get(id)?.uses ?? 0 });
+      for (const id of m?.uses ?? []) count.set(id, { gives: count.get(id)?.gives ?? 0, uses: (count.get(id)?.uses ?? 0) + 1 });
+    }
+    if (count.size === 0) return '';
+    return h(
+      'div',
+      { class: 'mark-summary' },
+      h('small', {}, '印'),
+      ...[...count].map(([id, c]) =>
+        h(
+          'span',
+          { class: `mark-chip${c.gives === 0 || c.uses === 0 ? ' lonely' : ''}`, style: `border-color:${markColor(id)}` },
+          `〈${MARKS[id].name}〉生む${c.gives}・使う${c.uses}${c.gives === 0 ? '(生む札がない)' : c.uses === 0 ? '(使う札がない)' : ''}`,
+        ),
+      ),
+    );
   }
 
   // ---- 装備 ----
@@ -1376,10 +1401,23 @@ function itemCard(attrs: Attributes, item: Item, ...parts: HTMLElement[]): HTMLE
           `${conditionDef(item.condition).link ? '繋ぎ:' : ''}${conditionDef(item.condition).text}(コスト ${conditionDef(item.condition).cost}%)`,
         )
       : '',
+    item.condition ? markBadges(item.condition) : '',
     item.cursed ? h('div', { class: 'cursed-note' }, '忌まわしき品:補正値は損に傾くが、重い条件文を宿す') : '',
     ...verdicts,
     actions.length > 0 ? h('div', { class: 'item-actions' }, ...actions) : '',
   );
+}
+
+function markColor(id: MarkId): string {
+  return `#${MARKS[id].color.toString(16).padStart(6, '0')}`;
+}
+
+/** 条件文の印の役割の札(生む:熾り・使う:研ぎ) */
+function markBadges(condition: ConditionId): HTMLElement | string {
+  const m = conditionDef(condition).marks;
+  if (!m) return '';
+  const chip = (role: string, id: MarkId) => h('span', { class: 'mark-chip', style: `border-color:${markColor(id)};color:${markColor(id)}` }, `${role}:${MARKS[id].name}`);
+  return h('div', { class: 'mark-badges' }, ...(m.gives ?? []).map((id) => chip('生む', id)), ...(m.uses ?? []).map((id) => chip('使う', id)));
 }
 
 /** 倍率を「+12%」のように */

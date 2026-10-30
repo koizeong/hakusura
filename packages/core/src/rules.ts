@@ -1,3 +1,4 @@
+import type { MarkId } from './data/marks';
 import type { ElementId } from './data/elements';
 import type { FieldId } from './data/fields';
 import type { StatusId } from './data/statuses';
@@ -32,6 +33,8 @@ export type Predicate =
   | { type: 'selfStill'; ms: number }
   /** 自分の狙いの締まり(同じ相手に当て続けた数)が min 以上 */
   | { type: 'selfFocus'; min: number }
+  /** 自分の印が min 以上 */
+  | { type: 'selfMarks'; mark: MarkId; min: number }
   /** 自分の魔力の高まり(杖のコンボで溜まる数)が min 以上 */
   | { type: 'selfCombo'; min: number }
   /** 相手との間(縁から縁)が min 以上 */
@@ -81,7 +84,11 @@ export type Action =
   /** 受けたダメージの ratio を、攻撃してきた相手に返す(on: 'hurt' でだけ意味を持つ) */
   | { type: 'reflect'; ratio: number }
   /** 持ち主のクールダウンを ms 縮める。tags があれば、そのタグを全て持つスキルだけ */
-  | { type: 'cooldown'; ms: number; tags?: readonly string[] };
+  | { type: 'cooldown'; ms: number; tags?: readonly string[] }
+  /** 持ち主が印を得る */
+  | { type: 'gainMark'; mark: MarkId; amount: number }
+  /** 持ち主の印を全て使う。min に足りなければ使わない。1つにつき each を行う */
+  | { type: 'spendMarks'; mark: MarkId; min?: number; each?: readonly Action[] };
 
 interface RuleBase {
   /** 内訳や戦闘中の表示に出る名前 */
@@ -99,9 +106,12 @@ export type Rule = RuleBase &
         add: number;
         /** 同じ種類として足し合わせる組(繋ぎは全て 'link')。なければ label ごとに別の種類として掛け合わさる */
         group?: string;
+        /** あれば、その印1つにつき add を足す(印がなければ効かない) */
+        perMark?: MarkId;
         perCharge?: { every: number; max: number };
       }
     | /** ヒットが当たった後 */ { on: 'hit'; do: readonly Action[] }
+    | /** 自分がその印を得たとき(印を別の印に変える札など) */ { on: 'markGained'; mark: MarkId; do: readonly Action[] }
     | /** 状態が発動した瞬間。scale で持続と範囲を変える */ {
         on: 'statusActivate';
         do?: readonly Action[];
@@ -158,6 +168,7 @@ export interface PredicateContext {
   attackerHpRatio?: number;
   attackerStillFor?: number;
   attackerFocus?: number;
+  attackerMarks?(mark: MarkId): number;
   attackerCombo?: number;
   targetGap?: number;
   targetOnFloor?(field: FieldId): boolean;
@@ -207,6 +218,8 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return (ctx.attackerStillFor ?? 0) >= p.ms;
     case 'selfFocus':
       return (ctx.attackerFocus ?? 0) >= p.min;
+    case 'selfMarks':
+      return (ctx.attackerMarks?.(p.mark) ?? 0) >= p.min;
     case 'selfCombo':
       return (ctx.attackerCombo ?? 0) >= p.min;
     case 'targetFar':

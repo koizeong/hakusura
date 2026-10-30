@@ -1891,3 +1891,25 @@ button.discard {
   cursor: default;
   border-color: var(--line);
 }
+
+/* 印 */
+.mark-summary,
+.mark-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: center;
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.mark-chip {
+  border: 1px solid;
+  padding: 1px 6px;
+  border-radius: 2px;
+}
+
+.mark-summary .mark-chip.lonely {
+  opacity: 0.6;
+  border-style: dashed;
+}
