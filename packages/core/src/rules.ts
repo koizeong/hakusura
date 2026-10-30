@@ -95,6 +95,8 @@ export type Rule = RuleBase &
        */ {
         on: 'damage';
         add: number;
+        /** 同じ種類として足し合わせる組(繋ぎは全て 'link')。なければ label ごとに別の種類として掛け合わさる */
+        group?: string;
         perCharge?: { every: number; max: number };
       }
     | /** ヒットが当たった後 */ { on: 'hit'; do: readonly Action[] }

@@ -2002,7 +2002,7 @@ export class CombatWorld {
       if (rule.on !== 'damage' || !ruleMatches(rule, damageCtx)) continue;
       const add = rule.perCharge ? rule.add * Math.min(rule.perCharge.max, Math.floor((hit.charge ?? 0) / rule.perCharge.every)) : rule.add;
       if (add === 0) continue;
-      bonuses.push({ label: rule.label, add });
+      bonuses.push({ label: rule.label, add, group: rule.group });
       if (kind === 'interaction') qualifiers.push(rule.label);
       else via.push(rule.label);
     }

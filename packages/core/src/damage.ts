@@ -4,6 +4,8 @@ import { modifierGroup, type Modifier } from './rules';
 export interface RuleBonus {
   label: string;
   add: number;
+  /** 同じ種類として足し合わせる組。なければ label ごとに別の種類 */
+  group?: string;
 }
 
 export interface DamageInput {
@@ -35,7 +37,7 @@ export function multiplierOf(modifiers: readonly Modifier[], ruleBonuses: readon
     groups.set(key, (groups.get(key) ?? 0) + mod.value);
   }
   for (const bonus of ruleBonuses) {
-    const key = `rule:${bonus.label}`;
+    const key = `rule:${bonus.group ?? bonus.label}`;
     groups.set(key, (groups.get(key) ?? 0) + bonus.add);
   }
   let multiplier = 1;

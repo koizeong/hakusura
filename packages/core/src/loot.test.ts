@@ -74,6 +74,22 @@ describe('繋ぎの条件文', () => {
     expect(w.log.slice(before).some((r) => r.via.includes('繋ぎ・近攻撃→斬'))).toBe(false);
   });
 
+  it('違う繋ぎが同時に決まっても足し算(4倍と2倍で5倍。8倍にはしない)', () => {
+    const plain = shootThenSlash(undefined);
+    const { w, p } = duel('link:lightning>melee:mult');
+    p.conditions.push('link:ranged>melee:mult');
+    const t = w.units.get('t')!;
+    w.useSkill('p', 'shoot', t, 't');
+    run(w, 1500);
+    const before = w.log.length;
+    p.busyUntil = 0;
+    w.useSkill('p', 'slash', t, 't');
+    run(w, 800);
+    const slash = w.log.slice(before).filter((r) => r.tags.includes('melee'));
+    expect(slash[0]!.via).toEqual(expect.arrayContaining(['繋ぎ・雷→近攻撃', '繋ぎ・遠攻撃→近攻撃']));
+    expect(slash.reduce((s, r) => s + r.amount, 0)).toBeCloseTo(plain.total * (1 + 3 + 1), 0);
+  });
+
   it('前の手から間が空くと繋がらない', () => {
     const plain = shootThenSlash(undefined, LINK_RULES.window);
     const late = shootThenSlash('link:lightning>melee:mult', LINK_RULES.window);

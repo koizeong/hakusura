@@ -107,7 +107,8 @@ function generate(): Record<`link:${string}`, LinkConditionDef> {
         no: no++,
         text: `${head}、与ダメージ${mult}倍`,
         cost: Math.round((mult - 1) * 20),
-        rule: { label, on: 'damage', when, add: mult - 1 },
+        // 繋ぎどうしは同じ種類(足し算)。幾つ重ねても掛け算で膨らまない
+        rule: { label, on: 'damage', when, add: mult - 1, group: 'link' },
         link: { prev, now, reward: 'mult', strictness: level },
       };
       const hits = HITS[level];
