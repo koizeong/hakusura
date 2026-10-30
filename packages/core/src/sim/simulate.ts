@@ -65,6 +65,9 @@ export interface EncounterRun {
   topCombos: [string, number][];
 }
 
+/** 遠距離だけのビルドが下がり始める間合い(届く距離に対する割合)。0.6 にすると下がってばかりで撃つ手が減った */
+export const KITE = { backOff: 0.45 };
+
 /** 操り手のステップの状態。跳んでいる間の速さと、次に踏めるようになる時刻 */
 interface PilotState {
   step?: { vx: number; vy: number; until: number };
@@ -140,8 +143,7 @@ function pilot(w: CombatWorld, p: Unit, reach: BuildReach, dt: number, state: Pi
   } else if (!goal && d - focus.radius > want) {
     mx += (focus.x - p.x) / d;
     my += (focus.y - p.y) / d;
-  } else if (reach.melee === undefined && reach.max > 200 && d < reach.max * 0.6) {
-    // 遠距離だけのビルドは、人が遊ぶときのように間合いを保って下がる
+  } else if (reach.melee === undefined && reach.max > 200 && d < reach.max * KITE.backOff) {
     mx -= (focus.x - p.x) / d;
     my -= (focus.y - p.y) / d;
   }
