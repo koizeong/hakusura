@@ -4,7 +4,7 @@ import { applyBuild } from '../build';
 import { dealtBy, summarize } from '../breakdown';
 import { ENEMIES } from '../data/enemies';
 import { ARCHETYPES } from './archetypes';
-import { outfit, reportArchetype, runEncounter } from './simulate';
+import { measureField, outfit, reportArchetype, runEncounter } from './simulate';
 import { measureSingle, theoreticalMax, THEORY } from './theory';
 import { measureBuildPower } from '../expedition';
 import { measureLoadout } from '../loadout';
@@ -203,12 +203,13 @@ describe.skipIf(!process.env.SIM_THEORY)('理論値', () => {
       const bare = measureSingle(a.build, THEORY.finalSeconds);
       const geared = outfit(a.build, 300);
       const real = measureSingle(geared, THEORY.finalSeconds);
+      const realField = measureField(geared, THEORY.finalSeconds);
       const theory = theoreticalMax(a.build, (line) => console.log(`[${id}] ${line}`));
       const row = {
         id,
         name: a.name,
         bare: { single: bare.dps, pack: measureBuildPower(a.build, THEORY.finalSeconds), maxHit: bare.maxHit },
-        real: { single: real.dps, pack: measureBuildPower(geared, THEORY.finalSeconds), maxHit: real.maxHit, toughness: measureLoadout(geared).toughness },
+        real: { field: realField.dps, falls: realField.falls, single: real.dps, pack: measureBuildPower(geared, THEORY.finalSeconds), maxHit: real.maxHit, toughness: measureLoadout(geared).toughness },
         theory: { ...theory, build: undefined },
         seconds: Math.round((Date.now() - t0) / 1000),
       };

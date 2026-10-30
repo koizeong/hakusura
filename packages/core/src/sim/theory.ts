@@ -7,6 +7,7 @@ import { CONDITION_IDS, conditionDef, type ConditionId } from '../data/condition
 import { ARTIFACT_IDS, ARTIFACTS, type ArtifactId } from '../data/artifacts';
 import { statDef } from '../data/stats';
 import { measureLoadout } from '../loadout';
+import { measureField } from './simulate';
 
 /**
  * 理論値。装備の決まり(1項目±200%・合計±100%・項目は4つまで・共通の項目が必ず1つ・条件文はコスト込みで1枠)の中で、
@@ -42,7 +43,12 @@ export function measureSingle(build: Build, seconds: number = THEORY.seconds): {
   return { dps: summarize(log, w.time).total / seconds, maxHit: top?.amount ?? 0, maxHitVia: top ? [top.skill, ...top.via].join('・') : '' };
 }
 
+/** 損の向きに捨てる共通の項目。捨てなければ火力の項目に振れる分が減る */
+type Dump = 'moveSpeed' | 'maxHp' | 'damageTaken' | 'none';
+const DUMPS: Dump[] = ['moveSpeed', 'maxHp', 'damageTaken', 'none'];
+
 interface Plan {
+  dump: Dump;
   /** 火力の項目ごとの合計(%) */
   alloc: Partial<Record<AffixId, number>>;
   conditions: ConditionId[];
@@ -79,7 +85,7 @@ function pack(build: Build, plan: Plan): Build | undefined {
   if (plan.conditions.length > free.length) return undefined;
   const bins = free.map((slot, i) => {
     const condition = plan.conditions[i];
-    return { slot, condition, cap: THEORY.perItem - (condition ? conditionDef(condition).cost : 0), entries: EQUIP_RULES.countMax - 1 - (condition ? 1 : 0), affixes: [] as { affix: AffixId; value: number }[] };
+    return { slot, condition, cap: perItem(plan) - (condition ? conditionDef(condition).cost : 0), entries: EQUIP_RULES.countMax - 1 - (condition ? 1 : 0), affixes: [] as { affix: AffixId; value: number }[] };
   });
   // 多い項目から、1つの装備に 200% までずつ詰める
   const wants = (Object.entries(plan.alloc) as [AffixId, number][]).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
@@ -104,8 +110,12 @@ function pack(build: Build, plan: Plan): Build | undefined {
   for (const bin of bins) {
     const kind = EQUIP_SLOTS[bin.slot].kind;
     const base: Item = build.equipment[bin.slot] ?? { id: '', name: '', kind, ...(kind === 'armor' ? { slot: bin.slot } : {}), affixes: [] };
+    const dump: { affix: AffixId; value: number } =
+      plan.dump === 'none'
+        ? { affix: 'maxHp', value: 0 }
+        : { affix: plan.dump, value: statDef(AFFIXES[plan.dump].stat).lowerIsBetter ? EQUIP_RULES.affixMax : EQUIP_RULES.affixMin };
     const affixes = [
-      { affix: 'moveSpeed' as AffixId, value: EQUIP_RULES.affixMin },
+      dump,
       ...bin.affixes.map((a) => ({ affix: a.affix, value: statDef(AFFIXES[a.affix].stat).lowerIsBetter ? -a.value : a.value })),
     ];
     equipment[bin.slot] = { ...base, id: `theory-${bin.slot}`, name: base.name || EQUIP_SLOTS[bin.slot].name, affixes, ...(bin.condition ? { condition: bin.condition } : {}) };
@@ -113,10 +123,15 @@ function pack(build: Build, plan: Plan): Build | undefined {
   return { ...build, equipment };
 }
 
-/** 振れる合計。装備の数 × 300% から、条件文のコストとアーティファクトの枠を引く */
+/** 1つの装備で火力の項目に振れる分。共通の項目を捨てれば増える */
+function perItem(plan: Plan): number {
+  return plan.dump === 'none' ? EQUIP_RULES.totalMax : THEORY.perItem;
+}
+
+/** 振れる合計。装備の数 × 1装備の分から、条件文のコストとアーティファクトの枠を引く */
 function budget(build: Build, plan: Plan): number {
   const items = slotsOf(build).length - plan.artifacts.length;
-  return items * THEORY.perItem - plan.conditions.reduce((s, c) => s + conditionDef(c).cost, 0);
+  return items * perItem(plan) - plan.conditions.reduce((s, c) => s + conditionDef(c).cost, 0);
 }
 
 function allocated(plan: Plan): number {
@@ -126,6 +141,10 @@ function allocated(plan: Plan): number {
 export interface TheoryResult {
   build: Build;
   single: number;
+  /** 実戦に近い場(寄ってきて攻める案山子、操り手つき)の DPS と倒れた回数 */
+  field: number;
+  falls: number;
+  dump: string;
   pack: number;
   maxHit: number;
   maxHitVia: string;
@@ -142,10 +161,10 @@ export function theoreticalMax(build: Build, log: (line: string) => void = () =>
   const score = (b: Build | undefined): number => {
     if (!b) return -1;
     evaluations++;
-    return measureSingle(b).dps;
+    return measureField(b, THEORY.seconds).dps;
   };
   const affixes = offenseAffixes(build);
-  const empty: Plan = { alloc: {}, conditions: [], artifacts: [] };
+  const empty: Plan = { dump: 'moveSpeed', alloc: {}, conditions: [], artifacts: [] };
 
   // 条件文の下見:何も着けないビルドに1つだけ足して、伸びるものを残す
   const base = score(pack(build, empty));
@@ -220,11 +239,27 @@ export function theoreticalMax(build: Build, log: (line: string) => void = () =>
     log(`  ${round + 1}: ${Math.round(planScore)}(条件文 ${plan.conditions.length}・アーティファクト ${plan.artifacts.length})`);
   }
 
+  // 捨てる共通の項目を選び直す(実戦では足や体力が要る)
+  for (const dump of DUMPS) {
+    if (dump === plan.dump) continue;
+    const p = fill(trim({ ...plan, dump }));
+    const v = score(pack(build, p));
+    if (v > planScore) {
+      plan = p;
+      planScore = v;
+    }
+  }
+  log(`  捨てる項目:${plan.dump} ${Math.round(planScore)}`);
+
   const final = pack(build, plan)!;
   const single = measureSingle(final, THEORY.finalSeconds);
+  const field = measureField(final, THEORY.finalSeconds);
   return {
     build: final,
     single: single.dps,
+    field: field.dps,
+    falls: field.falls,
+    dump: plan.dump === 'none' ? 'なし' : AFFIXES[plan.dump].name,
     pack: measureBuildPower(final, THEORY.finalSeconds),
     maxHit: single.maxHit,
     maxHitVia: single.maxHitVia,

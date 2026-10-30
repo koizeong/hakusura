@@ -7,7 +7,7 @@ import { dealtBy, summarize } from '../breakdown';
 import { comboDef } from '../data/combos';
 import { measureBuildPower } from '../expedition';
 import { measureLoadout, recommendNow } from '../loadout';
-import { actionReach } from '../data/skills';
+import { actionReach, type ActiveSkillId } from '../data/skills';
 import { STEP } from '../constants';
 
 /**
@@ -249,6 +249,40 @@ export function runEncounter(
     topVia: share(b.byVia),
     topCombos: b.byCombo.slice(0, 4).map((r) => [comboDef(r.combo).name, r.share]),
   };
+}
+
+/** 実戦に近い場の決まり。案山子は寄ってきて(1秒に speed)、薙ぎとゆるい弾幕で攻めてくる */
+export const FIELD = { speed: 90, skills: ['strawSwipe', 'strawScatter'] as ActiveSkillId[] } as const;
+
+/**
+ * 実戦に近い場で測る。歩いて攻めてくる倒れない案山子を、操り手つきで seconds 秒戦う。
+ * 止まって撃つ・離れて撃つ・盾で受けるといった条件は、ここで初めて正しく効く(動かない案山子では測れない)
+ */
+export function measureField(build: Build, seconds = 30, seed = 1): { dps: number; maxHit: number; maxHitVia: string; falls: number } {
+  const w = new CombatWorld({ seed, bounds: ARENA });
+  const cx = ARENA.width / 2;
+  const cy = ARENA.height / 2;
+  const p = w.addUnit({ id: 'player', name: '巡礼者', team: 'player', x: cx - 250, y: cy, ...SIM_PLAYER, autoBattle: true });
+  applyBuild(w, p, build);
+  p.hp = p.maxHp;
+  const t = w.addUnit({ id: 'dummy', name: '案山子', team: 'enemy', x: cx + 250, y: cy, maxHp: 1e15, ai: [...FIELD.skills] });
+  const reach = buildReach(w, p);
+  const state: PilotState = { readyAt: 0, dodges: 0, closes: 0 };
+  const dt = 25;
+  for (let time = 0; time < seconds * 1000; time += dt) {
+    if (p.trump && w.canUseSkill(p.id, p.trump) && !p.queued) w.queueSkill(p.id, p.trump, 3000);
+    // 案山子は寄ってくる。振りかぶり中と動けない間は止まる
+    const gap = Math.hypot(p.x - t.x, p.y - t.y);
+    if (!w.isBusy(t) && !w.isIncapacitated(t) && gap > t.radius + p.radius + 20) {
+      const step = (FIELD.speed * w.statOf(t, 'moveSpeed') * dt) / 1000 / gap;
+      w.moveUnit(t.id, t.x + (p.x - t.x) * step, t.y + (p.y - t.y) * step);
+    }
+    pilot(w, p, reach, dt, state, true);
+    w.update(dt);
+  }
+  const log = dealtBy(w.log, p.id);
+  const top = log.reduce((a, b) => (b.amount > (a?.amount ?? 0) ? b : a), log[0]);
+  return { dps: summarize(log, w.time).total / seconds, maxHit: top?.amount ?? 0, maxHitVia: top ? [top.skill, ...top.via].join('・') : '', falls: p.falls };
 }
 
 export interface ArchetypeReport {
