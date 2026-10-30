@@ -132,4 +132,55 @@ export const ARCHETYPES: Record<string, Archetype> = {
       tactics: [always('quake'), { skill: 'breaker', condition: 'targetNot:stun', enabled: true }, always('slash')],
     },
   },
+  riteLunge: {
+    name: '儀式の踏み込み',
+    idea: '儀式を重ねて穿ちの剣で踏み込む。繋ぎ(儀式→近攻撃)と満ちた祭壇で掛け算を重ねる(遊んだ人のビルドから)',
+    build: {
+      attributes: attrs({ str: 14, dex: 14, int: 16, fai: 16, vit: 12 }),
+      actives: ['emberOil', 'stillPrayer', 'lunge', 'pyreOffering', 'bloodOath', 'whetRite'],
+      passives: ['sootPrayer', 'bloodCallsThunder', 'readTheBlow', 'parryStance', 'pyromaniac', 'heavyHand'],
+      equipment: { weapon1: weapon('sword', { type: 'ironSword', element: 'pierce' }) },
+      trump: 'rainBell',
+      tactics: [
+        { skill: 'stillPrayer', condition: 'noRites', enabled: true, then: ['pyreOffering', 'bloodOath'] },
+        { skill: 'whetRite', condition: 'last:bloodOath', enabled: true, then: ['lunge'] },
+      ],
+    },
+  },
+  gunRapid: {
+    name: '雷の二丁銃',
+    idea: '雷の短銃を両手に持ち、速射と散弾で手数を稼ぐ。遠距離の手数',
+    build: {
+      attributes: attrs({ dex: 22, int: 18, vit: 16 }),
+      actives: ['quickShot', 'scatterShot', 'shoot', 'stormOil'],
+      passives: ['stormFinger', 'sootPrayer', 'readTheBlow'],
+      equipment: { weapon1: weapon('gun1', { type: 'capGun', element: 'lightning' }), weapon2: weapon('gun2', { type: 'capGun', element: 'lightning' }) },
+      trump: 'rainBell',
+      tactics: [{ skill: 'stormOil', condition: 'imbueOff', enabled: true }, always('scatterShot'), always('quickShot'), always('shoot')],
+    },
+  },
+  spearStorm: {
+    name: '雷の槍',
+    idea: '雷の槍の突きと旋風。長い間合いの近接と感電',
+    build: {
+      attributes: attrs({ str: 20, dex: 20, vit: 16 }),
+      actives: ['thrust', 'whirlwind', 'sweep', 'slash'],
+      passives: ['heavyHand', 'closeQuarters', 'stormFinger'],
+      equipment: { weapon1: weapon('spear', { type: 'stormSpear', element: 'lightning' }) },
+      trump: 'rainBell',
+      tactics: [always('thrust'), always('whirlwind'), always('sweep'), always('slash')],
+    },
+  },
+  faithFire: {
+    name: '火の祈祷師',
+    idea: '信仰に振り、火の杖で祈りの奔流と炸裂弾。術と炎上',
+    build: {
+      attributes: attrs({ fai: 30, vit: 18 }),
+      actives: ['prayerTorrent', 'burstBolt', 'soulOrbs', 'shoot'],
+      passives: ['emberHeart', 'pyromaniac', 'sootPrayer'],
+      equipment: { weapon1: weapon('staff', { type: 'staff', element: 'fire' }) },
+      trump: 'oilFlask',
+      tactics: [always('prayerTorrent'), always('burstBolt'), always('soulOrbs'), always('shoot')],
+    },
+  },
 };

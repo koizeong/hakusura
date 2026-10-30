@@ -5,6 +5,9 @@ import { dealtBy, summarize } from '../breakdown';
 import { ENEMIES } from '../data/enemies';
 import { ARCHETYPES } from './archetypes';
 import { outfit, reportArchetype, runEncounter } from './simulate';
+import { measureSingle, theoreticalMax, THEORY } from './theory';
+import { measureBuildPower } from '../expedition';
+import { measureLoadout } from '../loadout';
 import { conditionDef } from '../data/conditions';
 import type { EncounterId } from '../data/encounters';
 
@@ -185,4 +188,31 @@ describe.skipIf(!process.env.SIM_PILOT)('操り手の働き', () => {
   }
   console.log(['<<<REPORT', '| ビルド | 案山子 | 飛ぶ間 | 地上のDPS(案山子比) | 地上で遠い | 近く手が空く | 結果 |', ...rows, 'REPORT>>>'].join('\n'));
   }, 3_600_000);
+});
+
+/**
+ * 理論値。`npm run sim:theory`(THEORY_ONLY=id,id で絞れる)
+ * ビルドごとに、素・拾い物300個から揃えた装備・決まりの中で一番火力の出る装備(理論値)を測り、1行ずつ JSON で出す
+ */
+describe.skipIf(!process.env.SIM_THEORY)('理論値', () => {
+  it('ビルドごとの最大火力', () => {
+    const only = process.env.THEORY_ONLY?.split(',');
+    for (const [id, a] of Object.entries(ARCHETYPES)) {
+      if (only && !only.includes(id)) continue;
+      const t0 = Date.now();
+      const bare = measureSingle(a.build, THEORY.finalSeconds);
+      const geared = outfit(a.build, 300);
+      const real = measureSingle(geared, THEORY.finalSeconds);
+      const theory = theoreticalMax(a.build, (line) => console.log(`[${id}] ${line}`));
+      const row = {
+        id,
+        name: a.name,
+        bare: { single: bare.dps, pack: measureBuildPower(a.build, THEORY.finalSeconds), maxHit: bare.maxHit },
+        real: { single: real.dps, pack: measureBuildPower(geared, THEORY.finalSeconds), maxHit: real.maxHit, toughness: measureLoadout(geared).toughness },
+        theory: { ...theory, build: undefined },
+        seconds: Math.round((Date.now() - t0) / 1000),
+      };
+      console.log(`THEORY ${JSON.stringify(row)}`);
+    }
+  }, 36_000_000);
 });
