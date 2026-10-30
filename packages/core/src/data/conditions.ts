@@ -115,13 +115,14 @@ const HANDMADE = {
   },
   woundedFury: {
     no: 116,
-    text: '被ダメージを受けた直後の3秒間、与ダメージ+80%',
+    // 攻めを受ける場ではどのビルドでも選ばれたので、どこでも効く条件文と同じく控えめにする
+    text: '被ダメージを受けた直後の3秒間、与ダメージ+30%',
     cost: 30,
     rule: {
       label: '手負いの猛り',
       on: 'hurt',
       when: [],
-      do: [{ type: 'grantBuff', label: '手負いの猛り', add: 0.8, tags: [], duration: 3000 }],
+      do: [{ type: 'grantBuff', label: '手負いの猛り', add: 0.3, tags: [], duration: 3000 }],
     },
   },
   twoHandedReach: {

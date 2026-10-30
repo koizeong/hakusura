@@ -180,7 +180,7 @@ describe('追加した条件文', () => {
     expect(w.statOf(p, 'damageTaken')).toBe(1);
   });
 
-  it('116: 被ダメージを受けた直後の3秒間、与ダメージ+80%', () => {
+  it('116: 被ダメージを受けた直後の3秒間、与ダメージ+30%', () => {
     const { w, p } = withCondition('woundedFury');
     w.useSkill('e', 'strawSwipe', { x: 0, y: 0 });
     run(w, 1000);
