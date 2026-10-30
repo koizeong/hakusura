@@ -278,3 +278,31 @@ describe('持ち味の条件文', () => {
     expect(count('shieldBulwark')).toBe(count() * 3);
   });
 });
+
+describe('下位のビルドの持ち味の条件文', () => {
+  const swing = (weapons: UnitSpec['weapons'], skill: 'slash' | 'shoot', condition: ConditionId | undefined, x = 60) => {
+    const w = new CombatWorld({ seed: 5 });
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, weapons, conditions: condition ? [condition] : [] });
+    // 持ち方のタグはビルドを反映したときに付くので、ここで付ける
+    p.tags = [weapons?.length === 1 ? 'twoHanded' : 'dualWield'];
+    w.addUnit({ id: 't', name: '案山子', team: 'enemy', x, y: 0, maxHp: 1e9 });
+    w.useSkill('p', skill, w.units.get('t')!, 't');
+    run(w, 2000);
+    const hits = w.log.filter((r) => r.targetId === 't' && r.tags.includes('attack'));
+    return { total: hits.reduce((s, r) => s + r.amount, 0), count: hits.length, cooldown: p.cooldownSpans[skill] ?? 0 };
+  };
+
+  it('両手の重み:両手持ちの重い武器は2.5倍で、間隔が1.3倍。二刀流や軽い武器には効かない', () => {
+    const plain = swing([{ type: 'rustGreatsword' }], 'slash', undefined);
+    const heavy = swing([{ type: 'rustGreatsword' }], 'slash', 'heavyGrip');
+    expect(heavy.total / plain.total).toBeCloseTo(2.5, 1);
+    expect(heavy.cooldown / plain.cooldown).toBeCloseTo(1.3, 2);
+    const sword = swing([{ type: 'ironSword' }], 'slash', 'heavyGrip');
+    expect(sword.total / swing([{ type: 'ironSword' }], 'slash', undefined).total).toBeCloseTo(1, 2);
+  });
+
+  it('矢継ぎ:弓の矢は2回多く当たる', () => {
+    const plain = swing([{ type: 'boneBow' }], 'shoot', undefined, 200);
+    expect(swing([{ type: 'boneBow' }], 'shoot', 'bowFlurry', 200).count).toBe(plain.count * 3);
+  });
+});

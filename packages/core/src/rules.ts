@@ -32,6 +32,8 @@ export type Predicate =
   | { type: 'selfStill'; ms: number }
   /** 自分の狙いの締まり(同じ相手に当て続けた数)が min 以上 */
   | { type: 'selfFocus'; min: number }
+  /** 自分の魔力の高まり(杖のコンボで溜まる数)が min 以上 */
+  | { type: 'selfCombo'; min: number }
   /** 相手との間(縁から縁)が min 以上 */
   | { type: 'targetFar'; min: number }
   /** 相手がその床の上にいる */
@@ -156,6 +158,7 @@ export interface PredicateContext {
   attackerHpRatio?: number;
   attackerStillFor?: number;
   attackerFocus?: number;
+  attackerCombo?: number;
   targetGap?: number;
   targetOnFloor?(field: FieldId): boolean;
   attackerTags?: readonly string[];
@@ -204,6 +207,8 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return (ctx.attackerStillFor ?? 0) >= p.ms;
     case 'selfFocus':
       return (ctx.attackerFocus ?? 0) >= p.min;
+    case 'selfCombo':
+      return (ctx.attackerCombo ?? 0) >= p.min;
     case 'targetFar':
       return (ctx.targetGap ?? 0) >= p.min;
     case 'targetOnFloor':

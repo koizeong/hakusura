@@ -299,6 +299,37 @@ const HANDMADE = {
     cost: 40,
     rule: { label: '砕け散る盾', on: 'shieldBreak', when: [], do: [{ type: 'grantBuff', label: '砕け散る盾', add: 3, tags: ['weapon'], duration: 8000, charges: 3 }] },
   },
+  heavyGrip: {
+    no: 215,
+    text: '両手持ちの重い武器(大剣・斧・戦槌)の近攻撃は、与ダメージ2.5倍。ただしその技の間隔が1.3倍',
+    cost: 45,
+    rule: {
+      label: '両手の重み',
+      on: 'damage',
+      when: [{ type: 'hitHasTag', tag: 'melee' }, { type: 'hitHasTag', tag: 'heavy' }, { type: 'selfHasTag', tag: 'twoHanded' }],
+      add: 1.5,
+    },
+    extraRules: [{ label: '両手の重み', on: 'stat', stat: 'cooldown', tags: ['heavy'], when: [{ type: 'selfHasTag', tag: 'twoHanded' }], add: 0.3 }],
+  },
+  bowFlurry: {
+    rapid: true,
+    no: 216,
+    text: '弓の矢は、当たるたびに2回多く当たる(威力は半分)',
+    cost: 45,
+    rule: {
+      label: '矢継ぎ',
+      on: 'hit',
+      when: [{ type: 'hitHasTag', tag: 'bow' }, { type: 'hitHasTag', tag: 'attack' }, { type: 'hitLacksTag', tag: 'repeat' }],
+      do: [{ type: 'repeatHit', power: 0.5, times: 2 }],
+    },
+  },
+  arcaneSurge: {
+    rapid: true,
+    no: 217,
+    text: '魔力の高まりが20以上のとき、杖の術は与ダメージ3倍',
+    cost: 50,
+    rule: { label: '溢れる魔力', on: 'damage', when: [{ type: 'hitHasTag', tag: 'staff' }, { type: 'selfCombo', min: 20 }], add: 2 },
+  },
 } as const satisfies Record<string, ConditionDef>;
 
 export type HandmadeConditionId = keyof typeof HANDMADE;
