@@ -1799,6 +1799,43 @@ button.discard {
   min-height: 40px;
 }
 
+/* 技の型を組む */
+.form-templates {
+  margin-bottom: 12px;
+  padding: 8px;
+  border: 1px solid #5a4a2a;
+}
+
+.form-templates summary {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.form-templates ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.form-templates li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+}
+
+.form-templates li button {
+  min-height: 40px;
+}
+
+.form-templates li.unusable {
+  opacity: 0.6;
+}
+
 /* 並べ方 */
 .sort-select {
   display: flex;

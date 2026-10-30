@@ -39,6 +39,7 @@ import {
   type WeaponTypeId,
   type WeaponRef,
   FORMS,
+  formDef,
   learnedForms,
   ELEMENT_IDS,
   buildWeight,
@@ -1012,7 +1013,57 @@ export class BuildScreen {
           : `アクティブを ${riteSkills.map((id) => activeSkillDef(id).name).join('・')} にし、儀式を三つ重ねてから技で使い切る作戦にする`,
       ),
     );
-    return h('div', {}, template, editor.el);
+    return h('div', {}, template, this.renderFormTemplates(), editor.el);
+  }
+
+  /**
+   * 技の型を組む。技の名前で決まる型を選ぶと、手順の技をアクティブに入れ、
+   * 作戦のいちばん上に「〈最初の技〉、次に〈残りの技〉」の1行を足す
+   */
+  private renderFormTemplates(): HTMLElement {
+    const forms = learnedForms(this.host.state.learned).filter((id) => formDef(id).steps.every((st) => st.skill));
+    const rows = forms.map((id) => {
+      const f = formDef(id);
+      const skills = f.steps.map((st) => st.skill as ActiveSkillId);
+      const missing = skills.filter((sk) => !this.activeUsable(sk));
+      const unlearned = missing.filter((sk) => !isLearned(this.host.state.learned, sk));
+      const unfit = missing.filter((sk) => !unlearned.includes(sk));
+      const names = (list: ActiveSkillId[]) => list.map((sk) => activeSkillDef(sk).name).join('・');
+      const why = [unlearned.length > 0 ? `${names(unlearned)}をまだ覚えていない` : '', unfit.length > 0 ? `${names(unfit)}を今の武器で出せない` : '']
+        .filter(Boolean)
+        .join('。');
+      const set = this.build.tactics.some((t) => t.skill === skills[0] && (t.then ?? []).join() === skills.slice(1).join());
+      return h(
+        'li',
+        { class: missing.length > 0 ? 'unusable' : '' },
+        h(
+          'button',
+          { disabled: missing.length > 0 || set, onclick: () => this.applyFormTemplate(skills) },
+          set ? `${f.name}(組んである)` : `${f.name}を組む`,
+        ),
+        h(
+          'small',
+          { class: 'note' },
+          missing.length > 0
+            ? `${skills.map((sk) => activeSkillDef(sk).name).join('→')}。${why}`
+            : f.description,
+        ),
+      );
+    });
+    return h('details', { class: 'form-templates' }, h('summary', {}, '技の型を組む'), h('ul', {}, ...rows));
+  }
+
+  /** 技の型を組む。手順の技をアクティブの先頭に入れ(枠を超える分は後ろから外す)、作戦の先頭に連携の1行を足す */
+  private applyFormTemplate(skills: ActiveSkillId[]): void {
+    const build = this.build;
+    build.actives = [...new Set([...skills, ...build.actives])].slice(0, BUILD_LIMITS.actives);
+    build.tactics = [
+      { skill: skills[0]!, condition: 'always', enabled: true, then: skills.slice(1) },
+      ...build.tactics.filter((t) => build.actives.includes(t.skill)),
+    ];
+    // 型の仕組みを開く
+    unlock(this.host.state, 'forms');
+    this.changed();
   }
 
   /** 儀式の手本を当てる。アクティブと作戦を差し替える */
