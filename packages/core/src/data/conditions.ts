@@ -272,7 +272,7 @@ const HANDMADE = {
     no: 211,
     text: '炎上している敵への杖の術は、与ダメージ3倍',
     cost: 50,
-    rule: { label: '火葬の讃歌', on: 'damage', when: [{ type: 'hitHasTag', tag: 'magic' }, { type: 'targetHas', status: 'burn' }], add: 2 },
+    rule: { label: '火葬の讃歌', on: 'damage', when: [{ type: 'hitHasTag', tag: 'staff' }, { type: 'targetHas', status: 'burn' }], add: 2 },
   },
   spearEdge: {
     no: 212,
