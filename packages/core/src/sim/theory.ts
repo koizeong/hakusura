@@ -231,7 +231,7 @@ export function theoreticalMax(build: Build, log: (line: string) => void = () =>
     toughness: measureLoadout(final).toughness,
     conditions: plan.conditions.map((c) => conditionDef(c).text),
     artifacts: plan.artifacts.map((a) => ARTIFACTS[a].name),
-    alloc: (Object.entries(plan.alloc) as [AffixId, number][]).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([a, v]) => `${AFFIXES[a].name}+${v}%`),
+    alloc: (Object.entries(plan.alloc) as [AffixId, number][]).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([a, v]) => `${AFFIXES[a].name}${statDef(AFFIXES[a].stat).lowerIsBetter ? '-' : '+'}${v}%`),
     evaluations,
   };
 }
