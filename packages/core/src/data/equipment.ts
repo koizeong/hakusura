@@ -144,6 +144,11 @@ export const EQUIP_RULES = {
   fitChance: 0.6,
   /** 補正値の刻み */
   step: 5,
+  /**
+   * 共通の項目(最大HP・移動速度・被ダメージ)を損の向きに振ったとき、合計に数える割合。
+   * 移動速度には下限があり捨てても痛くないので、-200% を捨てても合計は -100% にしか数えない(火力の項目に回せる分を減らす)
+   */
+  commonPenaltyWeight: 0.5,
   /** 武器の枠のとき、盾が出る確率 */
   shieldChance: 0.2,
 } as const;
@@ -196,9 +201,15 @@ export function benefitOf(a: ItemAffix): number {
   return statDef(AFFIXES[a.affix].stat).lowerIsBetter ? -a.value : a.value;
 }
 
+/** 合計に数える補正値。共通の項目を損の向きに振った分は、commonPenaltyWeight の割合しか数えない */
+export function countedBenefit(a: ItemAffix): number {
+  const b = benefitOf(a);
+  return b < 0 && (AFFIXES[a.affix] as AffixDef).common ? b * EQUIP_RULES.commonPenaltyWeight : b;
+}
+
 /** 装備の補正値の合計。条件文のコストも含む。-100〜+100 に収まる */
 export function itemTotal(item: Item): number {
-  return item.affixes.reduce((s, a) => s + benefitOf(a), 0) + (item.condition ? conditionDef(item.condition).cost : 0);
+  return item.affixes.reduce((s, a) => s + countedBenefit(a), 0) + (item.condition ? conditionDef(item.condition).cost : 0);
 }
 
 /**
@@ -342,17 +353,27 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
     random() < R.extremeChance ? R.affixMin + random() * (R.affixMax - R.affixMin) : R.usualMin + random() * (R.usualMax - R.usualMin);
   let benefits: number[] = [];
   for (let attempt = 0; attempt < 200; attempt++) {
-    const head = chosen.slice(1).map(() => roundStep(swing()));
-    const last = remain - head.reduce((s, v) => s + v, 0);
-    if (last >= R.affixMin && last <= R.affixMax) {
+    // 共通の項目の損は半分しか数えないので、合計が刻みに揃うよう2刻みで振る
+    const head = chosen.slice(1).map((id) => {
+      const v = roundStep(swing());
+      return v < 0 && (AFFIXES[id] as AffixDef).common ? Math.round(v / (R.step * 2)) * R.step * 2 : v;
+    });
+    // 共通の項目が後ろにも出たら、損の向きは一部しか数えない
+    const weight = (v: number, i: number) => (v < 0 && (AFFIXES[chosen[i + 1]!] as AffixDef).common ? v * R.commonPenaltyWeight : v);
+    const counted = remain - head.reduce((s, v, i) => s + weight(v, i), 0);
+    // 最初の項目は共通の項目。損の向きなら合計には一部しか数えないので、その分だけ大きく振る
+    const last = counted < 0 ? roundStep(counted / R.commonPenaltyWeight) : counted;
+    if (last >= R.affixMin && last <= R.affixMax && (last < 0 ? last * R.commonPenaltyWeight : last) === counted) {
       benefits = [last, ...head];
       break;
     }
   }
   if (benefits.length === 0) {
     // 振り分けがうまくいかなければ均等に割る
-    const each = roundStep(remain / chosen.length);
-    benefits = chosen.map((_, i) => (i === 0 ? remain - each * (chosen.length - 1) : each));
+    const each = Math.round(remain / chosen.length / (R.step * 2)) * R.step * 2;
+    const counted = remain - chosen.slice(1).reduce((sum, id) => sum + (each < 0 && (AFFIXES[id] as AffixDef).common ? each * R.commonPenaltyWeight : each), 0);
+    const first = counted;
+    benefits = chosen.map((_, i) => (i === 0 ? (first < 0 ? Math.max(R.affixMin, first / R.commonPenaltyWeight) : first) : each));
   }
 
   const affixes = chosen.map((affix, i) => {

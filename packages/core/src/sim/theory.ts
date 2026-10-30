@@ -13,7 +13,7 @@ import { measureLoadout } from '../loadout';
  * 一番火力の出る装備を作って測る。拾い物の運は入れない。
  *
  * 作り方:どの装備も共通の項目の移動速度を -200% に捨て(移動速度は下限があるので、捨てても火力は落ちない)、
- * その分で火力の項目に +300% を振る。振り先は 100% ずつ、測って一番伸びる項目へ足していく。
+ * その分で火力の項目に振る(共通の項目の損は合計に半分しか数えないので、+200%)。振り先は 100% ずつ、測って一番伸びる項目へ足していく。
  * 条件文とアーティファクトは、1つずつ足して伸びるうちは足す
  */
 export const THEORY = {
@@ -22,7 +22,7 @@ export const THEORY = {
   /** 出来上がりを測る秒数 */
   finalSeconds: 30,
   /** 移動速度を捨てて、1つの装備で振れる火力の項目の合計 */
-  perItem: EQUIP_RULES.totalMax - EQUIP_RULES.affixMin,
+  perItem: EQUIP_RULES.totalMax - EQUIP_RULES.affixMin * EQUIP_RULES.commonPenaltyWeight,
   /** 振り分けの刻み */
   unit: 100,
   /** 条件文の下見で残す数 */

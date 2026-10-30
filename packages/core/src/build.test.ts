@@ -123,13 +123,13 @@ describe('追加した条件文', () => {
     expect(w.statOf(p, 'moveSpeed')).toBeCloseTo(1.5);
   });
 
-  it('9: 敵が3種類以上の状態にかかっているとき、与ダメージ2倍', () => {
+  it('9: 敵が3種類以上の状態にかかっているとき、与ダメージ+50%', () => {
     const { w, e } = withCondition('manyAilments');
     for (const s of ['wet', 'oiled', 'stun'] as const) w.forceStatus('e', s, true);
     w.useSkill('p', 'slash', e);
     run(w, 400);
     // 昏倒に追撃 ×1.5 と掛け合わさる
-    expect(w.log[0]!.amount).toBeCloseTo(hitPw(SWORD) * 2 * 1.5);
+    expect(w.log[0]!.amount).toBeCloseTo(hitPw(SWORD) * 1.5 * 1.5);
   });
 
   it('10: 自分がどの状態にもかかっていないとき、被ダメージ-40%', () => {
@@ -139,11 +139,11 @@ describe('追加した条件文', () => {
     expect(w.statOf(p, 'damageTaken')).toBe(1);
   });
 
-  it('41: HPが満タンのとき、与ダメージ+50%', () => {
+  it('41: HPが満タンのとき、与ダメージ+25%', () => {
     const { w, p, e } = withCondition('unscathed');
     w.useSkill('p', 'slash', e);
     run(w, 400);
-    expect(w.log[0]!.amount).toBeCloseTo(hitPw(SWORD) * 1.5);
+    expect(w.log[0]!.amount).toBeCloseTo(hitPw(SWORD) * 1.25);
     p.hp -= 1;
     p.cooldowns = {};
     p.busyUntil = 0;

@@ -30,6 +30,10 @@ export type Predicate =
   | { type: 'selfHpRatio'; min: number }
   /** 自分が ms ミリ秒以上動いていない */
   | { type: 'selfStill'; ms: number }
+  /** 自分の狙いの締まり(同じ相手に当て続けた数)が min 以上 */
+  | { type: 'selfFocus'; min: number }
+  /** 相手との間(縁から縁)が min 以上 */
+  | { type: 'targetFar'; min: number }
   /** 相手がその床の上にいる */
   | { type: 'targetOnFloor'; field: FieldId }
   /** 自分がそのタグを持つ(両手持ち・二刀流など) */
@@ -149,6 +153,8 @@ export interface PredicateContext {
   attackerStatusCount?(): number;
   attackerHpRatio?: number;
   attackerStillFor?: number;
+  attackerFocus?: number;
+  targetGap?: number;
   targetOnFloor?(field: FieldId): boolean;
   attackerTags?: readonly string[];
   attackerUnhurt?: boolean;
@@ -194,6 +200,10 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return (ctx.attackerHpRatio ?? 0) >= p.min;
     case 'selfStill':
       return (ctx.attackerStillFor ?? 0) >= p.ms;
+    case 'selfFocus':
+      return (ctx.attackerFocus ?? 0) >= p.min;
+    case 'targetFar':
+      return (ctx.targetGap ?? 0) >= p.min;
     case 'targetOnFloor':
       return ctx.targetOnFloor?.(p.field) ?? false;
     case 'selfHasTag':

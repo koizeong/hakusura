@@ -1960,6 +1960,8 @@ export class CombatWorld {
       attackerStatusCount: () => (attacker ? COUNTED_STATUSES.filter((s) => this.isActive(attacker, s)).length : 0),
       attackerHpRatio: attacker ? attacker.hp / attacker.maxHp : 0,
       attackerStillFor: attacker ? this.time - attacker.lastMovedAt : 0,
+      attackerFocus: attacker ? this.focusStacksOf(attacker) : 0,
+      targetGap: attacker && attacker !== target ? Math.hypot(attacker.x - target.x, attacker.y - target.y) - attacker.radius - target.radius : 0,
       attackerTags: attacker?.tags ?? [],
       attackerUnhurt: attacker ? attacker.lastHurtAt === -Infinity : false,
       attackerShieldReady: !!attacker?.shields.some((s) => s.ready),

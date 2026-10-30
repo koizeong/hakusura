@@ -69,9 +69,10 @@ const HANDMADE = {
   },
   manyAilments: {
     no: 9,
-    text: '敵が3種類以上の状態にかかっているとき、与ダメージ2倍',
+    // どのビルドでも選ばれるので控えめにする(手数で状態が満ちやすい)
+    text: '敵が3種類以上の状態にかかっているとき、与ダメージ+50%',
     cost: 60,
-    rule: { label: '病み重ね', on: 'damage', when: [{ type: 'targetStatusCount', min: 3 }], add: 1 },
+    rule: { label: '病み重ね', on: 'damage', when: [{ type: 'targetStatusCount', min: 3 }], add: 0.5 },
   },
   cleanBody: {
     no: 10,
@@ -81,9 +82,10 @@ const HANDMADE = {
   },
   unscathed: {
     no: 41,
-    text: 'HPが満タンのとき、与ダメージ+50%',
+    // どのビルドでも選ばれるので控えめにする
+    text: 'HPが満タンのとき、与ダメージ+25%',
     cost: 30,
-    rule: { label: '無傷の驕り', on: 'damage', when: [{ type: 'selfHpRatio', min: 1 }], add: 0.5 },
+    rule: { label: '無傷の驕り', on: 'damage', when: [{ type: 'selfHpRatio', min: 1 }], add: 0.25 },
   },
   bleedBack: {
     no: 48,
@@ -228,6 +230,34 @@ const HANDMADE = {
       when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitLacksTag', tag: 'repeat' }, { type: 'ritesReleased', min: 4 }],
       do: [{ type: 'repeatHit', power: 0.5, times: 3 }],
     },
+  },
+  // 遠攻撃の条件文。弾を避けながら撃つ遠距離らしく、当て続ける・離れる・足を止めることに見返りがある
+  focusedVolley: {
+    rapid: true,
+    no: 207,
+    text: '狙いの締まりが10以上のとき、遠攻撃の与ダメージ3倍',
+    cost: 50,
+    rule: { label: '締め撃ち', on: 'damage', when: [{ type: 'hitHasTag', tag: 'ranged' }, { type: 'selfFocus', min: 10 }], add: 2 },
+  },
+  farHunter: {
+    rapid: true,
+    no: 208,
+    text: '離れた相手(250以上)への遠攻撃は、与ダメージ2.5倍',
+    cost: 45,
+    rule: { label: '遠間の狩人', on: 'damage', when: [{ type: 'hitHasTag', tag: 'ranged' }, { type: 'targetFar', min: 250 }], add: 1.5 },
+  },
+  plantedAim: {
+    rapid: true,
+    no: 209,
+    text: '1秒以上足を止めて撃つ遠攻撃は、与ダメージ2倍で、2回多く当たる(威力は半分)',
+    cost: 55,
+    rule: {
+      label: '据え撃ち',
+      on: 'hit',
+      when: [{ type: 'hitHasTag', tag: 'ranged' }, { type: 'hitHasTag', tag: 'attack' }, { type: 'hitLacksTag', tag: 'repeat' }, { type: 'selfStill', ms: 1000 }],
+      do: [{ type: 'repeatHit', power: 0.5, times: 2 }],
+    },
+    extraRules: [{ label: '据え撃ち', on: 'damage', when: [{ type: 'hitHasTag', tag: 'ranged' }, { type: 'selfStill', ms: 1000 }], add: 1 }],
   },
 } as const satisfies Record<string, ConditionDef>;
 

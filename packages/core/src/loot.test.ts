@@ -179,3 +179,41 @@ describe('装備の見比べ', () => {
     expect(worn).not.toContain(stash[0]!.id);
   }, 30000);
 });
+
+describe('共通の項目の損', () => {
+  it('共通の項目を損の向きに振った分は、合計に半分しか数えない', () => {
+    const item: Item = { id: 'x', name: '帷子', kind: 'armor', slot: 'body', affixes: [{ affix: 'moveSpeed', value: -200 }, { affix: 'damage', value: 200 }] };
+    expect(itemTotal(item)).toBe(200 - 200 * EQUIP_RULES.commonPenaltyWeight);
+  });
+});
+
+describe('遠攻撃の条件文', () => {
+  const shots = (condition: ConditionId | undefined, x: number, stand = true) => {
+    const w = new CombatWorld({ seed: 3 });
+    const p = w.addUnit({ id: 'p', name: '射手', team: 'player', x: 0, y: 0, weapons: [{ type: 'boneBow' }], conditions: condition ? [condition] : [] });
+    w.addUnit({ id: 't', name: '案山子', team: 'enemy', x, y: 0, maxHp: 1e9 });
+    for (let i = 0; i < 14; i++) {
+      p.cooldowns = {};
+      p.busyUntil = 0;
+      if (!stand) w.moveUnit('p', p.x, p.y + (i % 2 ? 1 : -1));
+      w.useSkill('p', 'shoot', w.units.get('t')!, 't');
+      run(w, 300);
+    }
+    run(w, 2000);
+    return w.log.filter((r) => r.tags.includes('ranged')).reduce((s, r) => s + r.amount, 0);
+  };
+
+  it('締め撃ち:同じ相手に当て続けて狙いの締まりが10を超えると、遠攻撃が3倍', () => {
+    expect(shots('focusedVolley', 200) / shots(undefined, 200)).toBeGreaterThan(1.5);
+  });
+
+  it('遠間の狩人:離れた相手にだけ効く', () => {
+    expect(shots('farHunter', 400) / shots(undefined, 400)).toBeCloseTo(2.5, 1);
+    expect(shots('farHunter', 120) / shots(undefined, 120)).toBeCloseTo(1, 1);
+  });
+
+  it('据え撃ち:足を止めて撃つと強く、歩きながらでは効かない', () => {
+    expect(shots('plantedAim', 200) / shots(undefined, 200)).toBeGreaterThan(2);
+    expect(shots('plantedAim', 200, false) / shots(undefined, 200, false)).toBeCloseTo(1, 1);
+  });
+});
