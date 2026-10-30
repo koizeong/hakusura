@@ -1,61 +1,34 @@
 import { describe, expect, it } from 'vitest';
-import { CombatWorld } from './world';
-import { LOOT_WEAPON_TYPE_IDS, WEAPON_TYPES, type WeaponRef, type WeaponTypeId } from './data/weapons';
-import { ELEMENT_IDS } from './data/elements';
-import type { ActiveSkillId } from './data/skills';
-import { dealtBy, summarize } from './breakdown';
+import { LOOT_WEAPON_TYPE_IDS, WEAPON_TYPES, type WeaponTypeId } from './data/weapons';
+import { ELEMENT_IDS, type ElementId } from './data/elements';
+import type { Build } from './build';
+import { measureField } from './sim/simulate';
 
 /**
  * 近接の武器のDPSは、遠距離の武器のDPSのこの倍以上にする。遠攻撃は弾を避けながら撃てて楽なので。
- * 遠距離は同じ相手に当て続けるほど伸びる(狙いの締まり)。動かない案山子を60秒撃ち続けるこの測りは
- * 遠距離に一番有利な場なので、目安は1.8倍にしている(近接の倍率 WEAPON_KIND_POWER で整える)
+ * 実戦に近い場(寄ってきて攻める案山子の群れと、操り手つきで戦う。measureField)で測る。
+ * 動かない案山子を撃ち続ける測りは遠距離に有利すぎ、場では近接が何倍も出ていたので、場で釣り合いを見る
  */
 const MELEE_OVER_RANGED = 1.8;
 
-/** 寄ってきた5体に囲まれた所。近攻撃が本来戦う間合い */
-const GROUP = [
-  { x: 70, y: 0 },
-  { x: 40, y: 70 },
-  { x: -50, y: 60 },
-  { x: -60, y: -50 },
-  { x: 30, y: -80 },
-];
-
-/**
- * その武器と技だけで案山子と60秒戦ったときのDPS。状態の発動や連鎖で出た分も含む。
- * 案山子は動かず、攻めてこない
- */
-export function measureDps(weapon: WeaponRef, skill: ActiveSkillId, targets: 'solo' | 'group', seconds = 60): number {
-  const w = new CombatWorld();
-  w.addUnit({
-    id: 'p',
-    name: '巡礼者',
-    team: 'player',
-    x: 0,
-    y: 0,
-    maxHp: 1e9,
-    weapons: [weapon],
+/** 武器1本と、武器をそのまま使う技だけのビルド。能力値はどの武器の求めも満たす */
+function weaponBuild(type: WeaponTypeId, element: ElementId): Build {
+  const skill = WEAPON_TYPES[type].kind === 'melee' ? 'slash' : 'shoot';
+  return {
+    attributes: { str: 20, dex: 20, int: 20, fai: 20, vit: 20 },
+    actives: [skill],
+    passives: [],
+    equipment: { weapon1: { id: 'w', name: type, kind: 'weapon', weaponType: type, element, affixes: [] } },
     tactics: [{ skill, condition: 'always', enabled: true }],
-    autoBattle: true,
-  });
-  (targets === 'solo' ? GROUP.slice(0, 1) : GROUP).forEach((at, i) => w.addUnit({ id: `e${i}`, name: '案山子', team: 'enemy', ...at, maxHp: 1e9 }));
-  for (let t = 0; t < seconds * 1000; t += 20) w.update(20);
-  return summarize(dealtBy(w.log, 'p'), w.time).total / seconds;
+  };
 }
 
-/** 武器をそのまま使う技 */
-const basic = (weapon: WeaponTypeId): ActiveSkillId => (WEAPON_TYPES[weapon].kind === 'melee' ? 'slash' : 'shoot');
-
 describe('火力の釣り合い', () => {
-  for (const targets of ['solo', 'group'] as const) {
-    it(`近接の武器は遠距離の武器の ${MELEE_OVER_RANGED} 倍以上のDPSが出る(${targets === 'solo' ? '1体' : '群れ'})`, () => {
-      // 武器の属性は拾うたびに変わるので、形と属性の組み合わせを全て測る
-      const dps = (kind: 'melee' | 'ranged') =>
-        LOOT_WEAPON_TYPE_IDS.filter((id) => WEAPON_TYPES[id].kind === kind).flatMap((id) =>
-          ELEMENT_IDS.map((element) => measureDps({ type: id, element }, basic(id), targets)),
-        );
-      expect(Math.min(...dps('melee')) / Math.max(...dps('ranged'))).toBeGreaterThanOrEqual(MELEE_OVER_RANGED);
-      // 形と属性の組み合わせが多いので、時間がかかる
-    }, 120000);
-  }
+  it(`近接の武器は遠距離の武器の ${MELEE_OVER_RANGED} 倍以上のDPSが出る(実戦に近い場)`, () => {
+    // 武器の属性は拾うたびに変わるので、形と属性の組み合わせを全て測る
+    const dps = (kind: 'melee' | 'ranged') =>
+      LOOT_WEAPON_TYPE_IDS.filter((id) => WEAPON_TYPES[id].kind === kind).flatMap((id) => ELEMENT_IDS.map((e) => measureField(weaponBuild(id, e), 30).dps));
+    expect(Math.min(...dps('melee')) / Math.max(...dps('ranged'))).toBeGreaterThanOrEqual(MELEE_OVER_RANGED);
+    // 形と属性の組み合わせが多いので、時間がかかる
+  }, 180000);
 });

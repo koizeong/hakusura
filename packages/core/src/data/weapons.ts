@@ -327,7 +327,7 @@ export type ResolvedWeapon = WeaponTypeDef & { id: WeaponTypeId; tempers: readon
  * 近接か遠距離かで、武器の威力に掛ける倍率。近接は敵に寄る危うさを負うので、ここで火力を上乗せする。
  * 近接と遠距離の釣り合いは、まずこの数字で整える(balance.test.ts が確かめる)
  */
-export const WEAPON_KIND_POWER = { melee: 1.5, ranged: 0.55 } as const;
+export const WEAPON_KIND_POWER = { melee: 1.5, ranged: 0.72 } as const;
 
 /**
  * 近接か遠距離かで、間隔と振りかぶり・硬直に掛ける倍率。遠距離は速射で戦う:1発は軽いが、
