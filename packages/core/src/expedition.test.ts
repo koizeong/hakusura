@@ -92,11 +92,15 @@ describe('遠征', () => {
 
 describe('行き先ごとの特徴', () => {
   it('強さはその地の環境で測る(聖堂は雨なので、感電を使うビルドが伸びる)', () => {
+    // 連用の疲れで1つの技だけでは間が延びるので、2つの技を回す
     const gun: Omit<Build, 'attributes'> = {
-      actives: ['shoot'],
+      actives: ['shoot', 'quickShot'],
       passives: [],
       equipment: { weapon1: weapon('capGun') },
-      tactics: [{ skill: 'shoot', condition: 'always', enabled: true }],
+      tactics: [
+        { skill: 'quickShot', condition: 'always', enabled: true },
+        { skill: 'shoot', condition: 'always', enabled: true },
+      ],
     };
     expect(measureAt({ ...gun, attributes: undefined }, 'drownedChapel')).toBeGreaterThan(measureAt({ ...gun, attributes: undefined }, 'outskirts'));
   });

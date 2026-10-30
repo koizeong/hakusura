@@ -50,3 +50,9 @@ export const FALL = { downtime: 3000 } as const;
  * 一番強い条件文を何枚重ねられるかで火力が決まらないように(3倍を5つで11倍→7倍)
  */
 export const STACKING = { repeatWeight: 0.5 } as const;
+
+/**
+ * 連用の疲れ。自分の側が同じ技を続けて出すと、その技の間隔が 1 + perRepeat × 続けた数 倍(max まで)に延びる。
+ * 別の技を挟めば戻る。一番強い技を連打するより、作戦で技を回し型を決める方が強くなるように
+ */
+export const FATIGUE = { perRepeat: 0.5, max: 2.5 } as const;

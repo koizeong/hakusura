@@ -1,3 +1,4 @@
+import { FATIGUE } from './constants';
 import { describe, expect, it } from 'vitest';
 import { CombatWorld, type Unit } from './world';
 import { TACTIC_CONDITIONS, type Tactic } from './data/tactics';
@@ -159,5 +160,52 @@ describe('型の書', () => {
       }
     }
     expect(found).toBeGreaterThan(0);
+  });
+});
+
+describe('技の型と連用の疲れ', () => {
+  const run = (w: CombatWorld, ms: number) => {
+    for (let t = 0; t < ms; t += 25) w.update(25);
+  };
+
+  it('同じ技を続けると間隔が延び、別の技を挟むと戻る', () => {
+    const w = new CombatWorld({ seed: 1 });
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, weapons: [{ type: 'ironSword' }] });
+    w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 60, y: 0, maxHp: 1e9 });
+    const use = (skill: 'slash' | 'thrust') => {
+      p.cooldowns = {};
+      p.busyUntil = 0;
+      w.useSkill('p', skill, { x: 60, y: 0 });
+      run(w, 600);
+      return p.cooldownSpans[skill]!;
+    };
+    const first = use('slash');
+    expect(use('slash')).toBeCloseTo(first * (1 + FATIGUE.perRepeat));
+    expect(use('slash')).toBeCloseTo(first * (1 + FATIGUE.perRepeat * 2));
+    use('thrust');
+    expect(use('slash')).toBeCloseTo(first);
+  });
+
+  it('嵐の穂先:突き・薙ぎ払い・旋風の順に出すと、最後の旋風が4倍になる', () => {
+    const whirl = (withSetup: boolean) => {
+      const w = new CombatWorld({ seed: 1 });
+      const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, weapons: [{ type: 'stormSpear' }] });
+      w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 80, y: 0, maxHp: 1e9 });
+      for (const skill of withSetup ? (['thrust', 'sweep'] as const) : []) {
+        p.busyUntil = 0;
+        w.useSkill('p', skill, { x: 80, y: 0 });
+        run(w, 900);
+      }
+      const before = w.log.length;
+      p.busyUntil = 0;
+      w.useSkill('p', 'whirlwind', { x: 80, y: 0 });
+      run(w, 900);
+      const hits = w.log.slice(before).filter((r) => r.depth === 0 && r.skill.includes('旋風'));
+      return { total: hits.reduce((s, r) => s + r.amount, 0), via: hits[0]?.via ?? [] };
+    };
+    const plain = whirl(false);
+    const form = whirl(true);
+    expect(form.via).toContain('嵐の穂先');
+    expect(form.total).toBeCloseTo(plain.total * 4, 0);
   });
 });

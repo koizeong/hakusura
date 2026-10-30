@@ -1,4 +1,4 @@
-import { DEFENSE, FALL, MAX_TRIGGER_DEPTH, STACKING, STATUS_RULES, WEAPON_HITS } from './constants';
+import { DEFENSE, FALL, FATIGUE, MAX_TRIGGER_DEPTH, STACKING, STATUS_RULES, WEAPON_HITS } from './constants';
 import { computeDamage, type RuleBonus } from './damage';
 import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
 import { FLOOR_RULES, fieldDef, type FieldId } from './data/fields';
@@ -134,6 +134,8 @@ export interface Unit {
   falls: number;
   /** 倒れて起き上がるまでの時刻。それまでは動けない */
   downUntil: number;
+  /** 同じ技を続けて出した数(連用の疲れ) */
+  streak: { skill?: ActiveSkillId; count: number };
   /** 最後にスキルを使った時刻。戦っている間かどうかを見る */
   lastAttackAt: number;
   /** 直近に使ったスキル。型と「直前の手」の条件で見る */
@@ -508,6 +510,7 @@ export class CombatWorld {
       mortal: spec.mortal ?? false,
       falls: 0,
       downUntil: 0,
+      streak: { count: 0 },
       lastAttackAt: -Infinity,
       history: [],
       forms: [...STARTING_FORMS],
@@ -770,7 +773,16 @@ export class CombatWorld {
     const form = this.recordStep(unit, skillId, def);
     if (form) {
       const f = formDef(form);
-      def = { ...def, rules: [...(def.rules ?? []), { label: f.name, on: 'damage', when: [{ type: 'hitHasTag', tag: 'attack' }], add: f.bonus }] };
+      const formRules: Rule[] = [{ label: f.name, on: 'damage', when: [{ type: 'hitHasTag', tag: 'attack' }], add: f.bonus }];
+      if (f.hits) {
+        formRules.push({
+          label: f.name,
+          on: 'hit',
+          when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitLacksTag', tag: 'repeat' }, { type: 'hitLacksTag', tag: 'multi' }],
+          do: [{ type: 'repeatHit', power: 0.5, times: f.hits }],
+        });
+      }
+      def = { ...def, rules: [...(def.rules ?? []), ...formRules] };
       this.events.push({ type: 'form', unitId, form, name: f.name });
       this.gainFervor(unit, f.fervor);
     }
@@ -778,7 +790,10 @@ export class CombatWorld {
     const ctx = this.context(unit, unit, {});
     const when = (def.intervalWhen ?? []).reduce((m, w) => (w.when.every((p) => evaluatePredicate(p, ctx)) ? m * w.mult : m), 1);
     const rage = unit.enraged && unit.kind ? (enemyDef(unit.kind).enrage?.cooldown ?? 1) : 1;
-    const span = def.cooldown * when * rage * this.statOf(unit, 'cooldown', [...def.tags, def.category, skillId]);
+    // 連用の疲れ。自分の側が同じ技を続けて出すと、その技の間隔が延びる。別の技を挟めば戻る
+    unit.streak = unit.streak.skill === skillId ? { skill: skillId, count: unit.streak.count + 1 } : { skill: skillId, count: 0 };
+    const tired = !unit.kind && skillId !== unit.trump ? Math.min(FATIGUE.max, 1 + FATIGUE.perRepeat * unit.streak.count) : 1;
+    const span = def.cooldown * when * rage * tired * this.statOf(unit, 'cooldown', [...def.tags, def.category, skillId]);
     unit.cooldowns[skillId] = this.time + span;
     unit.cooldownSpans[skillId] = span;
     unit.windupUntil = this.time + def.windup;

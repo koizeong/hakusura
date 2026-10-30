@@ -72,7 +72,8 @@ describe('杖の魔力の高まり', () => {
   it('杖を持たなければ溜まらない', () => {
     const w = new CombatWorld({ seed: 3 });
     w.weather = 'rain';
-    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, weapons: [{ type: 'capGun' }], autoBattle: true, tactics: [{ skill: 'shoot', condition: 'always', enabled: true }] });
+    // 連用の疲れで1つの技だけでは間が延びるので、2つの技を回す
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, weapons: [{ type: 'capGun' }], autoBattle: true, tactics: [{ skill: 'quickShot', condition: 'always', enabled: true }, { skill: 'shoot', condition: 'always', enabled: true }] });
     w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 120, y: 0, maxHp: 1e9 });
     w.addUnit({ id: 't2', name: '案山子', team: 'enemy', x: 130, y: 60, maxHp: 1e9 });
     run(w, 12000);

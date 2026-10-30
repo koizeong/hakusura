@@ -24,6 +24,8 @@ export interface FormDef {
   window: number;
   /** 最後の一手の与ダメージに足す */
   bonus: number;
+  /** 最後の一手が、この数だけ多く当たる(威力は半分) */
+  hits?: number;
   /** 手順がそれぞれ別のスキルでないと決まらない */
   distinct?: boolean;
   /** 決まったときに溜まる昂り */
@@ -133,13 +135,103 @@ export const FORMS = {
     fervor: 20,
     color: 0x9a5ab8,
   },
+  // 技の型。技の名前で決まる連撃。弱い技も前振りとして積む理由になる。作戦の連携(次に〇〇)で狙って組む
+  stormTip: {
+    name: '嵐の穂先',
+    description: '突き、薙ぎ払い、旋風の順に。最後の旋風が4倍',
+    steps: [{ skill: 'thrust' }, { skill: 'sweep' }, { skill: 'whirlwind' }],
+    window: 4000,
+    bonus: 3,
+    fervor: 35,
+    color: 0x7fd4ff,
+  },
+  castleBreaker: {
+    name: '城崩し',
+    description: '崩し、地鳴り、叩き割りの順に。最後の叩き割りが3倍で、2回多く当たる',
+    steps: [{ skill: 'breaker' }, { skill: 'quake' }, { skill: 'cleave' }],
+    window: 4000,
+    bonus: 2,
+    hits: 2,
+    fervor: 35,
+    color: 0xc8a878,
+  },
+  headsman: {
+    name: '首落とし',
+    description: '薙ぎ払いの次に叩き割り。叩き割りが2.5倍',
+    steps: [{ skill: 'sweep' }, { skill: 'cleave' }],
+    window: 3500,
+    bonus: 1.5,
+    fervor: 25,
+    color: 0xb8a8a0,
+  },
+  pinningShot: {
+    name: '射止め',
+    description: '牽制射の次に狙い撃ち。狙い撃ちが3倍',
+    steps: [{ skill: 'quickShot' }, { skill: 'aimedShot' }],
+    window: 3500,
+    bonus: 2,
+    fervor: 25,
+    color: 0xd8c890,
+  },
+  // 短剣は刺(抉りは斬の武器でしか出せない)なので、突きから入る
+  pierceDance: {
+    name: '刺し舞い',
+    description: '突きの次に連撃。連撃が2.5倍で、3回多く当たる',
+    steps: [{ skill: 'thrust' }, { skill: 'flurry' }],
+    window: 3500,
+    bonus: 1.5,
+    hits: 3,
+    fervor: 25,
+    color: 0xc8323c,
+  },
+  soulSending: {
+    name: '魂送り',
+    // 祈りの奔流は周りに放つ術で、離れて戦う術師には届かないので、炸裂弾で締める
+    description: '漂う魂の次に炸裂弾。炸裂弾が3倍',
+    steps: [{ skill: 'soulOrbs' }, { skill: 'burstBolt' }],
+    window: 4000,
+    bonus: 2,
+    fervor: 25,
+    color: 0xa890d8,
+  },
+  steppingCut: {
+    name: '踏み込み斬り',
+    description: '斬りつけの次に踏み込み。踏み込みが2.2倍',
+    steps: [{ skill: 'slash' }, { skill: 'lunge' }],
+    window: 3000,
+    bonus: 1.2,
+    fervor: 20,
+    color: 0xc8c0b0,
+  },
+  gunsmoke: {
+    name: '硝煙の二打',
+    description: '散弾の次に射撃。射撃が2.5倍',
+    steps: [{ skill: 'scatterShot' }, { skill: 'shoot' }],
+    window: 3000,
+    bonus: 1.5,
+    fervor: 20,
+    color: 0x9a9088,
+  },
 } as const satisfies Record<string, FormDef>;
 
 export type FormId = keyof typeof FORMS;
 export const FORM_IDS = Object.keys(FORMS) as FormId[];
 
 /** 最初から知っている型 */
-export const STARTING_FORMS: readonly FormId[] = ['thunderRain', 'oilFire', 'shootAndCut'];
+/** はじめから知っている型。技の型は武器を持てばすぐ組めるよう、はじめから知っている */
+export const STARTING_FORMS: readonly FormId[] = [
+  'thunderRain',
+  'oilFire',
+  'shootAndCut',
+  'stormTip',
+  'castleBreaker',
+  'headsman',
+  'pinningShot',
+  'pierceDance',
+  'soulSending',
+  'steppingCut',
+  'gunsmoke',
+];
 
 export function formDef(id: FormId): FormDef {
   return FORMS[id];

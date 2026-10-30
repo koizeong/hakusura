@@ -110,6 +110,8 @@ describe('技の変化', () => {
     w.weather = 'rain';
     p.cooldowns = {};
     p.busyUntil = 0;
+    // 続けて出すと連用の疲れで延びるので、疲れを戻してから比べる
+    p.streak = { count: 0 };
     w.useSkill('p', 'slash', { x: 70, y: 0 });
     expect(p.cooldownSpans.slash!).toBeCloseTo(dry * 0.6);
   });
