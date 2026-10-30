@@ -259,6 +259,44 @@ const HANDMADE = {
     },
     extraRules: [{ label: '据え撃ち', on: 'damage', when: [{ type: 'hitHasTag', tag: 'ranged' }, { type: 'selfStill', ms: 1000 }], add: 1 }],
   },
+  // 持ち味に効く条件文。どこでも効くものより狭いが、合うビルドでは繋ぎに並ぶ見返りがある
+  stormConduit: {
+    rapid: true,
+    no: 210,
+    text: '感電している敵への雷の攻撃は、与ダメージ3倍',
+    cost: 50,
+    rule: { label: '雷の通い路', on: 'damage', when: [{ type: 'hitElementIs', element: 'lightning' }, { type: 'targetHas', status: 'shock' }], add: 2 },
+  },
+  pyreHymn: {
+    rapid: true,
+    no: 211,
+    text: '炎上している敵への杖の術は、与ダメージ3倍',
+    cost: 50,
+    rule: { label: '火葬の讃歌', on: 'damage', when: [{ type: 'hitHasTag', tag: 'magic' }, { type: 'targetHas', status: 'burn' }], add: 2 },
+  },
+  spearEdge: {
+    no: 212,
+    text: '間合いの端(100以上離れた相手)に当てる近攻撃は、与ダメージ3倍',
+    cost: 50,
+    rule: { label: '穂先の間合い', on: 'damage', when: [{ type: 'hitHasTag', tag: 'melee' }, { type: 'targetFar', min: 100 }], add: 2 },
+  },
+  shieldBulwark: {
+    no: 213,
+    text: '盾が張られている間、近攻撃は2回多く当たる(威力は半分)',
+    cost: 45,
+    rule: {
+      label: '盾越しの連打',
+      on: 'hit',
+      when: [{ type: 'hitHasTag', tag: 'melee' }, { type: 'hitHasTag', tag: 'attack' }, { type: 'hitLacksTag', tag: 'repeat' }, { type: 'selfShieldReady' }],
+      do: [{ type: 'repeatHit', power: 0.5, times: 2 }],
+    },
+  },
+  shatterSurge: {
+    no: 214,
+    text: '盾が砕けると、続く3撃の与ダメージ4倍',
+    cost: 40,
+    rule: { label: '砕け散る盾', on: 'shieldBreak', when: [], do: [{ type: 'grantBuff', label: '砕け散る盾', add: 3, tags: ['weapon'], duration: 8000, charges: 3 }] },
+  },
 } as const satisfies Record<string, ConditionDef>;
 
 export type HandmadeConditionId = keyof typeof HANDMADE;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CombatWorld } from './world';
+import { CombatWorld, type UnitSpec } from './world';
 import { CONDITIONS, LINK_CONDITION_IDS, conditionDef, type ConditionId } from './data/conditions';
 import { AFFIX_IDS, EQUIP_RULES, affixFits, generateItem, itemTotal, type Item } from './data/equipment';
 import { LINK_RULES } from './data/links';
@@ -231,5 +231,50 @@ describe('遠攻撃の条件文', () => {
   it('据え撃ち:足を止めて撃つと強く、歩きながらでは効かない', () => {
     expect(shots('plantedAim', 200) / shots(undefined, 200)).toBeGreaterThan(2);
     expect(shots('plantedAim', 200, false) / shots(undefined, 200, false)).toBeCloseTo(1, 1);
+  });
+});
+
+describe('持ち味の条件文', () => {
+  /** その武器と技を1回使ったときの、直撃の与ダメージの合計 */
+  const once = (weapons: UnitSpec['weapons'], skill: 'slash' | 'shoot' | 'thrust', condition: ConditionId | undefined, x: number, setup?: (w: CombatWorld) => void) => {
+    const w = new CombatWorld({ seed: 5 });
+    w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, weapons, conditions: condition ? [condition] : [] });
+    w.addUnit({ id: 't', name: '案山子', team: 'enemy', x, y: 0, maxHp: 1e9 });
+    setup?.(w);
+    w.useSkill('p', skill, w.units.get('t')!, 't');
+    run(w, 2000);
+    return w.log.filter((r) => r.depth === 0 && r.targetId === 't' && r.tags.includes('attack')).reduce((s, r) => s + r.amount, 0);
+  };
+
+  it('雷の通い路:感電している敵への雷の攻撃は3倍', () => {
+    const shocked = (w: CombatWorld) => w.forceStatus('t', 'shock', true);
+    const gun = [{ type: 'capGun' as const, element: 'lightning' as const }];
+    expect(once(gun, 'shoot', 'stormConduit', 200, shocked) / once(gun, 'shoot', undefined, 200, shocked)).toBeCloseTo(3, 1);
+    expect(once(gun, 'shoot', 'stormConduit', 200) / once(gun, 'shoot', undefined, 200)).toBeCloseTo(1, 1);
+  });
+
+  it('火葬の讃歌:炎上している敵への杖の術は3倍', () => {
+    const burning = (w: CombatWorld) => w.forceStatus('t', 'burn', true);
+    const staff = [{ type: 'staff' as const, element: 'fire' as const }];
+    expect(once(staff, 'shoot', 'pyreHymn', 200, burning) / once(staff, 'shoot', undefined, 200, burning)).toBeGreaterThan(2.5);
+  });
+
+  it('穂先の間合い:間合いの端で当てる近攻撃だけ3倍', () => {
+    const spear = [{ type: 'stormSpear' as const }];
+    expect(once(spear, 'slash', 'spearEdge', 170) / once(spear, 'slash', undefined, 170)).toBeCloseTo(3, 1);
+    expect(once(spear, 'slash', 'spearEdge', 60) / once(spear, 'slash', undefined, 60)).toBeCloseTo(1, 1);
+  });
+
+  it('盾越しの連打:盾が張られている間、近攻撃のヒットが増える', () => {
+    const count = (condition?: ConditionId) => {
+      const w = new CombatWorld({ seed: 5 });
+      const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, weapons: [{ type: 'ironSword' }], conditions: condition ? [condition] : [] });
+      p.shields = [{ type: 'towerShield', ready: true, readyAt: 0 }];
+      w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 60, y: 0, maxHp: 1e9 });
+      w.useSkill('p', 'slash', w.units.get('t')!, 't');
+      run(w, 1500);
+      return w.log.filter((r) => r.targetId === 't' && r.tags.includes('melee')).length;
+    };
+    expect(count('shieldBulwark')).toBe(count() * 3);
   });
 });
