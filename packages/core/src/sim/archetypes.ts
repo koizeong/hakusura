@@ -62,14 +62,15 @@ export const ARCHETYPES: Record<string, Archetype> = {
   },
   archer: {
     name: '骨の短弓',
-    idea: '技量に振り、狙い撃ちと三連射を離れて撃つ。遠攻撃',
+    idea: '技量に振り、狙い撃ちと三連射を離れて撃つ。燠火を塗った矢で燃やす。遠攻撃',
     build: {
       attributes: attrs({ dex: 30, vit: 18 }),
-      actives: ['aimedShot', 'volley', 'pierceShot', 'quickShot'],
-      passives: ['fleetFoot', 'readTheBlow', 'thickSkin'],
+      // 守りのパッシブだけだったので、燠火の塗油と火に魅入られた者で攻めの手を持たせる
+      actives: ['emberOil', 'aimedShot', 'volley', 'pierceShot', 'quickShot'],
+      passives: ['fleetFoot', 'readTheBlow', 'pyromaniac'],
       equipment: { weapon1: weapon('bow', { type: 'boneBow' }) },
       trump: 'oilFlask',
-      tactics: [always('aimedShot'), always('volley'), always('pierceShot'), always('quickShot')],
+      tactics: [{ skill: 'emberOil', condition: 'imbueOff', enabled: true }, always('aimedShot'), always('volley'), always('pierceShot'), always('quickShot')],
     },
   },
   stormStaff: {

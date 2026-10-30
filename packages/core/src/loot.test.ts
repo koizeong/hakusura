@@ -292,10 +292,10 @@ describe('下位のビルドの持ち味の条件文', () => {
     return { total: hits.reduce((s, r) => s + r.amount, 0), count: hits.length, cooldown: p.cooldownSpans[skill] ?? 0 };
   };
 
-  it('両手の重み:両手持ちの重い武器は2.5倍で、間隔が1.3倍。二刀流や軽い武器には効かない', () => {
+  it('両手の重み:両手持ちの重い武器は2倍で、間隔が1.3倍。二刀流や軽い武器には効かない', () => {
     const plain = swing([{ type: 'rustGreatsword' }], 'slash', undefined);
     const heavy = swing([{ type: 'rustGreatsword' }], 'slash', 'heavyGrip');
-    expect(heavy.total / plain.total).toBeCloseTo(2.5, 1);
+    expect(heavy.total / plain.total).toBeCloseTo(2, 1);
     expect(heavy.cooldown / plain.cooldown).toBeCloseTo(1.3, 2);
     const sword = swing([{ type: 'ironSword' }], 'slash', 'heavyGrip');
     expect(sword.total / swing([{ type: 'ironSword' }], 'slash', undefined).total).toBeCloseTo(1, 2);

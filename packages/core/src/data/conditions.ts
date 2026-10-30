@@ -301,13 +301,13 @@ const HANDMADE = {
   },
   heavyGrip: {
     no: 215,
-    text: '両手持ちの重い武器(大剣・斧・戦槌)の近攻撃は、与ダメージ2.5倍。ただしその技の間隔が1.3倍',
+    text: '両手持ちの重い武器(大剣・斧・戦槌)の近攻撃は、与ダメージ2倍。ただしその技の間隔が1.3倍',
     cost: 45,
     rule: {
       label: '両手の重み',
       on: 'damage',
       when: [{ type: 'hitHasTag', tag: 'melee' }, { type: 'hitHasTag', tag: 'heavy' }, { type: 'selfHasTag', tag: 'twoHanded' }],
-      add: 1.5,
+      add: 1,
     },
     extraRules: [{ label: '両手の重み', on: 'stat', stat: 'cooldown', tags: ['heavy'], when: [{ type: 'selfHasTag', tag: 'twoHanded' }], add: 0.3 }],
   },
@@ -326,9 +326,10 @@ const HANDMADE = {
   arcaneSurge: {
     rapid: true,
     no: 217,
-    text: '魔力の高まりが20以上のとき、杖の術は与ダメージ3倍',
+    // 魔力の高まりは杖でしか溜まらないので、術師の火力の大半を占める状態の傷(感電・炎上)にも効かせる
+    text: '魔力の高まりが10以上のとき、与ダメージ3倍',
     cost: 50,
-    rule: { label: '溢れる魔力', on: 'damage', when: [{ type: 'hitHasTag', tag: 'staff' }, { type: 'selfCombo', min: 20 }], add: 2 },
+    rule: { label: '溢れる魔力', on: 'damage', when: [{ type: 'selfCombo', min: 10 }], add: 2 },
   },
 } as const satisfies Record<string, ConditionDef>;
 
