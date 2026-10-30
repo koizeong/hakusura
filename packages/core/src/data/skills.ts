@@ -254,6 +254,15 @@ export const ACTIVE_SKILLS = {
     tags: ['attack'],
     technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 0.5, interval: 1.5, count: 3, spread: 12 },
   },
+  /** 弓にしか使えない大技。狭い扇に5本を一度に放つ。同じ相手に束ねて当たり、狙いの締まりが一気に溜まる */
+  boneVolley: {
+    name: '骨矢の驟雨',
+    category: 'ranged',
+    description: '弓の大技。狭い扇に5本の矢を一度に放つ。1本の威力0.9倍、間隔2倍',
+    needs: { dex: 20 },
+    tags: ['attack'],
+    technique: { requires: { tag: 'bow' }, shape: 'shot', power: 0.9, interval: 2, count: 5, spread: 5 },
+  },
   aimedShot: {
     name: '狙い撃ち',
     category: 'ranged',

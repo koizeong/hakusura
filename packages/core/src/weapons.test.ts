@@ -107,3 +107,12 @@ describe('武器の装備', () => {
     expect(unusableActives(build(['stormSpear', 'capGun'], ['slash', 'shoot', 'discharge']))).toEqual([]);
   });
 });
+
+describe('弓の大技', () => {
+  it('骨矢の驟雨は弓でしか使えず、5本を一度に放つ', () => {
+    expect(resolveSkill('boneVolley', 'boneBow')).toBeDefined();
+    expect(resolveSkill('boneVolley', 'capGun')).toBeUndefined();
+    const r = resolveSkill('boneVolley', 'boneBow')!;
+    expect(r.action.type === 'projectile' && r.action.count).toBe(5);
+  });
+});

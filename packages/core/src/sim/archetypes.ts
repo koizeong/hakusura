@@ -66,11 +66,11 @@ export const ARCHETYPES: Record<string, Archetype> = {
     build: {
       attributes: attrs({ dex: 30, vit: 18 }),
       // 守りのパッシブだけだったので、燠火の塗油と火に魅入られた者で攻めの手を持たせる
-      actives: ['emberOil', 'aimedShot', 'volley', 'pierceShot', 'quickShot'],
+      actives: ['emberOil', 'boneVolley', 'aimedShot', 'volley', 'pierceShot', 'quickShot'],
       passives: ['fleetFoot', 'readTheBlow', 'pyromaniac'],
       equipment: { weapon1: weapon('bow', { type: 'boneBow' }) },
       trump: 'oilFlask',
-      tactics: [{ skill: 'emberOil', condition: 'imbueOff', enabled: true }, always('aimedShot'), always('volley'), always('pierceShot'), always('quickShot')],
+      tactics: [{ skill: 'emberOil', condition: 'imbueOff', enabled: true }, always('boneVolley'), always('aimedShot'), always('volley'), always('pierceShot'), always('quickShot')],
     },
   },
   stormStaff: {
