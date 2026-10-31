@@ -1913,3 +1913,23 @@ button.discard {
   opacity: 0.6;
   border-style: dashed;
 }
+
+.stack-chip {
+  border: 1px solid var(--dim);
+  padding: 1px 6px;
+  border-radius: 2px;
+}
+
+.stack-chip.mult {
+  border-color: #d8a24a;
+  color: #e8c070;
+  font-weight: bold;
+}
+
+.stack-chip.add {
+  color: var(--dim);
+}
+
+.form-templates .mastery {
+  color: #c8b080;
+}

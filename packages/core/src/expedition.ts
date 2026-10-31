@@ -16,6 +16,8 @@ export interface Learned {
   passives: PassiveId[];
   /** 覚えた型。なければ最初の型だけ */
   forms?: FormId[];
+  /** 型を決めた回数(型の熟達)。全キャラで共有する */
+  formUses?: Partial<Record<FormId, number>>;
 }
 
 /** 最初から覚えているスキル */

@@ -15,6 +15,11 @@ export interface ConditionDef {
   rapid?: boolean;
   /** 繋ぎの条件文なら、前の手と今の手 */
   link?: LinkConditionDef['link'];
+  /**
+   * 与ダメージの重なり方。'mult' は他と別の種類で掛け算(×)。なければ条件文どうしで足し算(+)の1つの種類にまとめる。
+   * ×は持ち味に効く札だけに絞る(Balatro の ×倍率のように希少にして、何が掛け算かを読めるようにする)
+   */
+  stacking?: 'mult';
   /** 印の条件文の役割。生む・変える・使う印(札に出して、揃っているかを見せる) */
   marks?: { gives?: readonly MarkId[]; uses?: readonly MarkId[] };
 }
@@ -201,6 +206,7 @@ const HANDMADE = {
   },
   // 儀式を足したときに考えた条件文
   ritualMaster: {
+    stacking: 'mult',
     no: 202,
     text: '儀式を3つ以上宿した技は、与ダメージ2倍',
     cost: 50,
@@ -237,6 +243,7 @@ const HANDMADE = {
   },
   // 遠攻撃の条件文。弾を避けながら撃つ遠距離らしく、当て続ける・離れる・足を止めることに見返りがある
   focusedVolley: {
+    stacking: 'mult',
     rapid: true,
     no: 207,
     text: '狙いの締まりが10以上のとき、遠攻撃の与ダメージ3倍',
@@ -244,6 +251,7 @@ const HANDMADE = {
     rule: { label: '締め撃ち', on: 'damage', when: [{ type: 'hitHasTag', tag: 'ranged' }, { type: 'selfFocus', min: 10 }], add: 2 },
   },
   farHunter: {
+    stacking: 'mult',
     rapid: true,
     no: 208,
     text: '離れた相手(250以上)への遠攻撃は、与ダメージ2.5倍',
@@ -251,6 +259,7 @@ const HANDMADE = {
     rule: { label: '遠間の狩人', on: 'damage', when: [{ type: 'hitHasTag', tag: 'ranged' }, { type: 'targetFar', min: 250 }], add: 1.5 },
   },
   plantedAim: {
+    stacking: 'mult',
     rapid: true,
     no: 209,
     text: '1秒以上足を止めて撃つ遠攻撃は、与ダメージ2倍で、2回多く当たる(威力は半分)',
@@ -265,6 +274,7 @@ const HANDMADE = {
   },
   // 持ち味に効く条件文。どこでも効くものより狭いが、合うビルドでは繋ぎに並ぶ見返りがある
   stormConduit: {
+    stacking: 'mult',
     rapid: true,
     no: 210,
     text: '感電している敵への雷の攻撃は、与ダメージ3倍',
@@ -272,6 +282,7 @@ const HANDMADE = {
     rule: { label: '雷の通い路', on: 'damage', when: [{ type: 'hitElementIs', element: 'lightning' }, { type: 'targetHas', status: 'shock' }], add: 2 },
   },
   pyreHymn: {
+    stacking: 'mult',
     rapid: true,
     no: 211,
     // 雷の通い路と揃え、炎上の燃える傷にも効く
@@ -280,6 +291,7 @@ const HANDMADE = {
     rule: { label: '火葬の讃歌', on: 'damage', when: [{ type: 'hitElementIs', element: 'fire' }, { type: 'targetHas', status: 'burn' }], add: 2 },
   },
   spearEdge: {
+    stacking: 'mult',
     no: 212,
     text: '間合いの端(100以上離れた相手)に当てる近攻撃は、与ダメージ3倍',
     cost: 50,
@@ -303,6 +315,7 @@ const HANDMADE = {
     rule: { label: '砕け散る盾', on: 'shieldBreak', when: [], do: [{ type: 'grantBuff', label: '砕け散る盾', add: 3, tags: ['weapon'], duration: 8000, charges: 3 }] },
   },
   heavyGrip: {
+    stacking: 'mult',
     no: 215,
     text: '両手持ちの重い武器(大剣・斧・戦槌)の近攻撃は、与ダメージ2倍。ただしその技の間隔が1.3倍',
     cost: 45,
@@ -327,6 +340,7 @@ const HANDMADE = {
     },
   },
   arcaneSurge: {
+    stacking: 'mult',
     rapid: true,
     no: 217,
     // 魔力の高まりは杖でしか溜まらないので、術師の火力の大半を占める状態の傷(感電・炎上)にも効かせる
@@ -490,6 +504,48 @@ const HANDMADE = {
     rule: { label: '祈りの裁き', on: 'damage', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'prayer', min: 5 }], add: 2 },
     extraRules: [{ label: '祈りの裁き', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'prayer', min: 5 }], do: [{ type: 'spendMarks', mark: 'prayer', min: 5 }] }],
   },
+  // 使うたびに(印を吐いたときに働く札。吐く札が別の札の燃料になり、印の流れが輪になる)
+  spentPrayer: {
+    no: 341,
+    text: '印を使うたび、〈祈り〉を2つ得る',
+    cost: 20,
+    marks: { gives: ['prayer'] },
+    rule: { label: '残り火の祈り', on: 'markSpent', when: [], do: [{ type: 'gainMark', mark: 'prayer', amount: 2 }] },
+  },
+  edgeBleed: {
+    no: 342,
+    text: '〈研ぎ〉を使うたび、相手に出血を大きく溜める',
+    cost: 20,
+    marks: { uses: ['edge'] },
+    rule: { label: '研ぎ傷', on: 'markSpent', mark: 'edge', when: [], do: [{ type: 'applyBuildup', status: 'bleed', amount: 150 }] },
+  },
+  bloodRewhet: {
+    no: 343,
+    text: '〈血潮〉を使うたび、〈研ぎ〉を3つ得る',
+    cost: 20,
+    marks: { gives: ['edge'], uses: ['blood'] },
+    rule: { label: '血の研ぎ直し', on: 'markSpent', mark: 'blood', when: [], do: [{ type: 'gainMark', mark: 'edge', amount: 3 }] },
+  },
+  emberMend: {
+    no: 344,
+    text: '〈熾り〉を使うたび、最大HPの8%を回復する',
+    cost: 15,
+    marks: { uses: ['ember'] },
+    rule: { label: '熾火の温もり', on: 'markSpent', mark: 'ember', when: [], do: [{ type: 'heal', ratio: 0.08 }] },
+  },
+  spentHaste: {
+    no: 345,
+    text: '印を使うたび、全ての技の間隔が1.5秒縮む',
+    cost: 25,
+    rule: { label: '吐き出す息', on: 'markSpent', when: [], do: [{ type: 'cooldown', ms: 1500 }] },
+  },
+  prayerSpendBurst: {
+    no: 346,
+    text: '〈祈り〉を使うたび、〈熾り〉を5つ得る',
+    cost: 20,
+    marks: { gives: ['ember'], uses: ['prayer'] },
+    rule: { label: '祈りの炎上', on: 'markSpent', mark: 'prayer', when: [], do: [{ type: 'gainMark', mark: 'ember', amount: 5 }] },
+  },
 } as const satisfies Record<string, ConditionDef>;
 
 export type HandmadeConditionId = keyof typeof HANDMADE;
@@ -505,3 +561,18 @@ export const LINK_CONDITION_IDS = Object.keys(LINK_CONDITIONS) as ConditionId[];
 export function conditionDef(id: ConditionId): ConditionDef {
   return CONDITIONS[id]!;
 }
+
+/**
+ * 条件文の与ダメージの重なり方。札に「+」「×」として出す。
+ * 'add' は条件文どうしの足し算、'mult' は他と掛け算、'link' は繋ぎどうしの足し算(繋ぎの束は他と掛け算)、'none' は与ダメージに効かない
+ */
+export function conditionStacking(id: ConditionId): 'add' | 'mult' | 'link' | 'none' {
+  const def = conditionDef(id);
+  const damage = [def.rule, ...(def.extraRules ?? [])].some((r) => r.on === 'damage');
+  if (!damage) return 'none';
+  if (def.link) return 'link';
+  return def.stacking === 'mult' ? 'mult' : 'add';
+}
+
+/** 足し算の条件文がまとまる種類の名前 */
+export const CONDITION_ADD_GROUP = 'condition';

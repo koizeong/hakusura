@@ -8,7 +8,7 @@ import { WEAPON_TYPES, toWeaponSpec, type WeaponRef, type WeaponSpec, type Weapo
 import { shieldBurstElement, shieldDef, shieldName, type ShieldSpec } from './data/shields';
 import type { SkillVariant } from './data/variations';
 import { enemyDef, type EnemyId } from './data/enemies';
-import { FERVOR, STARTING_FORMS, formDef, type FormId } from './data/forms';
+import { FERVOR, STARTING_FORMS, formDef, masteryLevel, masteryScale, type FormId } from './data/forms';
 import { attributeModifiers, type Attributes } from './data/attributes';
 import { FOLLOW_UP, TACTIC_CONDITIONS, type Tactic } from './data/tactics';
 import { matchCombos, type ComboId } from './data/combos';
@@ -18,7 +18,7 @@ import { statDef, type StatId } from './data/stats';
 import { GRIPS, type GripId } from './data/grips';
 import { multiplierOf } from './damage';
 import { passiveDef, type PassiveId } from './data/passives';
-import { conditionDef, type ConditionId } from './data/conditions';
+import { CONDITION_ADD_GROUP, conditionDef, type ConditionId } from './data/conditions';
 import { INTERACTIONS } from './data/interactions';
 import { DEFENSE_RULES } from './data/defense';
 import { levelHp, levelModifiers } from './data/levels';
@@ -135,6 +135,8 @@ export interface Unit {
   falls: number;
   /** 倒れて起き上がるまでの時刻。それまでは動けない */
   downUntil: number;
+  /** 型を決めた回数(型の熟達)。支度の覚えたものと同じ入れ物を渡せば、そのまま貯まる */
+  formUses: Partial<Record<FormId, number>>;
   /** 自分に溜まった印 */
   marks: Partial<Record<MarkId, { count: number; until: number }>>;
   /** 同じ技を続けて出した数(連用の疲れ) */
@@ -305,7 +307,8 @@ export type CombatEvent =
   /** 呼び出された(死体起こし・産み落とし) */
   | { type: 'summoned'; unitId: string; by: string; x: number; y: number; skill: string }
   /** 型が決まった */
-  | { type: 'form'; unitId: string; form: FormId; name: string }
+  /** 型が決まった。level はこの型の熟達 */
+  | { type: 'form'; unitId: string; form: FormId; name: string; level: number }
   /** 昂りが満ちた */
   | { type: 'fervor'; unitId: string }
   /** 印が増えた・使われた(spent は使った数) */
@@ -517,6 +520,7 @@ export class CombatWorld {
       downUntil: 0,
       streak: { count: 0 },
       marks: {},
+      formUses: {},
       lastAttackAt: -Infinity,
       history: [],
       forms: [...STARTING_FORMS],
@@ -779,7 +783,10 @@ export class CombatWorld {
     const form = this.recordStep(unit, skillId, def);
     if (form) {
       const f = formDef(form);
-      const formRules: Rule[] = [{ label: f.name, on: 'damage', when: [{ type: 'hitHasTag', tag: 'attack' }], add: f.bonus }];
+      // 型の熟達。決めた回数が多い型ほど見返りが大きい
+      const used = unit.formUses[form] ?? 0;
+      unit.formUses[form] = used + 1;
+      const formRules: Rule[] = [{ label: f.name, on: 'damage', when: [{ type: 'hitHasTag', tag: 'attack' }], add: f.bonus * masteryScale(used) }];
       if (f.hits) {
         formRules.push({
           label: f.name,
@@ -789,7 +796,7 @@ export class CombatWorld {
         });
       }
       def = { ...def, rules: [...(def.rules ?? []), ...formRules] };
-      this.events.push({ type: 'form', unitId, form, name: f.name });
+      this.events.push({ type: 'form', unitId, form, name: f.name, level: masteryLevel(used + 1) });
       this.gainFervor(unit, f.fervor);
     }
     // 雨乞うのように、条件を満たしている間だけ間隔が変わる
@@ -1919,7 +1926,10 @@ export class CombatWorld {
       const def = conditionDef(id);
       const n = copies.get(id) ?? 0;
       copies.set(id, n + 1);
-      for (const rule of [def.rule, ...(def.extraRules ?? [])]) out.push({ rule: n > 0 ? repeatedRule(rule) : rule, kind: 'condition' });
+      for (const rule of [def.rule, ...(def.extraRules ?? [])]) {
+        const r = def.stacking === 'mult' || def.link ? rule : addGroupRule(rule);
+        out.push({ rule: n > 0 ? repeatedRule(r) : r, kind: 'condition' });
+      }
     }
     for (const id of attacker.artifacts) {
       for (const rule of artifactDef(id).rules ?? []) out.push({ rule, kind: 'artifact' });
@@ -2373,6 +2383,14 @@ export class CombatWorld {
         delete owner.marks[action.mark];
         this.events.push({ type: 'marks', unitId: owner.id, mark: action.mark, count: 0, spent: n, label });
         for (let i = 0; i < n; i++) for (const a of action.each ?? []) this.runAction(a, label, target, { ...src, via });
+        // 印を使ったときの札(使うたびに〇〇)。連鎖は上限の段まで
+        if (src.depth < this.maxTriggerDepth) {
+          const ctx = this.context(target, owner, {});
+          for (const { rule } of this.rulesFor(owner)) {
+            if (rule.on !== 'markSpent' || (rule.mark && rule.mark !== action.mark) || !ruleMatches(rule, ctx)) continue;
+            for (const a of rule.do) this.runAction(a, rule.label, target, { attacker: owner, skill: rule.label, via: [...via, rule.label], depth: src.depth + 1, hit: src.hit });
+          }
+        }
         break;
       }
       case 'grantBuff':
@@ -2548,6 +2566,19 @@ function repeatedRule(rule: Rule): Rule {
   if (!r) {
     r = { ...rule, do: rule.do.map((a) => (a.type === 'repeatHit' ? { ...a, power: (a.power ?? 1) * STACKING.repeatWeight } : a)) };
     repeatedRules.set(rule, r);
+  }
+  return r;
+}
+
+const addGroupRules = new WeakMap<Rule, Rule>();
+
+/** 足し算の条件文。与ダメージを条件文どうしの1つの種類(足し算)にまとめる */
+function addGroupRule(rule: Rule): Rule {
+  if (rule.on !== 'damage' || rule.group) return rule;
+  let r = addGroupRules.get(rule);
+  if (!r) {
+    r = { ...rule, group: CONDITION_ADD_GROUP };
+    addGroupRules.set(rule, r);
   }
   return r;
 }

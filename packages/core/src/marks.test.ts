@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld } from './world';
 import { MARKS } from './data/marks';
-import { conditionDef, type ConditionId } from './data/conditions';
+import { conditionDef, conditionStacking, type ConditionId } from './data/conditions';
+import { FORMS, MASTERY, masteryLevel } from './data/forms';
 
 const run = (w: CombatWorld, ms: number) => {
   for (let t = 0; t < ms; t += 25) w.update(25);
@@ -77,5 +78,65 @@ describe('印', () => {
     expect(conditionDef('kindleEmber').marks?.gives).toEqual(['ember']);
     expect(conditionDef('bloodWhetstone').marks).toEqual({ gives: ['edge'], uses: ['blood'] });
     expect(conditionDef('emberBlaze').marks?.uses).toEqual(['ember']);
+  });
+});
+
+describe('使うたびに', () => {
+  it('印を使うと、使うたびの札が働く(研ぎを吐くと祈りを得る)', () => {
+    const { w, p, swing } = duel(['honeEdge', 'edgeRelease', 'spentPrayer']);
+    w.gainMark(p, 'edge', 5);
+    swing();
+    expect(w.marksOf(p, 'prayer')).toBe(2);
+  });
+
+  it('研ぎ傷:研ぎを使うたび、相手に出血が溜まる', () => {
+    const { w, p, t, swing } = duel(['edgeRelease', 'edgeBleed']);
+    w.gainMark(p, 'edge', 5);
+    swing();
+    expect(w.isActive(t, 'bleed') || t.statuses.bleed.buildup >= 150).toBe(true);
+  });
+});
+
+describe('条件文の重なり方', () => {
+  it('+の条件文どうしは足し算、×の条件文は掛け算', () => {
+    expect(conditionStacking('unscathed')).toBe('add');
+    expect(conditionStacking('stormConduit')).toBe('mult');
+    expect(conditionStacking('link:melee>ranged:mult')).toBe('link');
+    expect(conditionStacking('kindleEmber')).toBe('none');
+    const first = (conditions: ConditionId[]) => {
+      const { w, swing } = duel(conditions);
+      for (const s of ['wet', 'oiled', 'stun'] as const) w.forceStatus('t', s, true);
+      swing();
+      return w.log.find((r) => r.depth === 0 && r.targetId === 't')!.amount;
+    };
+    const plain = first([]);
+    // 無傷の驕り+25% と 病み重ね+50% は足し算で+75%(掛け算なら+87.5%)
+    expect(first(['unscathed', 'manyAilments']) / plain).toBeCloseTo(1.75, 2);
+  });
+});
+
+describe('型の熟達', () => {
+  it('型を決めた回数で熟達が上がり、最後の一手の見返りが増える', () => {
+    expect(masteryLevel(0)).toBe(1);
+    expect(masteryLevel(MASTERY.levels[0]!)).toBe(2);
+    const finisher = (uses: number) => {
+      const w = new CombatWorld({ seed: 1 });
+      const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, weapons: [{ type: 'ironSword' }] });
+      p.formUses = { steppingCut: uses };
+      const t = w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 60, y: 0, maxHp: 1e9 });
+      w.useSkill('p', 'slash', t, 't');
+      run(w, 800);
+      p.busyUntil = 0;
+      const before = w.log.length;
+      w.useSkill('p', 'lunge', t, 't');
+      run(w, 900);
+      const hit = w.log.slice(before).find((r) => r.depth === 0 && r.via.includes('踏み込み斬り'))!;
+      return { amount: hit.amount, uses: p.formUses.steppingCut };
+    };
+    const fresh = finisher(0);
+    const seasoned = finisher(MASTERY.levels[1]!);
+    expect(fresh.uses).toBe(1);
+    const bonus = FORMS.steppingCut.bonus;
+    expect(seasoned.amount / fresh.amount).toBeCloseTo((1 + bonus * (1 + MASTERY.perLevel * 2)) / (1 + bonus), 2);
   });
 });

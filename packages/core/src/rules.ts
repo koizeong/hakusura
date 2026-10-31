@@ -112,6 +112,7 @@ export type Rule = RuleBase &
       }
     | /** ヒットが当たった後 */ { on: 'hit'; do: readonly Action[] }
     | /** 自分がその印を得たとき(印を別の印に変える札など) */ { on: 'markGained'; mark: MarkId; do: readonly Action[] }
+    | /** 自分が印を使ったとき。mark がなければどの印でも。対象は当てていた相手 */ { on: 'markSpent'; mark?: MarkId; do: readonly Action[] }
     | /** 状態が発動した瞬間。scale で持続と範囲を変える */ {
         on: 'statusActivate';
         do?: readonly Action[];

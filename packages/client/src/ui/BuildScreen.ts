@@ -39,6 +39,9 @@ import {
   type WeaponTypeId,
   type WeaponRef,
   FORMS,
+  conditionStacking,
+  masteryLevel,
+  MASTERY,
   MARKS,
   type MarkId,
   formDef,
@@ -1068,6 +1071,11 @@ export class BuildScreen {
         ),
         h(
           'small',
+          { class: 'mastery' },
+          masteryText(this.host.state.learned.formUses?.[id] ?? 0),
+        ),
+        h(
+          'small',
           { class: 'note' },
           missing.length > 0
             ? `${skills.map((sk) => activeSkillDef(sk).name).join('→')}。${why}`
@@ -1415,9 +1423,26 @@ function markColor(id: MarkId): string {
 /** 条件文の印の役割の札(生む:熾り・使う:研ぎ) */
 function markBadges(condition: ConditionId): HTMLElement | string {
   const m = conditionDef(condition).marks;
-  if (!m) return '';
+  const stacking = conditionStacking(condition);
   const chip = (role: string, id: MarkId) => h('span', { class: 'mark-chip', style: `border-color:${markColor(id)};color:${markColor(id)}` }, `${role}:${MARKS[id].name}`);
-  return h('div', { class: 'mark-badges' }, ...(m.gives ?? []).map((id) => chip('生む', id)), ...(m.uses ?? []).map((id) => chip('使う', id)));
+  // 与ダメージの重なり方。+は条件文どうしで足し算、×は他と掛け算
+  const stack =
+    stacking === 'add'
+      ? h('span', { class: 'stack-chip add', title: '他の+の条件文と足し算' }, '+ 足し算')
+      : stacking === 'mult'
+        ? h('span', { class: 'stack-chip mult', title: '他と掛け算' }, '× 掛け算')
+        : stacking === 'link'
+          ? h('span', { class: 'stack-chip link', title: '繋ぎどうしで足し算、他とは掛け算' }, '繋ぎ')
+          : '';
+  if (!m && !stack) return '';
+  return h('div', { class: 'mark-badges' }, stack, ...(m?.gives ?? []).map((id) => chip('生む', id)), ...(m?.uses ?? []).map((id) => chip('使う', id)));
+}
+
+/** 型の熟達の表示。「熟達2(次まで 3回)」 */
+function masteryText(uses: number): string {
+  const level = masteryLevel(uses);
+  const next = MASTERY.levels[level - 1];
+  return next === undefined ? `熟達${level}(極み)` : `熟達${level}(次まであと${next - uses}回)`;
 }
 
 /** 倍率を「+12%」のように */

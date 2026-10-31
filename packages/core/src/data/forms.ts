@@ -233,6 +233,22 @@ export const STARTING_FORMS: readonly FormId[] = [
   'gunsmoke',
 ];
 
+/**
+ * 型の熟達。型を決めた回数(全キャラで共有)で熟達が上がり、最後の一手の見返りが perLevel ずつ増える。
+ * 決めた回数が levels[i] 以上なら熟達 i+2(はじめは熟達1)
+ */
+export const MASTERY = { levels: [5, 15, 35, 75, 150] as readonly number[], perLevel: 0.2 } as const;
+
+/** 決めた回数から熟達(1から) */
+export function masteryLevel(uses: number): number {
+  return 1 + MASTERY.levels.filter((n) => uses >= n).length;
+}
+
+/** 熟達で、最後の一手の見返りが何倍になるか */
+export function masteryScale(uses: number): number {
+  return 1 + MASTERY.perLevel * (masteryLevel(uses) - 1);
+}
+
 export function formDef(id: FormId): FormDef {
   return FORMS[id];
 }

@@ -162,6 +162,7 @@ export class TrainingGroundScene extends Phaser.Scene {
   private encounter: Encounter | null = null;
   private encounterView!: EncounterView;
   private panel!: HTMLElement;
+  private formSaveTimer?: ReturnType<typeof setTimeout>;
   private enemySerial = 0;
   /** 最後に被弾した時刻(画面の時刻)。当たった瞬間に白く光らせる */
   private hurtAt = new Map<string, number>();
@@ -210,6 +211,8 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.buildState = loadBuildState(Math.random);
     applyBuild(this.world, this.player, currentBuild(this.buildState));
     this.player.forms = learnedForms(this.buildState.learned);
+    // 型の熟達は覚えたものと同じ入れ物に貯める(全キャラで共有)
+    this.player.formUses = this.buildState.learned.formUses ??= {};
     SCARECROW_SPOTS.forEach((spot, i) => {
       const unit = this.world.addUnit({
         id: `scarecrow${i}`,
@@ -433,6 +436,7 @@ export class TrainingGroundScene extends Phaser.Scene {
   private onBuildChange(): void {
     applyBuild(this.world, this.player, currentBuild(this.buildState));
     this.player.forms = learnedForms(this.buildState.learned);
+    this.player.formUses = this.buildState.learned.formUses ??= {};
     if (this.player.queued && this.player.queued.skill !== this.player.trump) this.player.queued = undefined;
     this.hud.setTrump(this.player.trump);
     this.hud.setSlots(this.player.actives);
@@ -1592,8 +1596,15 @@ export class TrainingGroundScene extends Phaser.Scene {
       }
       case 'form': {
         if (event.unitId !== this.player.id) break;
-        this.callout(this.player, event.name, `#${FORMS[event.form].color.toString(16).padStart(6, '0')}`);
+        this.callout(this.player, event.level > 1 ? `${event.name} 熟達${event.level}` : event.name, `#${FORMS[event.form].color.toString(16).padStart(6, '0')}`);
         this.openUnlock('forms');
+        // 型の熟達を覚えておく(決めるたびに書くと重いので、少し間を置いてまとめて)
+        if (!this.formSaveTimer) {
+          this.formSaveTimer = setTimeout(() => {
+            this.formSaveTimer = undefined;
+            saveBuildState(this.buildState);
+          }, 5000);
+        }
         break;
       }
       case 'fervor': {
