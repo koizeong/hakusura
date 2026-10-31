@@ -140,3 +140,22 @@ describe('型の熟達', () => {
     expect(seasoned.amount / fresh.amount).toBeCloseTo((1 + bonus * (1 + MASTERY.perLevel * 2)) / (1 + bonus), 2);
   });
 });
+
+describe('吐き出す息', () => {
+  it('印を使うと、次の2つの技の振りかぶりと硬直が半分になる', () => {
+    const { w, p, swing } = duel(['edgeRelease', 'spentHaste']);
+    const busy = () => p.busyUntil - w.time;
+    p.busyUntil = 0;
+    w.useSkill('p', 'slash', w.units.get('t')!, 't');
+    const normal = busy();
+    run(w, 700);
+    w.gainMark(p, 'edge', 5);
+    swing();
+    expect(p.quicken?.charges).toBe(2);
+    p.busyUntil = 0;
+    p.cooldowns = {};
+    w.useSkill('p', 'slash', w.units.get('t')!, 't');
+    expect(busy()).toBeCloseTo(normal * 0.5, 0);
+    expect(p.quicken?.charges).toBe(1);
+  });
+});

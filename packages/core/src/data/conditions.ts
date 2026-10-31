@@ -535,9 +535,10 @@ const HANDMADE = {
   },
   spentHaste: {
     no: 345,
-    text: '印を使うたび、全ての技の間隔が1.5秒縮む',
+    // 技の間隔を縮めても、振りかぶりと硬直が詰まっていて速くならなかったので、そちらを縮める
+    text: '印を使うたび、次の2つの技の振りかぶりと硬直が半分になる',
     cost: 25,
-    rule: { label: '吐き出す息', on: 'markSpent', when: [], do: [{ type: 'cooldown', ms: 1500 }] },
+    rule: { label: '吐き出す息', on: 'markSpent', when: [], do: [{ type: 'quicken', scale: 0.5, charges: 2, duration: 6000 }] },
   },
   prayerSpendBurst: {
     no: 346,

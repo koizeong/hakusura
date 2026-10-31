@@ -137,6 +137,8 @@ export interface Unit {
   downUntil: number;
   /** 型を決めた回数(型の熟達)。支度の覚えたものと同じ入れ物を渡せば、そのまま貯まる */
   formUses: Partial<Record<FormId, number>>;
+  /** 次の技の振りかぶりと硬直を縮める力(吐き出す息など) */
+  quicken?: { scale: number; charges: number; until: number };
   /** 自分に溜まった印 */
   marks: Partial<Record<MarkId, { count: number; until: number }>>;
   /** 同じ技を続けて出した数(連用の疲れ) */
@@ -809,6 +811,12 @@ export class CombatWorld {
     const span = def.cooldown * when * rage * tired * this.statOf(unit, 'cooldown', [...def.tags, def.category, skillId]);
     unit.cooldowns[skillId] = this.time + span;
     unit.cooldownSpans[skillId] = span;
+    // 吐き出す息のように、次の技の振りかぶりと硬直を縮める力
+    const q = unit.quicken;
+    if (q && q.charges > 0 && q.until > this.time) {
+      def = { ...def, windup: def.windup * q.scale, recovery: def.recovery * q.scale };
+      q.charges -= 1;
+    }
     unit.windupUntil = this.time + def.windup;
     unit.busyUntil = this.time + def.windup + def.recovery;
     // 二刀流で両手とも合うなら、次は逆の手で出す
@@ -2372,6 +2380,9 @@ export class CombatWorld {
         }
         break;
       }
+      case 'quicken':
+        if (src.attacker) src.attacker.quicken = { scale: action.scale, charges: action.charges, until: this.time + action.duration };
+        break;
       case 'gainMark':
         if (src.attacker) this.gainMark(src.attacker, action.mark, action.amount, src.depth);
         break;

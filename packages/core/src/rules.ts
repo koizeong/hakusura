@@ -85,6 +85,8 @@ export type Action =
   | { type: 'reflect'; ratio: number }
   /** 持ち主のクールダウンを ms 縮める。tags があれば、そのタグを全て持つスキルだけ */
   | { type: 'cooldown'; ms: number; tags?: readonly string[] }
+  /** 持ち主の次の charges 回の技の振りかぶりと硬直を scale 倍にする(duration の間) */
+  | { type: 'quicken'; scale: number; charges: number; duration: number }
   /** 持ち主が印を得る */
   | { type: 'gainMark'; mark: MarkId; amount: number }
   /** 持ち主の印を全て使う。min に足りなければ使わない。1つにつき each を行う */
