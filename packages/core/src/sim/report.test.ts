@@ -6,6 +6,8 @@ import { ENEMIES } from '../data/enemies';
 import { ARCHETYPES } from './archetypes';
 import { measureField, outfit, reportArchetype, runEncounter } from './simulate';
 import { measureSingle, theoreticalMax, THEORY } from './theory';
+import { COMBO_BUILDS, withConditions } from './comboBuilds';
+import { MARKS, type MarkId } from '../data/marks';
 import { measureBuildPower } from '../expedition';
 import { measureLoadout } from '../loadout';
 import { conditionDef } from '../data/conditions';
@@ -216,4 +218,55 @@ describe.skipIf(!process.env.SIM_THEORY)('理論値', () => {
       console.log(`THEORY ${JSON.stringify(row)}`);
     }
   }, 36_000_000);
+});
+
+/**
+ * 印・技の型で組んだビルドの見本を測る。`npm run sim:combo`
+ * 札なし・生む札だけ・全て揃えたものを、実戦に近い場で2回ずつ(30秒)戦わせ、印の出入りと型の回数も出す
+ */
+describe.skipIf(!process.env.SIM_COMBO)('印と型のビルド', () => {
+  it('札なし・生むだけ・揃えを比べる', () => {
+    const avg = (b: Parameters<typeof measureField>[0]) => {
+      const runs = [1, 2].map((s) => measureField(b, 30, s));
+      const sum = <T>(f: (r: (typeof runs)[number]) => T) => runs.map(f);
+      const merge = (key: 'marksGained' | 'marksSpent' | 'forms') => {
+        const out: Record<string, number> = {};
+        for (const r of runs) for (const [k, v] of Object.entries(r[key])) out[k] = (out[k] ?? 0) + (v as number) / runs.length;
+        return out;
+      };
+      return {
+        dps: sum((r) => r.dps).reduce((a, b) => a + b, 0) / runs.length,
+        falls: sum((r) => r.falls).reduce((a, b) => a + b, 0) / runs.length,
+        gained: merge('marksGained'),
+        spent: merge('marksSpent'),
+        forms: merge('forms'),
+        via: runs[0]!.topVia,
+        sources: runs[0]!.topSources,
+      };
+    };
+    const n0 = (v: number) => Math.round(v).toLocaleString('en-US');
+    const rows: string[] = [];
+    const notes: string[] = [];
+    for (const c of Object.values(COMBO_BUILDS)) {
+      const bare = avg(c.build);
+      const givers = avg(withConditions(c.build, c.givers));
+      const full = avg(withConditions(c.build, c.full));
+      const marks = (o: Record<string, number>) => Object.entries(o).map(([k, v]) => `${MARKS[k as MarkId].name}${Math.round(v)}`).join('・') || '—';
+      rows.push(
+        `| ${c.name} | ${n0(bare.dps)} | ${n0(givers.dps)} | ${n0(full.dps)} | ×${(full.dps / Math.max(1, bare.dps)).toFixed(2)} | ${full.falls.toFixed(1)} | ${marks(full.gained)} | ${marks(full.spent)} | ${Object.entries(full.forms).map(([k, v]) => `${k}${Math.round(v)}`).join('・') || '—'} |`,
+      );
+      notes.push(`- **${c.name}**:${c.idea}。揃えの傷の出どころ:${full.sources.map(([k, v]) => `${k} ${pct(v)}`).join('、')}。効いた札:${full.via.map(([k, v]) => `${k} ${pct(v)}`).join('、') || '—'}`);
+    }
+    console.log(
+      [
+        '<<<REPORT',
+        '| ビルド | 札なし | 生む札だけ | 揃え | 揃え/札なし | 倒れた | 印を得た回数 | 印を使った数 | 型 |',
+        '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+        ...rows,
+        '',
+        ...notes,
+        'REPORT>>>',
+      ].join('\n'),
+    );
+  }, 3_600_000);
 });

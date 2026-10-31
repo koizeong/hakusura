@@ -15,7 +15,8 @@
     "sim:step": "SIM_STEP=1 vitest run --root packages/core src/sim/report.test.ts --silent=false",
     "sim:level": "SIM_LEVEL=1 vitest run --root packages/core src/sim/report.test.ts --silent=false",
     "sim:pilot": "SIM_PILOT=1 vitest run --root packages/core src/sim/report.test.ts --silent=false",
-    "sim:theory": "SIM_THEORY=1 vitest run --root packages/core src/sim/report.test.ts --silent=false"
+    "sim:theory": "SIM_THEORY=1 vitest run --root packages/core src/sim/report.test.ts --silent=false",
+    "sim:combo": "SIM_COMBO=1 vitest run --root packages/core src/sim/report.test.ts --silent=false"
   },
   "devDependencies": {
     "typescript": "~5.9.3",

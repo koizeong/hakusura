@@ -9,6 +9,7 @@ import { measureBuildPower } from '../expedition';
 import { measureLoadout, recommendNow } from '../loadout';
 import { actionReach, type ActiveSkillId } from '../data/skills';
 import { STEP } from '../constants';
+import type { MarkId } from '../data/marks';
 
 /**
  * 調整用のシミュレーター。ビルドを入力なしで戦わせ、強さの傾向を数字で見る。
@@ -282,6 +283,20 @@ export function runEncounter(
   };
 }
 
+/** 実戦に近い場で戦った結果。印の出入り(得た回数・使った数)と、決まった型の回数も数える */
+export interface FieldRun {
+  dps: number;
+  maxHit: number;
+  maxHitVia: string;
+  falls: number;
+  hitsTaken: number;
+  marksGained: Partial<Record<MarkId, number>>;
+  marksSpent: Partial<Record<MarkId, number>>;
+  forms: Record<string, number>;
+  topSources: [string, number][];
+  topVia: [string, number][];
+}
+
 /**
  * 実戦に近い場の決まり。count 体の倒れない案山子が別々の向きから寄ってきて(1秒に speed)、薙ぎと弾幕で攻めてくる。
  * 1体の薙ぎとゆるい弾幕では操り手に避け切られ、最大HPを捨てても倒れなかったので、群れで囲む
@@ -305,7 +320,7 @@ export function measureField(
   seed = 1,
   skills: readonly ActiveSkillId[] = FIELD.skills,
   count: number = FIELD.count,
-): { dps: number; maxHit: number; maxHitVia: string; falls: number; hitsTaken: number } {
+): FieldRun {
   const w = new CombatWorld({ seed, bounds: ARENA });
   const cx = ARENA.width / 2;
   const cy = ARENA.height / 2;
@@ -318,6 +333,9 @@ export function measureField(
   });
   const reach = buildReach(w, p);
   const state: PilotState = { readyAt: 0, dodges: 0, closes: 0, awareness: FIELD.awareness, rngSeed: seed };
+  const marksGained: Partial<Record<MarkId, number>> = {};
+  const marksSpent: Partial<Record<MarkId, number>> = {};
+  const forms: Record<string, number> = {};
   const dt = 25;
   for (let time = 0; time < seconds * 1000; time += dt) {
     if (p.trump && w.canUseSkill(p.id, p.trump) && !p.queued) w.queueSkill(p.id, p.trump, 3000);
@@ -330,11 +348,30 @@ export function measureField(
     }
     pilot(w, p, reach, dt, state, true);
     w.update(dt);
+    // 印の出入りと決まった型を数える
+    for (const e of w.drainEvents()) {
+      if (e.type === 'marks' && e.unitId === p.id) {
+        if (e.spent) marksSpent[e.mark] = (marksSpent[e.mark] ?? 0) + e.spent;
+        else marksGained[e.mark] = (marksGained[e.mark] ?? 0) + 1;
+      } else if (e.type === 'form' && e.unitId === p.id) forms[e.name] = (forms[e.name] ?? 0) + 1;
+    }
   }
   const log = dealtBy(w.log, p.id);
   const top = log.reduce((a, b) => (b.amount > (a?.amount ?? 0) ? b : a), log[0]);
   const hitsTaken = w.log.filter((r) => r.targetId === p.id && r.attackerId?.startsWith('dummy') && r.depth === 0).length;
-  return { dps: summarize(log, w.time).total / seconds, maxHit: top?.amount ?? 0, maxHitVia: top ? [top.skill, ...top.via].join('・') : '', falls: p.falls, hitsTaken };
+  const b = summarize(log, w.time);
+  return {
+    dps: b.total / seconds,
+    maxHit: top?.amount ?? 0,
+    maxHitVia: top ? [top.skill, ...top.via].join('・') : '',
+    falls: p.falls,
+    hitsTaken,
+    marksGained,
+    marksSpent,
+    forms,
+    topSources: share(b.bySource, 3),
+    topVia: share(b.byVia, 4),
+  };
 }
 
 export interface ArchetypeReport {

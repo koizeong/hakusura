@@ -352,17 +352,18 @@ const HANDMADE = {
   // 生む
   kindleEmber: {
     no: 301,
-    text: '火で当てると〈熾り〉を1つ得る',
+    text: '火の技を当てると〈熾り〉を1つ得る',
     cost: 15,
     marks: { gives: ['ember'] },
-    rule: { label: '熾し', on: 'hit', when: [{ type: 'hitElementIs', element: 'fire' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'ember', amount: 1 }] },
+    // 炎上の燃える傷では溜まらない(技の当たりだけ)
+    rule: { label: '熾し', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitElementIs', element: 'fire' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'ember', amount: 1 }] },
   },
   sparkEmber: {
     no: 302,
-    text: '雷で当てると〈熾り〉を1つ得る',
+    text: '雷の技を当てると〈熾り〉を1つ得る',
     cost: 15,
     marks: { gives: ['ember'] },
-    rule: { label: '火花', on: 'hit', when: [{ type: 'hitElementIs', element: 'lightning' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'ember', amount: 1 }] },
+    rule: { label: '火花', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitElementIs', element: 'lightning' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'ember', amount: 1 }] },
   },
   honeEdge: {
     no: 303,
@@ -373,10 +374,12 @@ const HANDMADE = {
   },
   bloodTithe: {
     no: 304,
-    text: '攻撃を受けると〈血潮〉を2つ得る',
+    // 盾と回避で受け止めるビルドでは被弾がまれなので、盾で受け止めても溜まる
+    text: '攻撃を受けるか盾で受け止めると〈血潮〉を2つ得る',
     cost: 10,
     marks: { gives: ['blood'] },
     rule: { label: '血の十分の一', on: 'hurt', when: [], do: [{ type: 'gainMark', mark: 'blood', amount: 2 }] },
+    extraRules: [{ label: '血の十分の一', on: 'shieldBreak', when: [], do: [{ type: 'gainMark', mark: 'blood', amount: 2 }] }],
   },
   bloodHarvest: {
     no: 305,
@@ -399,12 +402,25 @@ const HANDMADE = {
     marks: { gives: ['stillness'] },
     rule: { label: '遠い静けさ', on: 'hit', when: [{ type: 'hitHasTag', tag: 'ranged' }, { type: 'targetFar', min: 200 }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'stillness', amount: 1 }] },
   },
+  shieldOath: {
+    no: 309,
+    text: '盾が張られている間に近攻撃を当てると〈血潮〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['blood'] },
+    rule: {
+      label: '盾の誓い',
+      on: 'hit',
+      when: [{ type: 'hitHasTag', tag: 'melee' }, { type: 'hitHasTag', tag: 'attack' }, { type: 'selfShieldReady' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }],
+      do: [{ type: 'gainMark', mark: 'blood', amount: 1 }],
+    },
+  },
   riteEcho: {
     no: 308,
-    text: '儀式を宿した技を当てると〈祈り〉を2つ得る',
+    // 儀式を宿した技は数秒に1度なので、1度で多めに溜める
+    text: '儀式を宿した技を当てると〈祈り〉を3つ得る',
     cost: 15,
     marks: { gives: ['prayer'] },
-    rule: { label: '祈りの残響', on: 'hit', when: [{ type: 'ritesReleased', min: 1 }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'prayer', amount: 2 }] },
+    rule: { label: '祈りの残響', on: 'hit', when: [{ type: 'ritesReleased', min: 1 }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'prayer', amount: 3 }] },
   },
   // 変える
   bloodWhetstone: {
