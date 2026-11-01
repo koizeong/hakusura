@@ -20,6 +20,8 @@ export interface ConditionDef {
    * ×は持ち味に効く札だけに絞る(Balatro の ×倍率のように希少にして、何が掛け算かを読めるようにする)
    */
   stacking?: 'mult';
+  /** 拾い物に出ない(印の札に役目を譲った札)。データは残し、昔の装備に付いたものは働く */
+  retired?: boolean;
   /** 印の条件文の役割。生む・変える・使う印(札に出して、揃っているかを見せる) */
   marks?: { gives?: readonly MarkId[]; uses?: readonly MarkId[] };
 }
@@ -76,6 +78,8 @@ const HANDMADE = {
     rule: { label: '血走る足', on: 'stat', stat: 'moveSpeed', when: [{ type: 'attackerHas', status: 'bleed' }], add: 0.5 },
   },
   manyAilments: {
+    // どのビルドでも同じように効く+の札は、印の札に役目を譲って拾い物から外す
+    retired: true,
     no: 9,
     // どのビルドでも選ばれるので控えめにする(手数で状態が満ちやすい)
     text: '敵が3種類以上の状態にかかっているとき、与ダメージ+50%',
@@ -89,6 +93,8 @@ const HANDMADE = {
     rule: { label: '清い身', on: 'stat', stat: 'damageTaken', when: [{ type: 'selfStatusCount', max: 0 }], add: -0.4 },
   },
   unscathed: {
+    // どのビルドでも同じように効く+の札は、印の札に役目を譲って拾い物から外す
+    retired: true,
     no: 41,
     // どのビルドでも選ばれるので控えめにする
     text: 'HPが満タンのとき、与ダメージ+25%',
@@ -122,6 +128,8 @@ const HANDMADE = {
     rule: { label: '根を張る', on: 'stat', stat: 'damageTaken', when: [{ type: 'selfStill', ms: 400 }], add: -0.5 },
   },
   woundedFury: {
+    // どのビルドでも同じように効く+の札は、印の札に役目を譲って拾い物から外す
+    retired: true,
     no: 116,
     // 攻めを受ける場ではどのビルドでも選ばれたので、どこでも効く条件文と同じく控えめにする
     text: '被ダメージを受けた直後の3秒間、与ダメージ+30%',
@@ -141,6 +149,8 @@ const HANDMADE = {
   },
   // 盾を足したときに考えた条件文。docs/conditions.md の200個の外なので 201 から振る
   behindShield: {
+    // どのビルドでも同じように効く+の札は、印の札に役目を譲って拾い物から外す
+    retired: true,
     no: 201,
     text: '盾が張られている間、与ダメージ+30%',
     cost: 25,
@@ -683,6 +693,35 @@ const HANDMADE = {
     cost: 20,
     marks: { gives: ['blood'], uses: ['ember'] },
     rule: { label: '沸き立つ血', on: 'markGained', mark: 'ember', when: [], do: [{ type: 'gainMark', mark: 'blood', amount: 1 }] },
+  },
+  // 外した+の札の代わりに、同じ場面で印を生む札
+  afflictedPrayer: {
+    no: 381,
+    text: '3種類以上の状態にかかった敵に技を当てると〈祈り〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['prayer'] },
+    rule: { label: '病みへの祈り', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'targetStatusCount', min: 3 }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'prayer', amount: 1 }] },
+  },
+  pristineQuiet: {
+    no: 382,
+    text: 'HPが満タンの間に技を当てると〈静寂〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['stillness'] },
+    rule: { label: '無傷の静けさ', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfHpRatio', min: 1 }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'stillness', amount: 1 }] },
+  },
+  throngEdge: {
+    no: 383,
+    text: '1回の攻撃で3体以上に当てると〈研ぎ〉を2つ得る',
+    cost: 15,
+    marks: { gives: ['edge'] },
+    rule: { label: '群れ斬り', on: 'multiHit', min: 3, when: [], do: [{ type: 'gainMark', mark: 'edge', amount: 2 }] },
+  },
+  throngEmber: {
+    no: 384,
+    text: '1回の攻撃で3体以上に当てると〈熾り〉を2つ得る',
+    cost: 15,
+    marks: { gives: ['ember'] },
+    rule: { label: '群れ焼き', on: 'multiHit', min: 3, when: [], do: [{ type: 'gainMark', mark: 'ember', amount: 2 }] },
   },
 } as const satisfies Record<string, ConditionDef>;
 

@@ -350,7 +350,7 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
       if (marks.length > 0) return pick(marks);
     }
     // 残りは手書きの条件文(持ち味の×の札など)。繋ぎは技の型と役目が重なり語彙が多すぎたので、拾い物には出さない
-    let ids = pool(HANDMADE_CONDITION_IDS.filter((id) => !MARK_CONDITION_IDS.includes(id)));
+    let ids = pool(HANDMADE_CONDITION_IDS.filter((id) => !MARK_CONDITION_IDS.includes(id) && !conditionDef(id).retired));
     if (fit && random() < R.fitChance) {
       const fits = ids.filter((id) => conditionFits(id, fit));
       if (fits.length > 0) ids = fits;

@@ -460,7 +460,7 @@ export class BuildScreen {
           h(
             'optgroup',
             { label: 'その他の条件文' },
-            ...CONDITION_IDS.filter((id) => !conditionDef(id).link && !MARK_CONDITION_IDS.includes(id)).map((id) =>
+            ...CONDITION_IDS.filter((id) => !conditionDef(id).link && !conditionDef(id).retired && !MARK_CONDITION_IDS.includes(id)).map((id) =>
               h('option', { value: id, selected: id === this.lootCondition }, `${conditionDef(id).no}. ${conditionDef(id).text}`),
             ),
           ),

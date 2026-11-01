@@ -182,3 +182,27 @@ describe('印の札の拾い物', () => {
     expect(giveEdge).toBeGreaterThan(0.3);
   });
 });
+
+describe('印の札に役目を譲った札', () => {
+  it('どこでも効く+の札は拾い物に出ない。代わりの印を生む札は働く', async () => {
+    const { generateItem } = await import('./data/equipment');
+    const w = new CombatWorld({ seed: 12 });
+    const conds = Array.from({ length: 800 }, () => generateItem(() => w.random(), { conditionChance: 1 })).flatMap((i) => (i.condition ? [i.condition] : []));
+    for (const id of ['unscathed', 'manyAilments', 'woundedFury', 'behindShield'] as const) {
+      expect(conditionDef(id).retired).toBe(true);
+      expect(conds).not.toContain(id);
+    }
+    const { p, swing } = duel(['pristineQuiet']);
+    swing();
+    expect(p.marks.stillness?.count).toBe(1);
+  });
+
+  it('群れ斬り:1回の攻撃で3体以上に当てると研ぎを2つ得る', () => {
+    const w = new CombatWorld({ seed: 1 });
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000, weapons: [{ type: 'rustGreatsword' }], conditions: ['throngEdge'] });
+    for (const [i, y] of [-30, 0, 30].entries()) w.addUnit({ id: `t${i}`, name: '案山子', team: 'enemy', x: 70, y, maxHp: 1e9 });
+    w.useSkill('p', 'sweep', { x: 70, y: 0 });
+    run(w, 1000);
+    expect(w.marksOf(p, 'edge')).toBe(2);
+  });
+});

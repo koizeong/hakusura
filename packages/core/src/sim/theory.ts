@@ -168,7 +168,9 @@ export function theoreticalMax(build: Build, log: (line: string) => void = () =>
 
   // 条件文の下見:何も着けないビルドに1つだけ足して、伸びるものを残す
   const base = score(pack(build, empty));
-  const shortlist = CONDITION_IDS.map((c) => ({ c, v: score(pack(build, { ...empty, conditions: [c] })) }))
+  // 拾い物に出る条件文だけ(繋ぎと、印の札に役目を譲った札は出ない)
+  const shortlist = CONDITION_IDS.filter((c) => !conditionDef(c).link && !conditionDef(c).retired)
+    .map((c) => ({ c, v: score(pack(build, { ...empty, conditions: [c] })) }))
     .filter((x) => x.v > base * 1.02)
     .sort((a, b) => b.v - a.v)
     .slice(0, THEORY.conditionShortlist)
