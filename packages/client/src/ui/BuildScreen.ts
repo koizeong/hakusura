@@ -39,6 +39,7 @@ import {
   type WeaponTypeId,
   type WeaponRef,
   FORMS,
+  MARK_CONDITION_IDS,
   conditionStacking,
   masteryLevel,
   MASTERY,
@@ -450,18 +451,17 @@ export class BuildScreen {
           'select',
           { onchange: (e: Event) => (this.lootCondition = (e.target as HTMLSelectElement).value as ConditionId | '') },
           h('option', { value: '' }, '—'),
+          // 印の札と、その他の条件文(繋ぎは拾い物に出ないので選べない)
           h(
             'optgroup',
-            { label: '条件文' },
-            ...CONDITION_IDS.filter((id) => !conditionDef(id).link).map((id) =>
-              h('option', { value: id, selected: id === this.lootCondition }, `${conditionDef(id).no}. ${conditionDef(id).text}`),
-            ),
+            { label: '印の札' },
+            ...MARK_CONDITION_IDS.map((id) => h('option', { value: id, selected: id === this.lootCondition }, conditionDef(id).text)),
           ),
           h(
             'optgroup',
-            { label: '繋ぎ' },
-            ...CONDITION_IDS.filter((id) => conditionDef(id).link).map((id) =>
-              h('option', { value: id, selected: id === this.lootCondition }, conditionDef(id).text),
+            { label: 'その他の条件文' },
+            ...CONDITION_IDS.filter((id) => !conditionDef(id).link && !MARK_CONDITION_IDS.includes(id)).map((id) =>
+              h('option', { value: id, selected: id === this.lootCondition }, `${conditionDef(id).no}. ${conditionDef(id).text}`),
             ),
           ),
         ),

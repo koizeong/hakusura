@@ -155,7 +155,7 @@ describe('拾い物の出方', () => {
     }
   });
 
-  it('ビルドを渡すと、補正値と繋ぎがビルドに寄る', () => {
+  it('ビルドを渡すと、補正値がビルドに寄る。繋ぎは拾い物に出ない', () => {
     const fit = lootFit(starter);
     expect(fit.elements).toEqual(expect.arrayContaining(['slash', 'lightning', 'fire']));
     expect(fit.categories).toEqual(expect.arrayContaining(['melee', 'ranged', 'imbue']));
@@ -165,10 +165,9 @@ describe('拾い物の出方', () => {
     };
     const baseline = AFFIX_IDS.filter((a) => affixFits(a, fit)).length / AFFIX_IDS.length;
     expect(share(items(300, fit))).toBeGreaterThan(baseline + 0.25);
-    const links = items(400, fit).flatMap((i) => (i.condition && CONDITIONS[i.condition]?.link ? [CONDITIONS[i.condition]!.link!] : []));
-    const has = (s: { element: string } | { category: string }) =>
-      'element' in s ? (fit.elements as readonly string[]).includes(s.element) : fit.categories.includes(s.category);
-    expect(links.filter((l) => has(l.prev) && has(l.now)).length / links.length).toBeGreaterThan(0.5);
+    // 繋ぎは技の型と役目が重なるので、拾い物には出ない(印の札と手書きの条件文だけ)
+    const links = items(400, fit).filter((i) => i.condition && CONDITIONS[i.condition]?.link);
+    expect(links).toHaveLength(0);
   });
 });
 

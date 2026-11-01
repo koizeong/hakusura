@@ -1,5 +1,5 @@
 import { statDef, type StatId } from './stats';
-import { CONDITION_IDS, HANDMADE_CONDITION_IDS, LINK_CONDITION_IDS, MARK_CONDITION_IDS, conditionDef, type ConditionId } from './conditions';
+import { CONDITION_IDS, HANDMADE_CONDITION_IDS, MARK_CONDITION_IDS, conditionDef, type ConditionId } from './conditions';
 import type { MarkId } from './marks';
 import type { ArtifactId } from './artifacts';
 import { LOOT_WEAPON_TYPE_IDS, rollWeapon, weaponName, type TemperId, type WeaponSpec, type WeaponTypeId } from './weapons';
@@ -139,8 +139,6 @@ export const EQUIP_RULES = {
   usualMin: -40,
   usualMax: 120,
   extremeChance: 0.1,
-  /** 条件文を選ぶとき、繋ぎの条件文になる確率(手で書いたものと半々より少し多め) */
-  linkChance: 0.6,
   /** 条件文を選ぶとき、印の札(生む・変える・使う)から選ぶ確率。印と札をビルドの中心に据える */
   markChance: 0.5,
   /** ビルドに合うものから選ぶ確率(fit を渡したとき) */
@@ -351,7 +349,8 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
       }
       if (marks.length > 0) return pick(marks);
     }
-    let ids = pool(random() < R.linkChance ? LINK_CONDITION_IDS : HANDMADE_CONDITION_IDS.filter((id) => !MARK_CONDITION_IDS.includes(id)));
+    // 残りは手書きの条件文(持ち味の×の札など)。繋ぎは技の型と役目が重なり語彙が多すぎたので、拾い物には出さない
+    let ids = pool(HANDMADE_CONDITION_IDS.filter((id) => !MARK_CONDITION_IDS.includes(id)));
     if (fit && random() < R.fitChance) {
       const fits = ids.filter((id) => conditionFits(id, fit));
       if (fits.length > 0) ids = fits;
