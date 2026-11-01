@@ -1,5 +1,6 @@
 import { statDef, type StatId } from './stats';
-import { CONDITION_IDS, HANDMADE_CONDITION_IDS, LINK_CONDITION_IDS, conditionDef, type ConditionId } from './conditions';
+import { CONDITION_IDS, HANDMADE_CONDITION_IDS, LINK_CONDITION_IDS, MARK_CONDITION_IDS, conditionDef, type ConditionId } from './conditions';
+import type { MarkId } from './marks';
 import type { ArtifactId } from './artifacts';
 import { LOOT_WEAPON_TYPE_IDS, rollWeapon, weaponName, type TemperId, type WeaponSpec, type WeaponTypeId } from './weapons';
 import { SHIELD_TYPE_IDS, rollShield, shieldName, type ShieldSpec, type ShieldTypeId } from './shields';
@@ -140,6 +141,8 @@ export const EQUIP_RULES = {
   extremeChance: 0.1,
   /** 条件文を選ぶとき、繋ぎの条件文になる確率(手で書いたものと半々より少し多め) */
   linkChance: 0.6,
+  /** 条件文を選ぶとき、印の札(生む・変える・使う)から選ぶ確率。印と札をビルドの中心に据える */
+  markChance: 0.5,
   /** ビルドに合うものから選ぶ確率(fit を渡したとき) */
   fitChance: 0.6,
   /** 補正値の刻み */
@@ -266,6 +269,11 @@ export interface LootFit {
   categories: readonly string[];
   /** 遠距離の武器が中心のビルド。当てる数で伸びる条件文(rapid)を寄せる */
   rapid?: boolean;
+  /**
+   * 着けている印の札の揃い具合。needGivers は使う札だけある印(生む札が欲しい)、needUsers は生む札だけある印(使う札が欲しい)、
+   * using は両方揃っている印。印の札を選ぶとき、足りない側を寄せる
+   */
+  marks?: { needGivers: MarkId[]; needUsers: MarkId[]; using: MarkId[] };
 }
 
 /** その補正値の項目がビルドに合うか。タグのない項目(与ダメージ・クールダウンなど)はどのビルドにも合う */
@@ -326,7 +334,24 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
       const preferred = pool(options.preferConditions);
       if (preferred.length > 0) return pick(preferred);
     }
-    let ids = pool(random() < R.linkChance ? LINK_CONDITION_IDS : HANDMADE_CONDITION_IDS);
+    // 半分は印の札。ビルドの印が揃っていなければ、足りない側の札を寄せる
+    if (random() < R.markChance) {
+      let marks = pool(MARK_CONDITION_IDS);
+      const m = fit?.marks;
+      if (m && random() < R.fitChance) {
+        const wanted = marks.filter((id) => {
+          const def = conditionDef(id).marks ?? {};
+          return (
+            (def.gives ?? []).some((k) => m.needGivers.includes(k)) ||
+            (def.uses ?? []).some((k) => m.needUsers.includes(k)) ||
+            [...(def.gives ?? []), ...(def.uses ?? [])].some((k) => m.using.includes(k))
+          );
+        });
+        if (wanted.length > 0) marks = wanted;
+      }
+      if (marks.length > 0) return pick(marks);
+    }
+    let ids = pool(random() < R.linkChance ? LINK_CONDITION_IDS : HANDMADE_CONDITION_IDS.filter((id) => !MARK_CONDITION_IDS.includes(id)));
     if (fit && random() < R.fitChance) {
       const fits = ids.filter((id) => conditionFits(id, fit));
       if (fits.length > 0) ids = fits;

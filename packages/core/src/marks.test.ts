@@ -159,3 +159,26 @@ describe('吐き出す息', () => {
     expect(p.quicken?.charges).toBe(1);
   });
 });
+
+describe('印の札の拾い物', () => {
+  it('条件文の半分ほどが印の札で、足りない側の札が出やすい', async () => {
+    const { generateItem, EQUIP_RULES } = await import('./data/equipment');
+    const { lootFit } = await import('./build');
+    const w = new CombatWorld({ seed: 11 });
+    // 研ぎを使う札だけを着けたビルド。研ぎを生む札が欲しい
+    const build = {
+      actives: ['slash'],
+      passives: [],
+      tactics: [],
+      equipment: { weapon1: { id: 's', name: '剣', kind: 'weapon', weaponType: 'ironSword', affixes: [], condition: 'keenEdge' } },
+    } as never;
+    const fit = lootFit(build);
+    expect(fit.marks?.needGivers).toEqual(['edge']);
+    const conds = Array.from({ length: 600 }, () => generateItem(() => w.random(), { fit, conditionChance: 1 }))
+      .flatMap((i) => (i.condition ? [conditionDef(i.condition)] : []));
+    const markCards = conds.filter((c) => c.marks);
+    expect(markCards.length / conds.length).toBeGreaterThan(EQUIP_RULES.markChance * 0.8);
+    const giveEdge = markCards.filter((c) => c.marks?.gives?.includes('edge')).length / markCards.length;
+    expect(giveEdge).toBeGreaterThan(0.3);
+  });
+});

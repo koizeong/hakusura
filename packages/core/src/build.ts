@@ -1,3 +1,5 @@
+import type { MarkId } from './data/marks';
+import { conditionDef } from './data/conditions';
 import { ACTIVE_SKILLS, TRUMP_SKILL_IDS, activeSkillDef, isTechnique, techniqueFits, type ActiveSkillDef, type ActiveSkillId } from './data/skills';
 import { variantProblem, type SkillVariant } from './data/variations';
 import { PASSIVES, type PassiveId } from './data/passives';
@@ -149,7 +151,23 @@ export function lootFit(build: Build): LootFit {
   // 遠距離の武器が近接の武器より多ければ(弓だけ・杖だけなど)、速射のビルドとみなす。剣と銃のような持ち合わせは含めない
   const kinds = weapons.map((w) => weaponDef(w).kind);
   const rapid = kinds.filter((k) => k === 'ranged').length > kinds.filter((k) => k === 'melee').length;
-  return { elements: [...elements], categories: [...categories], ...(rapid ? { rapid } : {}) };
+  // 着けている印の札の揃い具合
+  const gives = new Set<MarkId>();
+  const uses = new Set<MarkId>();
+  for (const item of Object.values(build.equipment)) {
+    const m = item?.condition ? conditionDef(item.condition).marks : undefined;
+    for (const k of m?.gives ?? []) gives.add(k);
+    for (const k of m?.uses ?? []) uses.add(k);
+  }
+  const marks =
+    gives.size + uses.size > 0
+      ? {
+          needGivers: [...uses].filter((k) => !gives.has(k)),
+          needUsers: [...gives].filter((k) => !uses.has(k)),
+          using: [...gives].filter((k) => uses.has(k)),
+        }
+      : undefined;
+  return { elements: [...elements], categories: [...categories], ...(rapid ? { rapid } : {}), ...(marks ? { marks } : {}) };
 }
 
 /** 重さの決まり。担える重さは base に筋力1点ごとに perStr を足したもの */

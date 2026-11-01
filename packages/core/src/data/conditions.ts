@@ -554,6 +554,7 @@ const HANDMADE = {
     // 技の間隔を縮めても、振りかぶりと硬直が詰まっていて速くならなかったので、そちらを縮める
     text: '印を使うたび、次の2つの技の振りかぶりと硬直が半分になる',
     cost: 25,
+    marks: {},
     rule: { label: '吐き出す息', on: 'markSpent', when: [], do: [{ type: 'quicken', scale: 0.5, charges: 2, duration: 6000 }] },
   },
   prayerSpendBurst: {
@@ -562,6 +563,126 @@ const HANDMADE = {
     cost: 20,
     marks: { gives: ['ember'], uses: ['prayer'] },
     rule: { label: '祈りの炎上', on: 'markSpent', mark: 'prayer', when: [], do: [{ type: 'gainMark', mark: 'ember', amount: 5 }] },
+  },
+  // 全ての属性から印が生まれる(どの属性のビルドも印の札を組める)
+  frostQuiet: {
+    no: 351,
+    text: '氷の技を当てると〈静寂〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['stillness'] },
+    rule: { label: '凍てる静けさ', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitElementIs', element: 'ice' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'stillness', amount: 1 }] },
+  },
+  shadowQuiet: {
+    no: 352,
+    text: '闇の技を当てると〈静寂〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['stillness'] },
+    rule: { label: '闇の息', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitElementIs', element: 'dark' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'stillness', amount: 1 }] },
+  },
+  rotBlood: {
+    no: 353,
+    text: '腐の技を当てると〈血潮〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['blood'] },
+    rule: { label: '腐れ血', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitElementIs', element: 'rot' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'blood', amount: 1 }] },
+  },
+  veinBlood: {
+    no: 354,
+    text: '血の技を当てると〈血潮〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['blood'] },
+    rule: { label: '脈打つ血', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitElementIs', element: 'blood' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'blood', amount: 1 }] },
+  },
+  ashEmber: {
+    no: 355,
+    text: '灰の技を当てると〈熾り〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['ember'] },
+    rule: { label: '灰の燠', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitElementIs', element: 'ash' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'ember', amount: 1 }] },
+  },
+  cursePrayer: {
+    no: 356,
+    text: '呪の技を当てると〈祈り〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['prayer'] },
+    rule: { label: '呪いの祈祷', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitElementIs', element: 'curse' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'prayer', amount: 1 }] },
+  },
+  pierceEdge: {
+    no: 357,
+    text: '刺の技を当てると〈研ぎ〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['edge'] },
+    rule: { label: '穿ちの研ぎ', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitElementIs', element: 'pierce' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'edge', amount: 1 }] },
+  },
+  bluntEdge: {
+    no: 358,
+    text: '打の技を当てると〈研ぎ〉を1つ得る',
+    cost: 15,
+    marks: { gives: ['edge'] },
+    rule: { label: '打ち鍛え', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitElementIs', element: 'blunt' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: 'edge', amount: 1 }] },
+  },
+  // 使う(守り・速さ・追撃)
+  stillWard: {
+    no: 361,
+    text: '〈静寂〉が3つ以上のとき、被ダメージ-25%',
+    cost: 30,
+    marks: { uses: ['stillness'] },
+    rule: { label: '静寂の帳', on: 'stat', stat: 'damageTaken', when: [{ type: 'selfMarks', mark: 'stillness', min: 3 }], add: -0.25 },
+  },
+  bloodTide: {
+    no: 362,
+    text: '〈血潮〉1つにつき、与ダメージ+12%',
+    cost: 40,
+    marks: { uses: ['blood'] },
+    rule: { label: '血の満ち潮', on: 'damage', when: [{ type: 'hitHasTag', tag: 'attack' }], add: 0.12, perMark: 'blood' },
+  },
+  prayerMight: {
+    no: 363,
+    text: '〈祈り〉1つにつき、与ダメージ+10%',
+    cost: 40,
+    marks: { uses: ['prayer'] },
+    rule: { label: '祈りの力', on: 'damage', when: [{ type: 'hitHasTag', tag: 'attack' }], add: 0.1, perMark: 'prayer' },
+  },
+  edgeHaste: {
+    no: 364,
+    text: '〈研ぎ〉が3つ以上のとき、技の間隔-20%',
+    cost: 35,
+    marks: { uses: ['edge'] },
+    rule: { label: '研ぎの冴え', on: 'stat', stat: 'cooldown', when: [{ type: 'selfMarks', mark: 'edge', min: 3 }], add: -0.2 },
+  },
+  emberSpread: {
+    no: 365,
+    text: '〈熾り〉を使うたび、相手に炎上を大きく溜める',
+    cost: 20,
+    marks: { uses: ['ember'] },
+    rule: { label: '飛び火', on: 'markSpent', mark: 'ember', when: [], do: [{ type: 'applyBuildup', status: 'burn', amount: 150 }] },
+  },
+  stillVolley: {
+    no: 366,
+    text: '〈静寂〉が5つ溜まると、次に当てた遠攻撃が全て使い、1つにつき刺の追撃を落とす',
+    cost: 40,
+    marks: { uses: ['stillness'] },
+    rule: {
+      label: '静寂の矢雨',
+      on: 'hit',
+      when: [{ type: 'hitHasTag', tag: 'ranged' }, { type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'stillness', min: 5 }],
+      do: [{ type: 'spendMarks', mark: 'stillness', min: 5, each: [{ type: 'strike', element: 'pierce', power: 35, buildup: 20 }] }],
+    },
+  },
+  // 変える
+  edgeKindling: {
+    no: 371,
+    text: '〈研ぎ〉を得るたび、〈熾り〉も1つ得る',
+    cost: 20,
+    marks: { gives: ['ember'], uses: ['edge'] },
+    rule: { label: '火花散る砥石', on: 'markGained', mark: 'edge', when: [], do: [{ type: 'gainMark', mark: 'ember', amount: 1 }] },
+  },
+  emberToBlood: {
+    no: 372,
+    text: '〈熾り〉を得るたび、〈血潮〉も1つ得る',
+    cost: 20,
+    marks: { gives: ['blood'], uses: ['ember'] },
+    rule: { label: '沸き立つ血', on: 'markGained', mark: 'ember', when: [], do: [{ type: 'gainMark', mark: 'blood', amount: 1 }] },
   },
 } as const satisfies Record<string, ConditionDef>;
 
@@ -574,6 +695,9 @@ export const CONDITIONS: Record<ConditionId, ConditionDef> = { ...HANDMADE, ...L
 export const CONDITION_IDS = Object.keys(CONDITIONS) as ConditionId[];
 export const HANDMADE_CONDITION_IDS = Object.keys(HANDMADE) as HandmadeConditionId[];
 export const LINK_CONDITION_IDS = Object.keys(LINK_CONDITIONS) as ConditionId[];
+
+/** 印の札(印を生む・変える・使う条件文) */
+export const MARK_CONDITION_IDS = HANDMADE_CONDITION_IDS.filter((id) => !!(HANDMADE[id] as ConditionDef).marks) as ConditionId[];
 
 export function conditionDef(id: ConditionId): ConditionDef {
   return CONDITIONS[id]!;

@@ -118,7 +118,8 @@ describe('速射のビルドの拾い物', () => {
     expect(fit.rapid).toBe(true);
     const w = new CombatWorld({ seed: 5 });
     const handmade = Array.from({ length: 400 }, () => generateItem(() => w.random(), { fit, conditionChance: 1 }))
-      .flatMap((i) => (i.condition && !conditionDef(i.condition).link ? [conditionDef(i.condition)] : []));
+      // 印の札は別の寄せ方(足りない側を寄せる)で選ぶので、手書きの条件文だけを見る
+      .flatMap((i) => (i.condition && !conditionDef(i.condition).link && !conditionDef(i.condition).marks ? [conditionDef(i.condition)] : []));
     expect(handmade.filter((c) => c.rapid).length / handmade.length).toBeGreaterThan(0.5);
   });
 });
