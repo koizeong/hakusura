@@ -124,8 +124,8 @@ export const EQUIP_RULES = {
   /** 項目の数(条件文の枠も含む) */
   countMin: 1,
   countMax: 4,
-  /** 条件文が入る確率 */
-  conditionChance: 0.3,
+  /** 条件文が入る確率。印と札をビルドの中心に据えたので、多めに付く */
+  conditionChance: 0.55,
   /**
    * 合計の出方。大半は得の向き(goodMin〜totalMax)に出る。
    * cursedChance の確率で、合計がマイナスの「忌まわしき品」になり、代わりに重い条件文が必ず付く
@@ -140,7 +140,7 @@ export const EQUIP_RULES = {
   usualMax: 120,
   extremeChance: 0.1,
   /** 条件文を選ぶとき、印の札(生む・変える・使う)から選ぶ確率。印と札をビルドの中心に据える */
-  markChance: 0.5,
+  markChance: 0.75,
   /** ビルドに合うものから選ぶ確率(fit を渡したとき) */
   fitChance: 0.6,
   /** 補正値の刻み */

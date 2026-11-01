@@ -22,7 +22,8 @@ export interface Learned {
 
 /** 最初から覚えているスキル */
 export const STARTING_SKILLS: Learned = {
-  actives: ['slash', 'shoot', 'sweep', 'emberOil', 'rainBell', 'stillPrayer', 'whetRite', 'bloodOath', 'pyreOffering'],
+  // 印の技は、印1つで出る軽いものをはじめから覚えている(3つ・5つの技は遠征や大物で見つける)
+  actives: ['slash', 'shoot', 'sweep', 'emberOil', 'rainBell', 'stillPrayer', 'whetRite', 'bloodOath', 'pyreOffering', 'edgeCut', 'quietShot', 'emberFist', 'bloodStab', 'prayerLight'],
   passives: ['sootPrayer', 'bloodCallsThunder', 'readTheBlow', 'parryStance'],
   forms: [...STARTING_FORMS],
 };

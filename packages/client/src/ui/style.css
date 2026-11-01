@@ -1933,3 +1933,13 @@ button.discard {
 .form-templates .mastery {
   color: #c8b080;
 }
+
+.mark-cost {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid;
+  border-radius: 2px;
+  font-size: 11px;
+  white-space: nowrap;
+}

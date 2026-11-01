@@ -1,3 +1,4 @@
+import type { MarkId } from './marks';
 import type { ElementId } from './elements';
 import type { FieldId } from './fields';
 import { toWeaponSpec, weaponDef, type WeaponKind, type WeaponRef, type WeaponSpec, type WeaponTypeId } from './weapons';
@@ -116,6 +117,8 @@ interface SkillBase {
   tags: readonly string[];
   /** 必要な能力値。足りなくても使えるが、威力が落ち間隔が延びる */
   needs?: AttributeNeeds;
+  /** 使うときに消費する印。足りなければ使えない。消費が多い技ほど強い */
+  markCost?: { mark: MarkId; amount: number };
 }
 
 /** 数値を自分で持つスキル。付与・切り札・敵のスキル */
@@ -170,6 +173,8 @@ export interface Technique {
   explode?: { radius: number; ratio: number };
   /** この技で当てたときだけ効くルール */
   rules?: readonly Rule[];
+  /** 武器の属性の代わりに、この属性で出す(熾りの技は火、血潮の技は血) */
+  element?: ElementId;
 }
 
 export interface TechniqueDef extends SkillBase {
@@ -262,6 +267,137 @@ export const ACTIVE_SKILLS = {
     needs: { dex: 20 },
     tags: ['attack'],
     technique: { requires: { tag: 'bow' }, shape: 'shot', power: 0.9, interval: 2, count: 5, spread: 5 },
+  },
+  // ---- 印の技。使うときに印を消費する。消費が多いほど強く、印1つあたりの効き目も上がる(1つで約2倍、3つで約7倍、5つで約14倍) ----
+  edgeCut: {
+    name: '研ぎ払い',
+    category: 'melee',
+    description: '〈研ぎ〉を1つ使って斬る。威力2倍',
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'edge', amount: 1 },
+    technique: { requires: { kind: 'melee' }, shape: 'swing', power: 2, interval: 1 },
+  },
+  edgeSever: {
+    name: '断ち切り',
+    category: 'melee',
+    description: '〈研ぎ〉を3つ使い、2度斬る。1度3.5倍',
+    needs: { str: 16 },
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'edge', amount: 3 },
+    technique: { requires: { kind: 'melee' }, shape: 'swing', power: 3.5, interval: 1.3, hits: 2 },
+  },
+  edgeStorm: {
+    name: '千刃の舞',
+    category: 'melee',
+    description: '〈研ぎ〉を5つ使い、周り一面を4度斬る。1度3.5倍',
+    needs: { str: 18, dex: 18 },
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'edge', amount: 5 },
+    technique: { requires: { kind: 'melee' }, shape: 'swing', power: 3.5, interval: 1.6, hits: 4, arc: 360 },
+  },
+  quietShot: {
+    name: '静かな一矢',
+    category: 'ranged',
+    description: '〈静寂〉を1つ使って撃つ。威力2倍',
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'stillness', amount: 1 },
+    technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 2, interval: 1 },
+  },
+  breathShot: {
+    name: '息止めの射',
+    category: 'ranged',
+    description: '〈静寂〉を3つ使い、息を止めて貫く一矢。7倍、3体まで貫く',
+    needs: { dex: 16 },
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'stillness', amount: 3 },
+    technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 7, interval: 1.3, windup: 1.3, range: 1.3, pierce: 3 },
+  },
+  quietRain: {
+    name: '静寂の驟雨',
+    category: 'ranged',
+    description: '〈静寂〉を5つ使い、7本を扇に放つ。1本2倍',
+    needs: { dex: 20 },
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'stillness', amount: 5 },
+    technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 2, interval: 1.5, count: 7, spread: 18 },
+  },
+  emberFist: {
+    name: '熾火の拳',
+    category: 'melee',
+    description: '〈熾り〉を1つ使い、周りに火を放つ。火で威力2倍',
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'ember', amount: 1 },
+    technique: { requires: {}, shape: 'nova', power: 2, interval: 1, radius: 110, element: 'fire' },
+  },
+  emberSurge: {
+    name: '熾火の奔流',
+    category: 'melee',
+    description: '〈熾り〉を3つ使い、周りに火を2度放つ。1度3.5倍',
+    needs: { fai: 16 },
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'ember', amount: 3 },
+    technique: { requires: {}, shape: 'nova', power: 3.5, interval: 1.3, radius: 170, hits: 2, element: 'fire' },
+  },
+  pyreJudgement: {
+    name: '大焚刑',
+    category: 'melee',
+    description: '〈熾り〉を5つ使い、広く火を2度放つ。1度7倍、よく燃やす',
+    needs: { fai: 20 },
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'ember', amount: 5 },
+    technique: { requires: {}, shape: 'nova', power: 7, interval: 1.6, radius: 240, hits: 2, buildup: 3, element: 'fire' },
+  },
+  bloodStab: {
+    name: '血の一突き',
+    category: 'melee',
+    description: '〈血潮〉を1つ使い、血で突く。威力2倍',
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'blood', amount: 1 },
+    technique: { requires: { kind: 'melee' }, shape: 'swing', power: 2, interval: 1, range: 1.3, arc: 30, element: 'blood' },
+  },
+  bloodWhirl: {
+    name: '血の渦',
+    category: 'melee',
+    description: '〈血潮〉を3つ使い、周り一面を血で2度斬る。1度3.5倍',
+    needs: { vit: 16 },
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'blood', amount: 3 },
+    technique: { requires: { kind: 'melee' }, shape: 'swing', power: 3.5, interval: 1.3, hits: 2, arc: 360, element: 'blood' },
+  },
+  crimsonVerdict: {
+    name: '緋の断罪',
+    category: 'melee',
+    description: '〈血潮〉を5つ使い、溜めて血の一撃。14倍',
+    needs: { vit: 18, str: 18 },
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'blood', amount: 5 },
+    technique: { requires: { kind: 'melee' }, shape: 'swing', power: 14, interval: 1.6, windup: 1.5, element: 'blood' },
+  },
+  prayerLight: {
+    name: '祈りの光',
+    category: 'melee',
+    description: '〈祈り〉を1つ使い、周りに光を放つ。威力2倍',
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'prayer', amount: 1 },
+    technique: { requires: {}, shape: 'nova', power: 2, interval: 1, radius: 130 },
+  },
+  prayerVerdict: {
+    name: '裁きの光',
+    category: 'melee',
+    description: '〈祈り〉を3つ使い、広く光を放つ。7倍',
+    needs: { fai: 16 },
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'prayer', amount: 3 },
+    technique: { requires: {}, shape: 'nova', power: 7, interval: 1.3, radius: 180 },
+  },
+  revelation: {
+    name: '天啓',
+    category: 'melee',
+    description: '〈祈り〉を5つ使い、溜めて大きく光を放つ。14倍',
+    needs: { fai: 20 },
+    tags: ['attack', 'mark'],
+    markCost: { mark: 'prayer', amount: 5 },
+    technique: { requires: {}, shape: 'nova', power: 14, interval: 1.6, windup: 1.4, radius: 260 },
   },
   aimedShot: {
     name: '狙い撃ち',
@@ -1085,7 +1221,7 @@ function resolveRaw(id: ActiveSkillId, weapon?: WeaponRef, variant?: SkillVarian
     rules: rules.length > 0 ? rules : undefined,
     intervalWhen: intervalWhen.length > 0 ? intervalWhen : undefined,
     category: w.kind === 'melee' ? 'melee' : 'ranged',
-    element: w.element,
+    element: t.element ?? w.element,
     tags: [...def.tags, ...w.tags, w.id, ...(w.kind === 'ranged' ? ['projectile'] : [])],
     windup: w.windup * (t.windup ?? 1),
     recovery: w.recovery * (t.windup ?? 1),

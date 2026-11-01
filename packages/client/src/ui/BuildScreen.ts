@@ -884,7 +884,19 @@ export class BuildScreen {
             checked: build.actives.includes(id),
             onchange: (e: Event) => toggle(build.actives, id, (e.target as HTMLInputElement).checked),
           }),
-          h('span', {}, build.variants?.[id] ? variantName(build.variants[id], def.name) : def.name),
+          h(
+            'span',
+            {},
+            build.variants?.[id] ? variantName(build.variants[id], def.name) : def.name,
+            // 印の技は、消費する印を印の色で名前の横に出す
+            def.markCost
+              ? h(
+                  'span',
+                  { class: 'mark-cost', style: `border-color:${markColor(def.markCost.mark)};color:${markColor(def.markCost.mark)}` },
+                  `${MARKS[def.markCost.mark].name}×${def.markCost.amount}`,
+                )
+              : '',
+          ),
           h('small', {}, detail),
         );
         return known && isTechnique(def) && isUnlocked(this.host.state, 'variants') ? h('div', {}, row, this.variantPicker(id)) : row;

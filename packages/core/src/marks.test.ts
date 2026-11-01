@@ -206,3 +206,38 @@ describe('印の札に役目を譲った札', () => {
     expect(w.marksOf(p, 'edge')).toBe(2);
   });
 });
+
+describe('印の技', () => {
+  it('印が足りなければ使えず、使えば消費し、使うたびの札が働く', () => {
+    const { w, p } = duel(['spentPrayer']);
+    p.cooldowns = {};
+    expect(w.canUseSkill('p', 'edgeSever')).toBe(false);
+    w.gainMark(p, 'edge', 4);
+    expect(w.canUseSkill('p', 'edgeSever')).toBe(true);
+    w.useSkill('p', 'edgeSever', w.units.get('t')!, 't');
+    expect(w.marksOf(p, 'edge')).toBe(1);
+    expect(w.marksOf(p, 'prayer')).toBe(2);
+  });
+
+  it('消費が多いほど強く、印1つあたりの効き目も上がる', async () => {
+    const { ACTIVE_SKILLS, resolveSkill } = await import('./data/skills');
+    const families = [
+      ['edgeCut', 'edgeSever', 'edgeStorm'],
+      ['quietShot', 'breathShot', 'quietRain'],
+      ['emberFist', 'emberSurge', 'pyreJudgement'],
+      ['bloodStab', 'bloodWhirl', 'crimsonVerdict'],
+      ['prayerLight', 'prayerVerdict', 'revelation'],
+    ] as const;
+    for (const family of families) {
+      const perMark = family.map((id) => {
+        const def = ACTIVE_SKILLS[id] as { markCost: { amount: number }; technique: { power: number; hits?: number; count?: number } };
+        const t = def.technique;
+        return (t.power * (t.hits ?? 1) * (t.count ?? 1)) / def.markCost.amount;
+      });
+      expect(perMark[1]!).toBeGreaterThan(perMark[0]!);
+      expect(perMark[2]!).toBeGreaterThan(perMark[1]!);
+      // どの武器でも出せる印の技か、合う種類の武器なら出せる
+      expect(resolveSkill(family[0], family[0] === 'quietShot' ? 'boneBow' : 'ironSword')).toBeDefined();
+    }
+  });
+});

@@ -677,6 +677,8 @@ export class CombatWorld {
       unit.guardSince === null &&
       !this.isIncapacitated(unit) &&
       this.fitsAltitude(unit, skillId) &&
+      // 印の技は、印が足りなければ使えない
+      this.hasMarksFor(unit, skillId) &&
       // 静寂と恐怖の間は、アクティブスキルを使えない。切り札は使える
       (!this.hasStatusFlag(unit, 'silences') || (activeSkillDef(skillId).tags as readonly string[]).includes('trump'))
     );
@@ -763,6 +765,12 @@ export class CombatWorld {
     }
   }
 
+  /** 印の技なら、消費する印が足りているか */
+  hasMarksFor(unit: Unit, skillId: ActiveSkillId): boolean {
+    const cost = (activeSkillDef(skillId) as { markCost?: { mark: MarkId; amount: number } }).markCost;
+    return !cost || this.marksOf(unit, cost.mark) >= cost.amount;
+  }
+
   /**
    * スキルを使う。振りかぶりの後に効果が出る。
    * targetId を渡すと、効果が出る瞬間にその相手へ向き直す
@@ -771,6 +779,13 @@ export class CombatWorld {
     const unit = this.units.get(unitId);
     if (!unit || !this.canUseSkill(unitId, skillId)) return false;
     unit.lastAttackAt = this.time;
+    // 印の技は、使うときに印を消費する(使うたびの札も働く)
+    const cost = (activeSkillDef(skillId) as { markCost?: { mark: MarkId; amount: number } }).markCost;
+    if (cost) {
+      const target = (targetId ? this.units.get(targetId) : undefined) ?? this.tacticTarget(unit) ?? unit;
+      const name = activeSkillDef(skillId).name;
+      this.consumeMarks(unit, cost.mark, cost.amount, name, target, { attacker: unit, skill: name, via: [name], depth: 0 });
+    }
     const uses = (unit.skillUses[skillId] ?? 0) + 1;
     unit.skillUses[skillId] = uses;
     // 1つ前の手。型で手順が空になる前に覚えておく
@@ -2294,6 +2309,24 @@ export class CombatWorld {
     return m.count;
   }
 
+  /**
+   * 印を n 使う。残りは残る。使ったら between を行い、使うたびの札(on: 'markSpent')が働く。対象は当てていた相手
+   */
+  consumeMarks(owner: Unit, mark: MarkId, n: number, label: string, target: Unit, src: Source, between?: () => void): void {
+    const left = this.marksOf(owner, mark) - n;
+    if (left > 0) owner.marks[mark] = { count: left, until: owner.marks[mark]!.until };
+    else delete owner.marks[mark];
+    this.events.push({ type: 'marks', unitId: owner.id, mark, count: Math.max(0, left), spent: n, label });
+    between?.();
+    // 印を使ったときの札(使うたびに〇〇)。連鎖は上限の段まで
+    if (src.depth >= this.maxTriggerDepth) return;
+    const ctx = this.context(target, owner, {});
+    for (const { rule } of this.rulesFor(owner)) {
+      if (rule.on !== 'markSpent' || (rule.mark && rule.mark !== mark) || !ruleMatches(rule, ctx)) continue;
+      for (const a of rule.do) this.runAction(a, rule.label, target, { attacker: owner, skill: rule.label, via: [...src.via, rule.label], depth: src.depth + 1, hit: src.hit });
+    }
+  }
+
   /** 印を得る。得たときのルール(別の印に変える札など)も働く。連鎖は上限の段まで */
   gainMark(unit: Unit, mark: MarkId, amount: number, depth = 0): void {
     const def = markDef(mark);
@@ -2391,17 +2424,9 @@ export class CombatWorld {
         if (!owner) break;
         const n = this.marksOf(owner, action.mark);
         if (n < (action.min ?? 1)) break;
-        delete owner.marks[action.mark];
-        this.events.push({ type: 'marks', unitId: owner.id, mark: action.mark, count: 0, spent: n, label });
-        for (let i = 0; i < n; i++) for (const a of action.each ?? []) this.runAction(a, label, target, { ...src, via });
-        // 印を使ったときの札(使うたびに〇〇)。連鎖は上限の段まで
-        if (src.depth < this.maxTriggerDepth) {
-          const ctx = this.context(target, owner, {});
-          for (const { rule } of this.rulesFor(owner)) {
-            if (rule.on !== 'markSpent' || (rule.mark && rule.mark !== action.mark) || !ruleMatches(rule, ctx)) continue;
-            for (const a of rule.do) this.runAction(a, rule.label, target, { attacker: owner, skill: rule.label, via: [...via, rule.label], depth: src.depth + 1, hit: src.hit });
-          }
-        }
+        this.consumeMarks(owner, action.mark, n, label, target, { ...src, via }, () => {
+          for (let i = 0; i < n; i++) for (const a of action.each ?? []) this.runAction(a, label, target, { ...src, via });
+        });
         break;
       }
       case 'grantBuff':
