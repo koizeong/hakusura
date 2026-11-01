@@ -2334,17 +2334,18 @@ export class CombatWorld {
       delete unit.marks[mark];
       return 0;
     }
-    return m.count;
+    return Math.floor(m.count);
   }
 
   /**
    * 印を n 使う。残りは残る。使ったら between を行い、使うたびの札(on: 'markSpent')が働く。対象は当てていた相手
    */
   consumeMarks(owner: Unit, mark: MarkId, n: number, label: string, target: Unit, src: Source, between?: () => void): void {
-    const left = this.marksOf(owner, mark) - n;
+    this.marksOf(owner, mark);
+    const left = (owner.marks[mark]?.count ?? 0) - n;
     if (left > 0) owner.marks[mark] = { count: left, until: owner.marks[mark]!.until };
     else delete owner.marks[mark];
-    this.events.push({ type: 'marks', unitId: owner.id, mark, count: Math.max(0, left), spent: n, label });
+    this.events.push({ type: 'marks', unitId: owner.id, mark, count: Math.max(0, Math.floor(left)), spent: n, label });
     between?.();
     // 印を使ったときの札(使うたびに〇〇)。連鎖は上限の段まで
     if (src.depth >= this.maxTriggerDepth) return;
@@ -2358,9 +2359,12 @@ export class CombatWorld {
   /** 印を得る。得たときのルール(別の印に変える札など)も働く。連鎖は上限の段まで */
   gainMark(unit: Unit, mark: MarkId, amount: number, depth = 0): void {
     const def = markDef(mark);
-    const count = Math.min(def.max, this.marksOf(unit, mark) + amount);
+    // 溜まるほど溜まりやすい。端数も覚えておく(見せるのと使うのは整数)
+    this.marksOf(unit, mark);
+    const held = unit.marks[mark]?.count ?? 0;
+    const count = Math.min(def.max, held + amount * (1 + held / MARK_RULES.swell));
     unit.marks[mark] = { count, until: this.time + def.duration };
-    this.events.push({ type: 'marks', unitId: unit.id, mark, count });
+    this.events.push({ type: 'marks', unitId: unit.id, mark, count: Math.floor(count) });
     if (depth >= this.maxTriggerDepth) return;
     const ctx = this.context(unit, unit, {});
     for (const { rule } of this.rulesFor(unit)) {

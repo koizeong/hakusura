@@ -293,6 +293,8 @@ export interface FieldRun {
   marksGained: Partial<Record<MarkId, number>>;
   marksSpent: Partial<Record<MarkId, number>>;
   forms: Record<string, number>;
+  /** スキルを使った回数 */
+  uses: Partial<Record<ActiveSkillId, number>>;
   topSources: [string, number][];
   topVia: [string, number][];
 }
@@ -369,6 +371,7 @@ export function measureField(
     marksGained,
     marksSpent,
     forms,
+    uses: { ...p.skillUses },
     topSources: share(b.bySource, 3),
     topVia: share(b.byVia, 4),
   };

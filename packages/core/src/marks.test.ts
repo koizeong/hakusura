@@ -54,15 +54,31 @@ describe('印', () => {
     expect(w.marksOf(p, 'edge')).toBe(1);
   });
 
-  it('吐く札:研ぎが5つ以上あれば5つ使い、5回多く当たる(多く溜めても5つだけ)', () => {
+  it('吐く札:研ぎが10以上あれば5つ使い、5回多く当たる(多く溜めても5つだけ)', () => {
     const { w, p, swing } = duel(['edgeRelease']);
-    w.gainMark(p, 'edge', 7);
+    w.gainMark(p, 'edge', 12);
     const before = w.log.length;
     swing();
     // 出血のように、追加のヒットから広がった傷は数えない
     const hits = w.log.slice(before).filter((r) => r.via.includes('研ぎ放ち') && r.tags.includes('repeat'));
     expect(hits).toHaveLength(5);
-    expect(w.marksOf(p, 'edge')).toBe(2);
+    expect(w.marksOf(p, 'edge')).toBe(7);
+    // 10に満たなければ吐かない(5つは印の技のために残る)
+    const second = duel(['edgeRelease']);
+    second.w.gainMark(second.p, 'edge', 9);
+    second.swing();
+    expect(second.w.marksOf(second.p, 'edge')).toBe(9);
+  });
+
+  it('溜まるほど溜まりやすい', () => {
+    const { w, p } = duel([]);
+    w.gainMark(p, 'edge', 30);
+    expect(w.marksOf(p, 'edge')).toBe(30);
+    w.gainMark(p, 'edge', 1);
+    expect(w.marksOf(p, 'edge')).toBe(32);
+    // 32溜まっていれば、30得ると60余り増える(倍より多い)
+    w.gainMark(p, 'edge', 30);
+    expect(w.marksOf(p, 'edge')).toBe(94);
   });
 
   it('倒れると印を失う', () => {
@@ -85,14 +101,14 @@ describe('印', () => {
 describe('使うたびに', () => {
   it('印を使うと、使うたびの札が働く(研ぎを吐くと祈りを得る)', () => {
     const { w, p, swing } = duel(['honeEdge', 'edgeRelease', 'spentPrayer']);
-    w.gainMark(p, 'edge', 5);
+    w.gainMark(p, 'edge', 10);
     swing();
     expect(w.marksOf(p, 'prayer')).toBe(2);
   });
 
   it('研ぎ傷:研ぎを使うたび、相手に出血が溜まる', () => {
     const { w, p, t, swing } = duel(['edgeRelease', 'edgeBleed']);
-    w.gainMark(p, 'edge', 5);
+    w.gainMark(p, 'edge', 10);
     swing();
     expect(w.isActive(t, 'bleed') || t.statuses.bleed.buildup >= 150).toBe(true);
   });
@@ -150,7 +166,7 @@ describe('吐き出す息', () => {
     w.useSkill('p', 'slash', w.units.get('t')!, 't');
     const normal = busy();
     run(w, 700);
-    w.gainMark(p, 'edge', 5);
+    w.gainMark(p, 'edge', 10);
     swing();
     expect(p.quicken?.charges).toBe(2);
     p.busyUntil = 0;

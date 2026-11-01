@@ -22,8 +22,9 @@ export const MARKS = {
 /**
  * 印の決まり。印は100まで溜まり(印を重く使う大技のため)、8秒得なければ全て消える。
  * 「印1つにつき」の札が数えるのは perMarkCap まで(100溜めても暴れないように)
+ * 溜まるほど溜まりやすい:得る数は (1 + 今の数 / swell) 倍(swell 30 なら、30溜めて2倍、90で4倍)。大技を貯める間が延びすぎないように
  */
-export const MARK_RULES = { perMarkCap: 10 } as const;
+export const MARK_RULES = { perMarkCap: 10, swell: 30 } as const;
 
 /**
  * 印の技の威力。消費する印の数 cost に対して、威力(武器の威力に掛ける倍率の合計)は base × cost^exponent。

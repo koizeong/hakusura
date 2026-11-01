@@ -6,7 +6,9 @@ import { ENEMIES } from '../data/enemies';
 import { ARCHETYPES } from './archetypes';
 import { measureField, outfit, reportArchetype, runEncounter } from './simulate';
 import { measureSingle, theoreticalMax, THEORY } from './theory';
-import { COMBO_BUILDS, withArt, withConditions } from './comboBuilds';
+import { COMBO_BUILDS, SPEND_CARDS, fixedArt, withArt, withConditions, withMarkArt } from './comboBuilds';
+import { buildWeapons } from '../build';
+import { weaponDef } from '../data/weapons';
 import { ACTIVE_SKILLS } from '../data/skills';
 import { MARKS, type MarkId } from '../data/marks';
 import { measureBuildPower } from '../expedition';
@@ -267,6 +269,49 @@ describe.skipIf(!process.env.SIM_COMBO)('印と型のビルド', () => {
         ...rows,
         '',
         ...notes,
+        'REPORT>>>',
+      ].join('\n'),
+    );
+  }, 3_600_000);
+});
+
+/**
+ * 印の技の重さで、ビルドの火力がどう変わるか。`npm run sim:arts`
+ * 揃えたビルドの印の技の枠に、消費5・15・40・100の技を入れて測る。吐く札(5つずつ使う)を着けたままと、外したものを比べる
+ */
+describe.skipIf(!process.env.SIM_ARTS)('印の技の重さ', () => {
+  it('消費ごとに比べる', () => {
+    const seconds = Number(process.env.SIM_SECONDS ?? 60);
+    const avg = (b: Parameters<typeof measureField>[0]) => {
+      const runs = [1, 2].map((s) => measureField(b, seconds, s));
+      return { dps: runs.reduce((a, r) => a + r.dps, 0) / runs.length, uses: runs.reduce((a, r) => a + (r.uses.art1 ?? 0), 0) / runs.length };
+    };
+    const n0 = (v: number) => Math.round(v).toLocaleString('en-US');
+    const costs = [5, 15, 40, 100];
+    const rows: string[] = [];
+    for (const c of Object.values(COMBO_BUILDS)) {
+      const mark = (ACTIVE_SKILLS[c.art] as { markCost: { mark: MarkId } }).markCost.mark;
+      const melee = buildWeapons(c.build).some((w) => weaponDef(w).kind === 'melee');
+      const keep = c.full.filter((id) => !SPEND_CARDS.includes(id));
+      const base = avg(withConditions(c.build, c.full));
+      const cells: string[] = [];
+      for (const spend of [true, false]) {
+        const cards = spend ? c.full : keep;
+        for (const cost of costs) {
+          const r = avg(withMarkArt(withConditions(c.build, cards), fixedArt(mark, cost, melee ? 'swing' : 'shot')));
+          cells.push(`${n0(r.dps)}(${r.uses.toFixed(1)})`);
+        }
+      }
+      rows.push(`| ${c.name}(${MARKS[mark].name}) | ${n0(base.dps)} | ${cells.join(' | ')} |`);
+    }
+    console.log(
+      [
+        '<<<REPORT',
+        `${seconds}秒、2回の平均。かっこ内は印の技を使った回数`,
+        '',
+        `| ビルド | 揃え | ${costs.map((c) => `吐く札あり 印${c}`).join(' | ')} | ${costs.map((c) => `吐く札なし 印${c}`).join(' | ')} |`,
+        `| --- | --- | ${costs.map(() => '---').join(' | ')} | ${costs.map(() => '---').join(' | ')} |`,
+        ...rows,
         'REPORT>>>',
       ].join('\n'),
     );

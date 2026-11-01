@@ -6,6 +6,8 @@ import type { EquipSlotId, Item } from '../data/equipment';
 import type { WeaponSpec } from '../data/weapons';
 import type { ShieldTypeId } from '../data/shields';
 import { RITE_TACTICS, type Tactic } from '../data/tactics';
+import { markArtPower, type MarkId } from '../data/marks';
+import type { ArtShape, MarkArt } from '../data/markArts';
 
 /**
  * 印・技の型・+と×で組んだ、考えて組むビルドの見本。
@@ -27,6 +29,35 @@ export function withArt(build: Build, art: ActiveSkillId): Build {
   const actives = [art, ...build.actives.filter((a) => a !== art)].slice(0, 6);
   return { ...build, actives, tactics: [{ skill: art, condition: 'always', enabled: true }, ...build.tactics] };
 }
+
+/** 測るための印の技。消費と形を決めて、威力の合計を消費どおりにする */
+export function fixedArt(mark: MarkId, cost: number, shape: ArtShape, hits = 1): MarkArt {
+  const heavy = Math.log10(cost);
+  return {
+    id: `fixed-${mark}-${cost}-${shape}`,
+    name: `${mark}${cost}の${shape === 'swing' ? '斬' : shape === 'shot' ? '射' : '輪'}`,
+    mark,
+    cost,
+    shape,
+    hits,
+    count: 1,
+    power: markArtPower(cost) / hits,
+    windup: 1 + 0.5 * heavy,
+    interval: 1 + 0.3 * heavy,
+    ...(shape === 'swing' ? { arc: 120 } : {}),
+    ...(shape === 'nova' ? { radius: Math.min(280, 110 + cost * 1.6) } : {}),
+    ...(mark === 'ember' ? { element: 'fire' as const } : mark === 'blood' ? { element: 'blood' as const } : {}),
+  };
+}
+
+/** 印の技の枠・壱に入れ、アクティブの先頭と作戦の一番上に置く */
+export function withMarkArt(build: Build, art: MarkArt): Build {
+  const actives = (['art1', ...build.actives.filter((a) => a !== 'art1')] as ActiveSkillId[]).slice(0, 6);
+  return { ...build, arts: { art1: art }, actives, tactics: [{ skill: 'art1', condition: 'always', enabled: true }, ...build.tactics] };
+}
+
+/** 印を5つずつ吐く札。着けると印が大技まで貯まらない */
+export const SPEND_CARDS: ConditionId[] = ['emberBurst', 'edgeRelease', 'bloodOffering', 'prayerJudgement', 'stillVolley'];
 
 const attrs = (a: Partial<Attributes>): Attributes => ({ str: 8, dex: 8, int: 8, fai: 8, vit: 8, ...a });
 const weapon = (id: string, spec: WeaponSpec): Item => ({ id: `w-${id}`, name: id, kind: 'weapon', weaponType: spec.type, element: spec.element, affixes: [] });
