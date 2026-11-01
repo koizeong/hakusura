@@ -1958,3 +1958,21 @@ button.discard {
 .chip.charged {
   box-shadow: 0 0 6px rgba(232, 200, 112, 0.8);
 }
+
+/* 印の技の枠:印・名前・選ぶ欄を1行に、説明は次の行いっぱいに */
+.art-slot {
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  cursor: default;
+}
+
+.art-slot select {
+  min-height: 40px;
+  min-width: 0;
+  width: 100%;
+}
+
+.art-slot small {
+  grid-column: 1 / -1;
+  padding-left: 28px;
+}

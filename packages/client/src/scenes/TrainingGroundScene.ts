@@ -439,7 +439,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.player.formUses = this.buildState.learned.formUses ??= {};
     if (this.player.queued && this.player.queued.skill !== this.player.trump) this.player.queued = undefined;
     this.hud.setTrump(this.player.trump);
-    this.hud.setSlots(this.player.actives);
+    this.hud.setSlots(this.player.actives, (id) => this.world.skillName(this.player, id));
     this.refreshHeld();
     saveBuildState(this.buildState);
   }
@@ -557,6 +557,7 @@ export class TrainingGroundScene extends Phaser.Scene {
         if (spoils) {
           this.buildState.stash.unshift(...spoils.items);
           this.buildState.techniques.unshift(...spoils.variants);
+          this.buildState.markArts = [...spoils.arts, ...(this.buildState.markArts ?? [])];
           if (spoils.variants.length > 0) this.openUnlock('variants');
         }
         // 討ち果たせば次のレベルが開く

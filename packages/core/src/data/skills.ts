@@ -268,6 +268,10 @@ export const ACTIVE_SKILLS = {
     tags: ['attack'],
     technique: { requires: { tag: 'bow' }, shape: 'shot', power: 0.9, interval: 2, count: 5, spread: 5 },
   },
+  // ---- 印の技の枠。拾った印の技(markArts.ts、自動で作る)を入れて使う。空なら出ない ----
+  art1: { name: '印の技・壱', category: 'melee', description: '拾った印の技を入れる枠', tags: ['attack', 'mark', 'art'], technique: { requires: {}, shape: 'nova', power: 0, interval: 1 } },
+  art2: { name: '印の技・弐', category: 'melee', description: '拾った印の技を入れる枠', tags: ['attack', 'mark', 'art'], technique: { requires: {}, shape: 'nova', power: 0, interval: 1 } },
+  art3: { name: '印の技・参', category: 'melee', description: '拾った印の技を入れる枠', tags: ['attack', 'mark', 'art'], technique: { requires: {}, shape: 'nova', power: 0, interval: 1 } },
   // ---- 印の技。使うときに印を消費する。消費が多いほど強く、印1つあたりの効き目も上がる(威力の合計は markArtPower:5で約18倍、15で約74倍、40で約266倍) ----
   edgeCut: {
     name: '研ぎ払い',
@@ -1164,10 +1168,10 @@ export interface ResolvedSkill {
  * 実際に出す中身を作る。attrs を渡すと、武器と技の必要な能力値に足りない分だけ
  * 威力が落ち、間隔が延びる。渡さなければ(敵やテスト)落ちない
  */
-export function resolveSkill(id: ActiveSkillId, weapon?: WeaponRef, attrs?: Attributes, variant?: SkillVariant): ResolvedSkill | undefined {
-  const raw = resolveRaw(id, weapon, variant && variant.base === id ? variant : undefined);
+export function resolveSkill(id: ActiveSkillId, weapon?: WeaponRef, attrs?: Attributes, variant?: SkillVariant, override?: TechniqueDef): ResolvedSkill | undefined {
+  const raw = resolveRaw(id, weapon, variant && variant.base === id ? variant : undefined, override);
   if (!raw || !attrs) return raw;
-  const def = activeSkillDef(id);
+  const def = override ?? activeSkillDef(id);
   const missing = missingPoints(def.needs, attrs) + (raw.weaponSpec ? missingPoints(weaponDef(raw.weaponSpec).needs, attrs) : 0);
   if (missing === 0) return raw;
   const penalty = shortfallPenalty(missing);
@@ -1177,8 +1181,9 @@ export function resolveSkill(id: ActiveSkillId, weapon?: WeaponRef, attrs?: Attr
   return { ...raw, action, cooldown: raw.cooldown * penalty.interval, missing };
 }
 
-function resolveRaw(id: ActiveSkillId, weapon?: WeaponRef, variant?: SkillVariant): ResolvedSkill | undefined {
-  const def = activeSkillDef(id);
+/** override を渡すと、その技の定義で作る(印の技の枠に入れた技)。名前に武器を付けない */
+function resolveRaw(id: ActiveSkillId, weapon?: WeaponRef, variant?: SkillVariant, override?: TechniqueDef): ResolvedSkill | undefined {
+  const def = override ?? activeSkillDef(id);
   if (!isTechnique(def)) {
     return {
       id,
@@ -1217,7 +1222,7 @@ function resolveRaw(id: ActiveSkillId, weapon?: WeaponRef, variant?: SkillVarian
   return {
     id,
     // 内訳で武器の違いが見えるよう、「鉄の剣の雨垂れの薙ぎ払い」のように呼ぶ
-    name: `${w.name}の${variant ? variantName(variant, def.name) : def.name}`,
+    name: override ? def.name : `${w.name}の${variant ? variantName(variant, def.name) : def.name}`,
     rules: rules.length > 0 ? rules : undefined,
     intervalWhen: intervalWhen.length > 0 ? intervalWhen : undefined,
     category: w.kind === 'melee' ? 'melee' : 'ranged',

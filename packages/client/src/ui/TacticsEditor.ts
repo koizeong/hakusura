@@ -24,6 +24,8 @@ export interface TacticsEditorOptions {
   /** 覚えている型 */
   forms(): readonly FormId[];
   onChange(): void;
+  /** スキルの呼び名(印の技の枠なら入れた技の名前)。なければ定義の名前 */
+  skillName?(id: ActiveSkillId): string;
 }
 
 /** 条件の選択肢。まとまりごとに分ける */
@@ -54,6 +56,7 @@ function formSteps(id: FormId): string {
 export function createTacticsEditor(tactics: Tactic[], options: TacticsEditorOptions): { el: HTMLElement; render(): void } {
   const root = h('div', { class: 'tactics' });
 
+  const nameOf = (id: ActiveSkillId) => options.skillName?.(id) ?? ACTIVE_SKILLS[id].name;
   const changed = () => {
     options.onChange();
     render();
@@ -96,7 +99,7 @@ export function createTacticsEditor(tactics: Tactic[], options: TacticsEditorOpt
                   changed();
                 },
               },
-              ...[...new Set([...skills, t.skill])].map((id) => h('option', { value: id, selected: id === t.skill }, ACTIVE_SKILLS[id].name)),
+              ...[...new Set([...skills, t.skill])].map((id) => h('option', { value: id, selected: id === t.skill }, nameOf(id))),
             ),
             // 連携。出したら続けて出す次の一手(2つまで)
             ...Array.from({ length: Math.min(FOLLOW_UP.max, (t.then?.length ?? 0) + 1) }, (_, k) =>
@@ -117,7 +120,7 @@ export function createTacticsEditor(tactics: Tactic[], options: TacticsEditorOpt
                     },
                   },
                   h('option', { value: '' }, '(続けない)'),
-                  ...skills.map((id) => h('option', { value: id, selected: t.then?.[k] === id }, ACTIVE_SKILLS[id].name)),
+                  ...skills.map((id) => h('option', { value: id, selected: t.then?.[k] === id }, nameOf(id))),
                 ),
               ),
             ),

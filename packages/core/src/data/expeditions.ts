@@ -38,6 +38,8 @@ export interface ExpeditionDef {
   /** 変化つきの技を1つ持ち帰る確率と、その地で付きやすい変化 */
   variantChance: number;
   preferVariations?: readonly VariationId[];
+  /** 持ち帰る印の技の数の見込み(1を超えれば2つ以上)。行き先が遠いほど多く、重い技も出る */
+  artChance: number;
 }
 
 const MIN = 60 * 1000;
@@ -55,6 +57,7 @@ export const EXPEDITIONS = {
     skillChance: 0.1,
     preferSkills: ['quickShot', 'lunge'],
     variantChance: 0.1,
+    artChance: 0.4,
   },
   ashRoad: {
     name: '灰の街道',
@@ -71,6 +74,7 @@ export const EXPEDITIONS = {
     skillChance: 0.3,
     preferSkills: ['gouge', 'thrust', 'flurry', 'bloodCut', 'whetstone', 'bloodRush', 'bloodletter', 'fleetFoot'],
     variantChance: 0.3,
+    artChance: 0.7,
     preferVariations: ['bloodHound', 'vengeful', 'quick'],
   },
   rustMine: {
@@ -90,6 +94,7 @@ export const EXPEDITIONS = {
     skillChance: 0.5,
     preferSkills: ['scorch', 'cleave', 'breaker', 'quake', 'oilFlask', 'oilSoaked', 'pyromaniac', 'emberHeart', 'heavyHand'],
     variantChance: 0.5,
+    artChance: 1,
     preferVariations: ['smoldering', 'stunning', 'heavy', 'wide'],
   },
   drownedChapel: {
@@ -109,6 +114,7 @@ export const EXPEDITIONS = {
     skillChance: 0.9,
     preferSkills: ['discharge', 'volley', 'aimedShot', 'pierceShot', 'scatterShot', 'stormOil', 'thunderPrayer', 'stormCaller', 'stormFinger'],
     variantChance: 0.8,
+    artChance: 1.4,
     preferVariations: ['wetting', 'rainSwift', 'thirdThunder', 'echoing'],
   },
 } as const satisfies Record<string, ExpeditionDef>;

@@ -9,6 +9,8 @@ import { VARIANT_RULES, generateVariant, type SkillVariant, type VariationId } f
 import { WEAPON_TYPE_IDS, weaponDef, type WeaponTypeId } from './data/weapons';
 import { ATTRIBUTE_IDS, baseAttributes } from './data/attributes';
 import { PASSIVE_IDS, type PassiveId } from './data/passives';
+import { rollMarkArt, type MarkArt } from './data/markArts';
+import { MARK_IDS, type MarkId } from './data/marks';
 
 /** 覚えたスキル。アカウント全体で共有し、遠征で増える */
 export interface Learned {
@@ -37,7 +39,27 @@ export function learnedForms(learned: Learned): FormId[] {
 const EXPEDITION_FORM_CHANCE = 0.8;
 
 /** 遠征で見つかるスキル。敵のスキルは出ない */
-const FINDABLE_ACTIVES = ACTIVE_SKILL_IDS.filter((id) => !(ACTIVE_SKILLS[id].tags as readonly string[]).includes('enemy'));
+// 印の技の枠は覚えるものではない(はじめから使える)
+const FINDABLE_ACTIVES = ACTIVE_SKILL_IDS.filter((id) => {
+  const tags = ACTIVE_SKILLS[id].tags as readonly string[];
+  return !tags.includes('enemy') && !tags.includes('art');
+});
+
+/**
+ * 印の技を拾う。半分ほどは、ビルドの印の札が生む・使う印の技にする(札がなければどの印でも)
+ */
+export function rollArtFor(random: () => number, build?: Build): MarkArt {
+  const fit = build ? lootFit(build).marks : undefined;
+  const near: MarkId[] = fit ? [...new Set([...fit.using, ...fit.needGivers, ...fit.needUsers])] : [];
+  const mark = near.length > 0 && random() < 0.5 ? near[Math.floor(random() * near.length)]! : MARK_IDS[Math.floor(random() * MARK_IDS.length)]!;
+  return rollMarkArt(random, mark);
+}
+
+/** 見込みの数だけ印の技を拾う。端数は確率で1つ */
+export function rollArts(random: () => number, expected: number, build?: Build): MarkArt[] {
+  const n = Math.floor(expected) + (random() < expected - Math.floor(expected) ? 1 : 0);
+  return Array.from({ length: n }, () => rollArtFor(random, build));
+}
 
 export function isLearned(learned: Learned, id: ActiveSkillId | PassiveId): boolean {
   return (learned.actives as string[]).includes(id) || (learned.passives as string[]).includes(id);
@@ -139,6 +161,8 @@ export interface ExpeditionReport {
   variants: SkillVariant[];
   /** 型の書で覚えた型 */
   forms: FormId[];
+  /** 拾った印の技 */
+  arts: MarkArt[];
   /** 負傷して戻ったなら、治るまでの時間(ミリ秒) */
   injuredFor: number;
 }
@@ -214,6 +238,9 @@ export function finishExpedition(c: Character, learned: Learned, now: number = e
     }
   }
 
+  // 印の技を拾う。強いほど多い
+  const arts = rollArts(rand, def.artChance * y, ex.build ?? c.build);
+
   // 弱いまま危ない所へ行くと、負傷して戻ることがある
   let injuredFor = 0;
   if (rand() < injuryChance(power, ex.destination)) {
@@ -222,7 +249,7 @@ export function finishExpedition(c: Character, learned: Learned, now: number = e
   }
 
   c.expedition = undefined;
-  return { destination: ex.destination, power, yield: y, exp, levelsGained, items, skills, variants, forms, injuredFor };
+  return { destination: ex.destination, power, yield: y, exp, levelsGained, items, skills, variants, forms, arts, injuredFor };
 }
 
 /** 変化が付く技(敵のものでない技) */

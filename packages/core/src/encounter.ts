@@ -8,7 +8,8 @@ import type { PassiveId } from './data/passives';
 import type { SkillVariant } from './data/variations';
 import { LEVEL_RULES, levelReward } from './data/levels';
 import { addExp, lootFit, type Character } from './build';
-import { VARIANT_BASES, learnedForms, rollVariant, unlearnedSkills, type Learned } from './expedition';
+import { VARIANT_BASES, learnedForms, rollArts, rollVariant, unlearnedSkills, type Learned } from './expedition';
+import type { MarkArt } from './data/markArts';
 
 /** 場を片付けてから、次の群れが来るまでの間 */
 export const ENCOUNTER_BREATH = 3000;
@@ -151,6 +152,8 @@ export interface EncounterSpoils {
   skills: (ActiveSkillId | PassiveId)[];
   forms: FormId[];
   variants: SkillVariant[];
+  /** 拾った印の技 */
+  arts: MarkArt[];
 }
 
 /**
@@ -202,5 +205,7 @@ export function claimEncounterReward(e: Encounter, c: Character, learned: Learne
       skills.push(base);
     }
   }
-  return { share, exp, levelsGained, items, skills, forms, variants };
+  // 印の技。レベルが高いほど多く拾える
+  const arts = rollArts(random, (reward.arts ?? 0) * share * scale, c.build);
+  return { share, exp, levelsGained, items, skills, forms, variants, arts };
 }

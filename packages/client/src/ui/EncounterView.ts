@@ -1,4 +1,4 @@
-import { ACTIVE_SKILLS, ENEMIES, FORMS, PASSIVES, variantName, type Breakdown, type Encounter, type EncounterSpoils, type EnemyId } from '@hakusura/core';
+import { ACTIVE_SKILLS, ENEMIES, FORMS, MARKS, PASSIVES, variantName, type Breakdown, type Encounter, type EncounterSpoils, type EnemyId } from '@hakusura/core';
 import { itemIconUrl } from '../art/items';
 import { h } from './dom';
 
@@ -108,6 +108,7 @@ export class EncounterView {
       ...s.skills.map((id) => `覚えた:${skillName(id)}`),
       ...s.forms.map((id) => `型の書:${FORMS[id].name}`),
       ...s.variants.map((v) => `変化つきの技:${variantName(v, ACTIVE_SKILLS[v.base].name)}`),
+      ...s.arts.map((a) => `印の技:${a.name}(${MARKS[a.mark].name}${a.cost})`),
     ];
     return h(
       'section',

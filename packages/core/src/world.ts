@@ -7,6 +7,7 @@ import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits,
 import { WEAPON_TYPES, toWeaponSpec, type WeaponRef, type WeaponSpec, type WeaponTypeDef, type WeaponTypeId } from './data/weapons';
 import { shieldBurstElement, shieldDef, shieldName, type ShieldSpec } from './data/shields';
 import type { SkillVariant } from './data/variations';
+import { artTechnique, type ArtSlot, type MarkArt } from './data/markArts';
 import { enemyDef, type EnemyId } from './data/enemies';
 import { FERVOR, STARTING_FORMS, formDef, masteryLevel, masteryScale, type FormId } from './data/forms';
 import { attributeModifiers, type Attributes } from './data/attributes';
@@ -125,6 +126,8 @@ export interface Unit {
   attributes?: Attributes;
   /** 技の型として使う変化つきの技 */
   variants: Partial<Record<ActiveSkillId, SkillVariant>>;
+  /** 印の技の枠に入れた技(拾った印の技) */
+  arts: Partial<Record<ArtSlot, MarkArt>>;
   /** 技を使った回数 */
   skillUses: Partial<Record<ActiveSkillId, number>>;
   /** 敵の種類。あれば ENEMIES の動き方で自分で歩く */
@@ -515,6 +518,7 @@ export class CombatWorld {
       hand: 0,
       cooldownSpans: {},
       variants: {},
+      arts: {},
       skillUses: {},
       kind: spec.kind,
       mortal: spec.mortal ?? false,
@@ -766,8 +770,20 @@ export class CombatWorld {
   }
 
   /** 印の技なら、消費する印とその数 */
-  markCostOf(_unit: Unit, skillId: ActiveSkillId): { mark: MarkId; amount: number } | undefined {
+  markCostOf(unit: Unit, skillId: ActiveSkillId): { mark: MarkId; amount: number } | undefined {
+    const art = this.artOf(unit, skillId);
+    if (art) return { mark: art.mark, amount: art.cost };
     return (activeSkillDef(skillId) as { markCost?: { mark: MarkId; amount: number } }).markCost;
+  }
+
+  /** 印の技の枠なら、入れている技 */
+  artOf(unit: Unit, skillId: ActiveSkillId): MarkArt | undefined {
+    return skillId in unit.arts ? unit.arts[skillId as ArtSlot] : undefined;
+  }
+
+  /** スキルの呼び名。印の技の枠なら、入れている技の名前 */
+  skillName(unit: Unit, skillId: ActiveSkillId): string {
+    return this.artOf(unit, skillId)?.name ?? activeSkillDef(skillId).name;
   }
 
   /** 印の技なら、消費する印が足りているか */
@@ -788,7 +804,7 @@ export class CombatWorld {
     const cost = this.markCostOf(unit, skillId);
     if (cost) {
       const target = (targetId ? this.units.get(targetId) : undefined) ?? this.tacticTarget(unit) ?? unit;
-      const name = activeSkillDef(skillId).name;
+      const name = this.skillName(unit, skillId);
       this.consumeMarks(unit, cost.mark, cost.amount, name, target, { attacker: unit, skill: name, via: [name], depth: 0 });
     }
     const uses = (unit.skillUses[skillId] ?? 0) + 1;
@@ -999,12 +1015,19 @@ export class CombatWorld {
    * 二刀流で両手とも合うなら、左右交互に出す。使えなければ undefined
    */
   skillFor(unit: Unit, skillId: ActiveSkillId): ResolvedSkill | undefined {
-    const def = activeSkillDef(skillId);
+    let def = activeSkillDef(skillId);
+    // 印の技の枠は、入れた技で出す。空なら出ない
+    const art = (def.tags as readonly string[]).includes('art') ? this.artOf(unit, skillId) : undefined;
+    if ((def.tags as readonly string[]).includes('art')) {
+      if (!art) return undefined;
+      def = artTechnique(art);
+    }
     if (!isTechnique(def)) return resolveSkill(skillId, undefined, unit.attributes);
+    const tech = def;
     const hands: WeaponSpec[] = unit.weapons.length > 0 ? unit.weapons : [{ type: 'fists' }];
-    const fits = hands.filter((w) => techniqueFits(def, w));
+    const fits = hands.filter((w) => techniqueFits(tech, w));
     if (fits.length === 0) return undefined;
-    return resolveSkill(skillId, fits[unit.hand % fits.length], unit.attributes, unit.variants[skillId]);
+    return resolveSkill(skillId, fits[unit.hand % fits.length], unit.attributes, art ? undefined : unit.variants[skillId], art ? tech : undefined);
   }
 
   private executeSkill(pending: PendingAction): void {

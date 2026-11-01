@@ -2,6 +2,7 @@ import type { MarkId } from './data/marks';
 import { conditionDef } from './data/conditions';
 import { ACTIVE_SKILLS, TRUMP_SKILL_IDS, activeSkillDef, isTechnique, techniqueFits, type ActiveSkillDef, type ActiveSkillId } from './data/skills';
 import { variantProblem, type SkillVariant } from './data/variations';
+import { ART_SLOTS, artProblem, artTechnique, type ArtSlot, type MarkArt } from './data/markArts';
 import { PASSIVES, type PassiveId } from './data/passives';
 import { CONDITIONS } from './data/conditions';
 import { ARTIFACTS } from './data/artifacts';
@@ -36,6 +37,8 @@ export interface Build {
   attributes?: Attributes;
   /** 技の型。拾った変化つきの技で、元の技を差し替える */
   variants?: Partial<Record<ActiveSkillId, SkillVariant>>;
+  /** 印の技の枠(壱・弐・参)に入れた、拾った印の技 */
+  arts?: Partial<Record<ArtSlot, MarkArt>>;
 }
 
 /**
@@ -140,7 +143,8 @@ export function lootFit(build: Build): LootFit {
   const categories = new Set<string>();
   const weapons = buildWeapons(build);
   for (const id of [...build.actives, ...(build.trump ? [build.trump] : [])]) {
-    const def: ActiveSkillDef = activeSkillDef(id);
+    const def = buildSkillDef(build, id);
+    if (!def) continue;
     if (isTechnique(def)) {
       const fits = weapons.filter((w) => techniqueFits(def, w));
       if (fits.length === 0) continue;
@@ -205,9 +209,18 @@ export function buildShields(build: Build): ShieldSpec[] {
 export function unusableActives(build: Build): ActiveSkillId[] {
   const weapons = buildWeapons(build);
   return build.actives.filter((id) => {
-    const def = activeSkillDef(id);
-    return isTechnique(def) && !weapons.some((w) => techniqueFits(def, w));
+    const def = buildSkillDef(build, id);
+    return !def || (isTechnique(def) && !weapons.some((w) => techniqueFits(def, w)));
   });
+}
+
+/** ビルドでのスキルの定義。印の技の枠なら入れた技、空の枠なら undefined */
+export function buildSkillDef(build: Build, id: ActiveSkillId): ActiveSkillDef | undefined {
+  if ((ART_SLOTS as string[]).includes(id)) {
+    const art = build.arts?.[id as ArtSlot];
+    return art ? artTechnique(art) : undefined;
+  }
+  return activeSkillDef(id);
 }
 
 /**
@@ -232,6 +245,7 @@ export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   unit.trump = build.trump;
   unit.attributes = { ...(build.attributes ?? baseAttributes()) };
   unit.variants = { ...(build.variants ?? {}) };
+  unit.arts = { ...(build.arts ?? {}) };
   // 武器と盾の数で持ち方が決まる。二刀流で左右の補正値の合計が同じなら、そのタグも付く
   const weapons = (['weapon1', 'weapon2'] as const).map((s) => build.equipment[s]).filter((i): i is Item => !!i && !i.artifact && !!i.weaponType);
   unit.weapons = weapons.map((i) => itemWeapon(i)!);
@@ -334,6 +348,14 @@ function validateBuild(raw: unknown): string | null {
       if (!def || !isTechnique(def) || !v || v.base !== id || typeof v.id !== 'string') return '技の型が壊れている';
       const problem = variantProblem(v, def.technique);
       if (problem) return `技の型:${problem}`;
+    }
+  }
+  if (b.arts !== undefined) {
+    if (!b.arts || typeof b.arts !== 'object') return '印の技が壊れている';
+    for (const [slot, a] of Object.entries(b.arts as Record<string, unknown>)) {
+      if (!(ART_SLOTS as string[]).includes(slot)) return '知らない印の技の枠がある';
+      const problem = artProblem(a);
+      if (problem) return `印の技:${problem}`;
     }
   }
   for (const t of b.tactics as Tactic[]) {

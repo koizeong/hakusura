@@ -37,6 +37,7 @@ export class Hud {
   private mode: BattleMode = 'auto';
   /** 自動のときに並べる、作戦のスキルのクールダウン */
   private autoSkills = new Map<ActiveSkillId, { shade: HTMLElement; marks: HTMLElement; chip: HTMLElement }>();
+  private autoKey = '';
   private autoBar: HTMLElement;
   private trumpButton: HTMLButtonElement;
   /** 自動のときのステップ。切り札の隣に置く */
@@ -156,7 +157,7 @@ export class Hud {
   }
 
   /** 手動のときの6枠。ビルドのアクティブを順に入れる */
-  setSlots(skills: readonly (ActiveSkillId | null)[]): void {
+  setSlots(skills: readonly (ActiveSkillId | null)[], nameOf?: (skill: ActiveSkillId) => string): void {
     this.slotSkills = ACTIVE_SLOT_ACTIONS.map((_, i) => skills[i] ?? null);
     this.slots = [];
     this.activeSlots.replaceChildren(
@@ -169,7 +170,7 @@ export class Hud {
           { class: `slot${def ? '' : ' empty'}` },
           view.shade,
           view.key,
-          h('span', { class: 'name' }, def?.name ?? '—'),
+          h('span', { class: 'name' }, skill && nameOf ? nameOf(skill) : (def?.name ?? '—')),
           h('span', { class: 'cat' }, def ? SKILL_CATEGORIES[def.category] : ''),
         );
       }),
@@ -286,13 +287,16 @@ export class Hud {
   /** 作戦に入っているスキルを1つずつ並べ、クールダウンを見せる */
   private updateAutoSkills(world: CombatWorld, player: Unit, cooldownLeft: (skill: ActiveSkillId) => number): void {
     const skills = [...new Set(player.tactics.filter((t) => t.enabled && player.actives.includes(t.skill)).map((t) => t.skill))];
-    if (skills.join() !== [...this.autoSkills.keys()].join()) {
+    // 印の技の枠は、入れた技が替われば作り直す
+    const key = skills.map((s) => world.skillName(player, s)).join();
+    if (key !== this.autoKey) {
+      this.autoKey = key;
       this.autoSkills.clear();
       this.autoBar.replaceChildren(
         ...skills.map((skill) => {
           const shade = h('div', { class: 'shade' });
           const marks = h('span', { class: 'mark-need' });
-          const chip = h('div', { class: 'chip' }, shade, h('span', { class: 'name' }, ACTIVE_SKILLS[skill].name), marks);
+          const chip = h('div', { class: 'chip' }, shade, h('span', { class: 'name' }, world.skillName(player, skill)), marks);
           this.autoSkills.set(skill, { shade, marks, chip });
           return chip;
         }),

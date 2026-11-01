@@ -21,6 +21,8 @@ export interface EncounterReward {
   formChance: number;
   /** 変化つきの技の数 */
   variants: number;
+  /** 印の技の数 */
+  arts?: number;
   /** 時間切れで終えたときに持ち帰る割合 */
   partial: number;
 }
@@ -113,6 +115,7 @@ export const ENCOUNTERS = {
       skillChance: 0.6,
       formChance: 0.5,
       variants: 1,
+      arts: 2,
       partial: 0.25,
     },
   },

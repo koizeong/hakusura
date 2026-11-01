@@ -16,6 +16,7 @@ export * from './weapons';
 export * from './attributes';
 export * from './expeditions';
 export * from './variations';
+export * from './markArts';
 export * from './enemies';
 export * from './encounters';
 export * from './shields';

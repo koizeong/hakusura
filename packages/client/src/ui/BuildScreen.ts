@@ -24,6 +24,7 @@ import {
   techniqueFits,
   techniqueRequirement,
   unusableActives,
+  buildSkillDef,
   benefitOf,
   buildProblems,
   canEquip,
@@ -98,6 +99,13 @@ import {
   type ExpeditionReport,
   type PassiveId,
   VARIANT_BASES,
+  ART_SLOTS,
+  ART_SLOT_NAMES,
+  artDescription,
+  artNeeds,
+  rollMarkArt,
+  type ArtSlot,
+  type MarkArt,
   rollVariant,
   variantCost,
   variantName,
@@ -770,8 +778,8 @@ export class BuildScreen {
       if (missingPoints(weaponDef(w).needs, preview)) shortages.push(`${weaponDef(w).name}:要 ${needsText(weaponDef(w).needs)}`);
     }
     for (const id of [...build.actives, ...(build.trump ? [build.trump] : [])]) {
-      const def = activeSkillDef(id);
-      if (missingPoints(def.needs, preview)) shortages.push(`${def.name}:要 ${needsText(def.needs)}`);
+      const def = buildSkillDef(build, id);
+      if (def && missingPoints(def.needs, preview)) shortages.push(`${def.name}:要 ${needsText(def.needs)}`);
     }
     const atMax = c.level >= R.maxLevel;
     return h(
@@ -832,7 +840,8 @@ export class BuildScreen {
     const ids = unusableActives(this.build);
     if (ids.length === 0) return '';
     const names = ids.map((id) => {
-      const def = activeSkillDef(id);
+      const def = buildSkillDef(this.build, id);
+      if (!def) return `${ART_SLOT_NAMES[id as ArtSlot]}(空き)`;
       return isTechnique(def) ? `${def.name}(${techniqueRequirement(def, (e) => ELEMENTS[e].name)}が要る)` : def.name;
     });
     return h('p', { class: 'problems' }, `今の武器では出ない:${names.join('、')}`);
@@ -856,7 +865,8 @@ export class BuildScreen {
       sortSelect('並べ方', SKILL_SORTS, this.sort.skills, (v) => this.setSort('skills', v)),
       h('h3', {}, 'アクティブ'),
       h('p', { class: 'note' }, `技は武器の速さ・範囲・属性で出る。今の武器:${buildWeapons(build).map((w) => weaponDef(w).name).join('・')}`),
-      ...this.sortSkills(BUILD_ACTIVE_IDS, build.actives, (id) => activeSkillDef(id).name, (id) => this.activeUsable(id), (id) => activeSkillDef(id).category).map((id) => {
+      this.renderArtSlots(),
+      ...this.sortSkills(BUILD_ACTIVE_IDS.filter((id) => !(ART_SLOTS as string[]).includes(id)), build.actives, (id) => activeSkillDef(id).name, (id) => this.activeUsable(id), (id) => activeSkillDef(id).category).map((id) => {
         const def = activeSkillDef(id);
         let detail: string;
         let usable = true;
@@ -918,7 +928,141 @@ export class BuildScreen {
         );
       }),
       isUnlocked(this.host.state, 'variants') ? this.renderTechniqueStash() : '',
+      this.renderArtStash(),
     );
+  }
+
+  /** スキルの呼び名。印の技の枠なら、入れた技の名前を添える */
+  private skillName(id: ActiveSkillId): string {
+    const art = (ART_SLOTS as string[]).includes(id) ? this.build.arts?.[id as ArtSlot] : undefined;
+    return art ? `${art.name}(${MARKS[art.mark].name}${art.cost})` : activeSkillDef(id).name;
+  }
+
+  /**
+   * 印の技の枠。拾った印の技を入れ、アクティブに入れれば作戦で出る。
+   * 印5で回し続ける技も、印100を貯めて撃つ大技も、この3つの枠のどれかに入れる
+   */
+  private renderArtSlots(): HTMLElement {
+    const build = this.build;
+    const owned = this.host.state.markArts ?? [];
+    return h(
+      'section',
+      { class: 'art-slots' },
+      h('h3', {}, '印の技の枠'),
+      h('p', { class: 'note' }, '拾った印の技を入れる。印を多く使う技ほど急に重くなる。小さく回し続けるか、貯めて大技を撃つか'),
+      ...ART_SLOTS.map((slot) => {
+        const current = build.arts?.[slot];
+        // ビルドコードから読み込んだ技は、蓄えになくても選べるままにする
+        const options = current && !owned.some((a) => a.id === current.id) ? [current, ...owned] : owned;
+        const taken = (a: MarkArt) => ART_SLOTS.some((o) => o !== slot && build.arts?.[o]?.id === a.id);
+        const usable = !this.unusable().includes(slot);
+        const needs = current ? artNeeds(current) : undefined;
+        return h(
+          'div',
+          { class: `skill-row art-slot${current && !usable ? ' unusable' : ''}` },
+          h('input', {
+            type: 'checkbox',
+            disabled: !current && !build.actives.includes(slot),
+            checked: build.actives.includes(slot),
+            onchange: (e: Event) => {
+              const on = (e.target as HTMLInputElement).checked;
+              const i = build.actives.indexOf(slot);
+              if (on && i < 0) build.actives.push(slot);
+              if (!on && i >= 0) build.actives.splice(i, 1);
+              this.changed();
+            },
+          }),
+          h(
+            'span',
+            {},
+            ART_SLOT_NAMES[slot],
+            current
+              ? h('span', { class: 'mark-cost', style: `border-color:${markColor(current.mark)};color:${markColor(current.mark)}` }, `${MARKS[current.mark].name}×${current.cost}`)
+              : '',
+          ),
+          h(
+            'select',
+            {
+              onchange: (e: Event) => {
+                const a = options.find((o) => o.id === (e.target as HTMLSelectElement).value);
+                build.arts = { ...(build.arts ?? {}) };
+                if (a) {
+                  build.arts[slot] = a;
+                  // 空きの枠に入れたら、アクティブに入れ、印が溜まれば撃つ作戦を先頭に置く(印が足りない間は次の行へ進む)
+                  if (!build.actives.includes(slot) && build.actives.length < BUILD_LIMITS.actives) build.actives.push(slot);
+                  if (!build.tactics.some((t) => t.skill === slot)) build.tactics.unshift({ skill: slot, condition: 'always', enabled: true });
+                } else {
+                  delete build.arts[slot];
+                  build.actives = build.actives.filter((x) => x !== slot);
+                }
+                this.changed();
+              },
+            },
+            h('option', { value: '' }, '(空き)'),
+            ...[...options]
+              .sort((a, b) => a.mark.localeCompare(b.mark) || a.cost - b.cost)
+              .map((a) => h('option', { value: a.id, selected: a.id === current?.id, disabled: taken(a) }, `${a.name}・${MARKS[a.mark].name}${a.cost}`)),
+          ),
+          h(
+            'small',
+            {},
+            current
+              ? `${needs ? `要 ${needsText(needs)}・` : ''}${artDescription(current)}${usable ? '' : '・今の武器では出ない'}`
+              : '空き。下の蓄えから選ぶ',
+          ),
+        );
+      }),
+    );
+  }
+
+  /** 今の武器では使えない技(印の技の枠を含む) */
+  private unusable(): ActiveSkillId[] {
+    return unusableActives({ ...this.build, actives: [...ART_SLOTS] });
+  }
+
+  /** 拾った印の技の蓄え。全キャラで共有する */
+  private renderArtStash(): HTMLElement {
+    const { state } = this.host;
+    const arts = state.markArts ?? [];
+    const inUse = (a: MarkArt) => state.characters.filter((c) => Object.values(c.build.arts ?? {}).some((u) => u?.id === a.id));
+    return h(
+      'section',
+      { class: 'technique-stash' },
+      h('h3', {}, `印の技(${arts.length})`),
+      h('p', { class: 'note' }, '遠征や大物から拾う。拾うたびに使う印の数・形・癖が変わる。全キャラで共有する'),
+      ...arts.map((a) => {
+        const users = inUse(a);
+        return h(
+          'div',
+          { class: 'skill-row' },
+          h('span', {}, a.name, h('span', { class: 'mark-cost', style: `border-color:${markColor(a.mark)};color:${markColor(a.mark)}` }, `${MARKS[a.mark].name}×${a.cost}`)),
+          h('small', {}, `${artDescription(a)}${users.length > 0 ? `・${users.map((c) => c.name).join('・')}が使用中` : ''}`),
+          h('button', { onclick: () => this.discardArt(a) }, '捨てる'),
+        );
+      }),
+      h('button', { onclick: () => this.lootArt() }, '印の技を1つ拾う(試し)'),
+    );
+  }
+
+  private lootArt(): void {
+    const { state } = this.host;
+    state.markArts = [rollMarkArt(() => this.host.random()), ...(state.markArts ?? [])];
+    this.changed();
+  }
+
+  private discardArt(a: MarkArt): void {
+    const { state } = this.host;
+    state.markArts = (state.markArts ?? []).filter((x) => x.id !== a.id);
+    // 着けていたキャラからも外す
+    for (const c of state.characters) {
+      for (const slot of ART_SLOTS) {
+        if (c.build.arts?.[slot]?.id === a.id) {
+          delete c.build.arts[slot];
+          c.build.actives = c.build.actives.filter((x) => x !== slot);
+        }
+      }
+    }
+    this.changed();
   }
 
   /** アクティブが今使えるか。覚えていて、技なら今の武器で出る */
@@ -1029,6 +1173,7 @@ export class BuildScreen {
   private renderTactics(): HTMLElement {
     const build = this.build;
     const editor = createTacticsEditor(build.tactics, {
+      skillName: (id) => this.skillName(id),
       skills: () => build.actives,
       // 型は初めて決めるまで伏せておく
       forms: () => (isUnlocked(this.host.state, 'forms') ? learnedForms(this.host.state.learned) : []),
@@ -1282,6 +1427,7 @@ export class BuildScreen {
     this.host.state.stash.unshift(...report.items);
     this.host.state.techniques.unshift(...report.variants);
     unlock(this.host.state, 'variants');
+    this.host.state.markArts = [...report.arts, ...(this.host.state.markArts ?? [])];
     this.lastReport = { name: c.name, level: c.level, report };
     this.changed();
   }
@@ -1302,6 +1448,7 @@ export class BuildScreen {
       ...r.report.variants.map((v) =>
         h('p', { class: 'found' }, `変化つきの技:${variantName(v, activeSkillDef(v.base).name)}(${variantText(v)})`),
       ),
+      ...r.report.arts.map((a) => h('p', { class: 'found' }, `印の技:${a.name}(${artDescription(a)})`)),
       r.report.injuredFor > 0
         ? h('p', { class: 'injured' }, `深い傷を負って戻った。${Math.ceil(r.report.injuredFor / 60000)}分は戦えず、遠征にも出せない`)
         : '',
@@ -1357,6 +1504,8 @@ export class BuildScreen {
             for (const item of Object.values(result.build.equipment)) if (item && !known.has(item.id)) state.stash.unshift(item);
             // 変化つきの技も蓄えに入れる
             for (const v of Object.values(result.build.variants ?? {})) if (v && !state.techniques.some((t) => t.id === v.id)) state.techniques.unshift(v);
+            // 印の技も蓄えに入れる
+            for (const a of Object.values(result.build.arts ?? {})) if (a && !(state.markArts ?? []).some((t) => t.id === a.id)) state.markArts = [a, ...(state.markArts ?? [])];
             // 能力値はキャラのもの。読み込むのは装備・スキル・作戦・切り札だけ
             this.character.build = { ...result.build, attributes: this.build.attributes };
             this.codeMessage = '読み込んだ';

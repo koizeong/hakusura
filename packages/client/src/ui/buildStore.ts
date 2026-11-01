@@ -10,6 +10,9 @@ import {
   generateItem,
   lootFit,
   rollVariant,
+  rollMarkArt,
+  starterArts,
+  type MarkArt,
   type SkillVariant,
   levelForPoints,
   newCharacter,
@@ -31,6 +34,8 @@ export interface BuildState {
   learned: Learned;
   /** 拾った変化つきの技。全キャラで共有し、ビルドで技の型として差し替える */
   techniques: SkillVariant[];
+  /** 拾った印の技。全キャラで共有し、ビルドの印の技の枠(壱・弐・参)に入れる */
+  markArts?: MarkArt[];
   /**
    * 開いた仕組み。最初は伏せておき、遊ぶうちに開く(遠征は一戦を終えたら、型は初めて決めたら、変化つきの技は遠征から戻ったら)。
    * 持たない古い保存は、全て開いているとみなす
@@ -148,7 +153,9 @@ function initialState(random: () => number): BuildState {
   const first = migrate(characterName(0), build, Date.now());
   // 変化つきの技も、試せるよう少し持たせておく
   const techniques = (['slash', 'sweep', 'shoot'] as const).map((base) => rollVariant(random, base));
-  return { characters: [first], current: 0, stash: [...starterWeapons, ...weaponSamples, ...shieldSamples, ...artifacts, ...loot], learned: startingLearned(), techniques, unlocked: [] };
+  // 印の技は、印ごとの軽い技に、拾い物を少し足して始める
+  const markArts = [...starterArts(), ...Array.from({ length: 3 }, () => rollMarkArt(random))];
+  return { characters: [first], current: 0, stash: [...starterWeapons, ...weaponSamples, ...shieldSamples, ...artifacts, ...loot], learned: startingLearned(), techniques, markArts, unlocked: [] };
 }
 
 export function loadBuildState(random: () => number): BuildState {
@@ -160,6 +167,7 @@ export function loadBuildState(random: () => number): BuildState {
       // 後から最初の持ち物に足したスキル(儀式など)は、古い保存でも覚えていることにする
       for (const id of STARTING_SKILLS.actives) if (!saved.learned.actives.includes(id)) saved.learned.actives.push(id);
       saved.techniques ??= [];
+      saved.markArts ??= starterArts();
       saved.learned.forms ??= [...STARTING_FORMS];
       // 戦える者を選んでおく(負傷の間は戦えない)
       if (!canFight(saved.characters[saved.current]!, Date.now())) {
@@ -171,11 +179,11 @@ export function loadBuildState(random: () => number): BuildState {
     const now = Date.now();
     const oldChars = JSON.parse(localStorage.getItem(OLD_CHARACTERS_KEY) ?? 'null') as { characters: { name: string; build: Build }[]; stash: Item[] } | null;
     if (oldChars && Array.isArray(oldChars.characters) && oldChars.characters.length > 0 && Array.isArray(oldChars.stash)) {
-      return { characters: oldChars.characters.map((c) => migrate(c.name, c.build, now)), current: 0, stash: oldChars.stash, learned: startingLearned(), techniques: [] };
+      return { characters: oldChars.characters.map((c) => migrate(c.name, c.build, now)), current: 0, stash: oldChars.stash, learned: startingLearned(), techniques: [], markArts: starterArts() };
     }
     const old = JSON.parse(localStorage.getItem(OLD_BUILDS_KEY) ?? 'null') as { presets: { name: string; build: Build }[]; stash: Item[] } | null;
     if (old && Array.isArray(old.presets) && old.presets.length > 0 && Array.isArray(old.stash)) {
-      return { characters: old.presets.map((p, i) => migrate(p.name || characterName(i), p.build, now)), current: 0, stash: old.stash, learned: startingLearned(), techniques: [] };
+      return { characters: old.presets.map((p, i) => migrate(p.name || characterName(i), p.build, now)), current: 0, stash: old.stash, learned: startingLearned(), techniques: [], markArts: starterArts() };
     }
   } catch {
     // 読めなければ最初の支度にする
