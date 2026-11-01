@@ -6,7 +6,8 @@ import { ENEMIES } from '../data/enemies';
 import { ARCHETYPES } from './archetypes';
 import { measureField, outfit, reportArchetype, runEncounter } from './simulate';
 import { measureSingle, theoreticalMax, THEORY } from './theory';
-import { COMBO_BUILDS, withConditions } from './comboBuilds';
+import { COMBO_BUILDS, withArt, withConditions } from './comboBuilds';
+import { ACTIVE_SKILLS } from '../data/skills';
 import { MARKS, type MarkId } from '../data/marks';
 import { measureBuildPower } from '../expedition';
 import { measureLoadout } from '../loadout';
@@ -251,17 +252,18 @@ describe.skipIf(!process.env.SIM_COMBO)('印と型のビルド', () => {
       const bare = avg(c.build);
       const givers = avg(withConditions(c.build, c.givers));
       const full = avg(withConditions(c.build, c.full));
+      const art = avg(withArt(withConditions(c.build, c.full), c.art));
       const marks = (o: Record<string, number>) => Object.entries(o).map(([k, v]) => `${MARKS[k as MarkId].name}${Math.round(v)}`).join('・') || '—';
       rows.push(
-        `| ${c.name} | ${n0(bare.dps)} | ${n0(givers.dps)} | ${n0(full.dps)} | ×${(full.dps / Math.max(1, bare.dps)).toFixed(2)} | ${full.falls.toFixed(1)} | ${marks(full.gained)} | ${marks(full.spent)} | ${Object.entries(full.forms).map(([k, v]) => `${k}${Math.round(v)}`).join('・') || '—'} |`,
+        `| ${c.name} | ${n0(bare.dps)} | ${n0(givers.dps)} | ${n0(full.dps)} | ${n0(art.dps)}(${ACTIVE_SKILLS[c.art].name}) | ×${(art.dps / Math.max(1, bare.dps)).toFixed(2)} | ${art.falls.toFixed(1)} | ${marks(art.gained)} | ${marks(art.spent)} | ${Object.entries(art.forms).map(([k, v]) => `${k}${Math.round(v)}`).join('・') || '—'} |`,
       );
       notes.push(`- **${c.name}**:${c.idea}。揃えの傷の出どころ:${full.sources.map(([k, v]) => `${k} ${pct(v)}`).join('、')}。効いた札:${full.via.map(([k, v]) => `${k} ${pct(v)}`).join('、') || '—'}`);
     }
     console.log(
       [
         '<<<REPORT',
-        '| ビルド | 札なし | 生む札だけ | 揃え | 揃え/札なし | 倒れた | 印を得た回数 | 印を使った数 | 型 |',
-        '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+        '| ビルド | 札なし | 生む札だけ | 揃え | 揃え+印の技 | 揃え+印の技/札なし | 倒れた | 印を得た回数 | 印を使った数 | 型 |',
+        '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
         ...rows,
         '',
         ...notes,

@@ -89,8 +89,8 @@ export type Action =
   | { type: 'quicken'; scale: number; charges: number; duration: number }
   /** 持ち主が印を得る */
   | { type: 'gainMark'; mark: MarkId; amount: number }
-  /** 持ち主の印を全て使う。min に足りなければ使わない。1つにつき each を行う */
-  | { type: 'spendMarks'; mark: MarkId; min?: number; each?: readonly Action[] };
+  /** 持ち主の印を amount 使う(なければ min、それもなければ全て)。min に足りなければ使わない。1つにつき each を行う */
+  | { type: 'spendMarks'; mark: MarkId; min?: number; amount?: number; each?: readonly Action[] };
 
 interface RuleBase {
   /** 内訳や戦闘中の表示に出る名前 */

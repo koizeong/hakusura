@@ -1943,3 +1943,18 @@ button.discard {
   font-size: 11px;
   white-space: nowrap;
 }
+
+/* 印の技の、あといくつ要るか */
+.chip .mark-need {
+  display: block;
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+.chip.starved {
+  opacity: 0.55;
+}
+
+.chip.charged {
+  box-shadow: 0 0 6px rgba(232, 200, 112, 0.8);
+}

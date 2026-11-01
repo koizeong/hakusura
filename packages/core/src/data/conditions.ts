@@ -493,42 +493,42 @@ const HANDMADE = {
   // 使う(溜めて吐く)
   emberBurst: {
     no: 331,
-    text: '〈熾り〉が5つ溜まると、次に当てたとき全て使い、1つにつき火の追撃を落とす',
+    text: '〈熾り〉が5つ以上あれば、次に当てたとき5つ使い、1つにつき火の追撃を落とす',
     cost: 40,
     marks: { uses: ['ember'] },
     rule: {
       label: '熾火の破裂',
       on: 'hit',
       when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'ember', min: 5 }],
-      do: [{ type: 'spendMarks', mark: 'ember', min: 5, each: [{ type: 'strike', element: 'fire', power: 40, buildup: 30 }] }],
+      do: [{ type: 'spendMarks', mark: 'ember', min: 5, amount: 5, each: [{ type: 'strike', element: 'fire', power: 40, buildup: 30 }] }],
     },
   },
   edgeRelease: {
     no: 332,
-    text: '〈研ぎ〉が5つ溜まると、次に当てた技が全て使い、5回多く当たる',
+    text: '〈研ぎ〉が5つ以上あれば、次に当てた技が5つ使い、5回多く当たる',
     cost: 40,
     marks: { uses: ['edge'] },
     rule: {
       label: '研ぎ放ち',
       on: 'hit',
       when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'edge', min: 5 }, { type: 'hitLacksTag', tag: 'repeat' }],
-      do: [{ type: 'spendMarks', mark: 'edge', min: 5, each: [{ type: 'repeatHit', power: 0.8, times: 1 }] }],
+      do: [{ type: 'spendMarks', mark: 'edge', min: 5, amount: 5, each: [{ type: 'repeatHit', power: 0.8, times: 1 }] }],
     },
   },
   bloodOffering: {
     no: 333,
-    text: '〈血潮〉が5つ溜まると、全て使い、1つにつき最大HPの4%を回復する',
+    text: '〈血潮〉が5つ以上あれば、5つ使い、1つにつき最大HPの4%を回復する',
     cost: 30,
     marks: { uses: ['blood'] },
-    rule: { label: '血の捧げ', on: 'hit', when: [{ type: 'selfMarks', mark: 'blood', min: 5 }], do: [{ type: 'spendMarks', mark: 'blood', min: 5, each: [{ type: 'heal', ratio: 0.04 }] }] },
+    rule: { label: '血の捧げ', on: 'hit', when: [{ type: 'selfMarks', mark: 'blood', min: 5 }], do: [{ type: 'spendMarks', mark: 'blood', min: 5, amount: 5, each: [{ type: 'heal', ratio: 0.04 }] }] },
   },
   prayerJudgement: {
     no: 334,
-    text: '〈祈り〉が5つ溜まると、次に当てた攻撃が3倍になり、全て使う',
+    text: '〈祈り〉が5つ以上あれば、次に当てた攻撃が3倍になり、5つ使う',
     cost: 40,
     marks: { uses: ['prayer'] },
     rule: { label: '祈りの裁き', on: 'damage', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'prayer', min: 5 }], add: 2 },
-    extraRules: [{ label: '祈りの裁き', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'prayer', min: 5 }], do: [{ type: 'spendMarks', mark: 'prayer', min: 5 }] }],
+    extraRules: [{ label: '祈りの裁き', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'prayer', min: 5 }], do: [{ type: 'spendMarks', mark: 'prayer', min: 5, amount: 5 }] }],
   },
   // 使うたびに(印を吐いたときに働く札。吐く札が別の札の燃料になり、印の流れが輪になる)
   spentPrayer: {
@@ -669,14 +669,14 @@ const HANDMADE = {
   },
   stillVolley: {
     no: 366,
-    text: '〈静寂〉が5つ溜まると、次に当てた遠攻撃が全て使い、1つにつき刺の追撃を落とす',
+    text: '〈静寂〉が5つ以上あれば、次に当てた遠攻撃が5つ使い、1つにつき刺の追撃を落とす',
     cost: 40,
     marks: { uses: ['stillness'] },
     rule: {
       label: '静寂の矢雨',
       on: 'hit',
       when: [{ type: 'hitHasTag', tag: 'ranged' }, { type: 'hitHasTag', tag: 'attack' }, { type: 'selfMarks', mark: 'stillness', min: 5 }],
-      do: [{ type: 'spendMarks', mark: 'stillness', min: 5, each: [{ type: 'strike', element: 'pierce', power: 35, buildup: 20 }] }],
+      do: [{ type: 'spendMarks', mark: 'stillness', min: 5, amount: 5, each: [{ type: 'strike', element: 'pierce', power: 35, buildup: 20 }] }],
     },
   },
   // 変える

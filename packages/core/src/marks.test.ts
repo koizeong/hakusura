@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld } from './world';
-import { MARKS } from './data/marks';
+import { MARKS, MARK_RULES } from './data/marks';
 import { conditionDef, conditionStacking, type ConditionId } from './data/conditions';
 import { FORMS, MASTERY, masteryLevel } from './data/forms';
 
@@ -27,24 +27,25 @@ describe('印', () => {
     const { w, p, swing } = duel(['honeEdge']);
     swing();
     expect(w.marksOf(p, 'edge')).toBe(1);
-    for (let i = 0; i < 8; i++) swing();
+    w.gainMark(p, 'edge', 500);
     expect(w.marksOf(p, 'edge')).toBe(MARKS.edge.max);
     run(w, MARKS.edge.duration + 100);
     expect(w.marksOf(p, 'edge')).toBe(0);
   });
 
-  it('使う札は、生む札がなければ働かない。揃えると効く', () => {
-    const total = (conditions: ConditionId[]) => {
-      const { w, swing } = duel(conditions);
-      for (let i = 0; i < 6; i++) swing();
+  it('使う札は、印がなければ働かない。1つにつきの札は10まで数える', () => {
+    const total = (conditions: ConditionId[], edges: number) => {
+      const { w, p, swing } = duel(conditions);
+      if (edges > 0) w.gainMark(p, 'edge', edges);
       const before = w.log.length;
       swing();
       return w.log.slice(before).filter((r) => r.depth === 0).reduce((s, r) => s + r.amount, 0);
     };
-    const plain = total([]);
-    expect(total(['keenEdge'])).toBeCloseTo(plain, 5);
-    // 研ぎ5つで +75%
-    expect(total(['honeEdge', 'keenEdge']) / plain).toBeCloseTo(1.75, 1);
+    const plain = total([], 0);
+    expect(total(['keenEdge'], 0)).toBeCloseTo(plain, 5);
+    // 研ぎ4つで +60%、20あっても数えるのは10まで(+150%)
+    expect(total(['keenEdge'], 4) / plain).toBeCloseTo(1.6, 2);
+    expect(total(['keenEdge'], 20) / plain).toBeCloseTo(1 + 0.15 * MARK_RULES.perMarkCap, 2);
   });
 
   it('変える札:血潮を得るたび研ぎも得る(連鎖は上限の段まで)', () => {
@@ -53,15 +54,15 @@ describe('印', () => {
     expect(w.marksOf(p, 'edge')).toBe(1);
   });
 
-  it('吐く札:研ぎが5つ溜まると全て使い、5回多く当たる', () => {
-    const { w, p, swing } = duel(['honeEdge', 'edgeRelease']);
-    for (let i = 0; i < 4; i++) swing();
-    w.gainMark(p, 'edge', 5);
+  it('吐く札:研ぎが5つ以上あれば5つ使い、5回多く当たる(多く溜めても5つだけ)', () => {
+    const { w, p, swing } = duel(['edgeRelease']);
+    w.gainMark(p, 'edge', 7);
     const before = w.log.length;
     swing();
-    const hits = w.log.slice(before).filter((r) => r.via.includes('研ぎ放ち'));
+    // 出血のように、追加のヒットから広がった傷は数えない
+    const hits = w.log.slice(before).filter((r) => r.via.includes('研ぎ放ち') && r.tags.includes('repeat'));
     expect(hits).toHaveLength(5);
-    expect(w.marksOf(p, 'edge')).toBeLessThanOrEqual(1);
+    expect(w.marksOf(p, 'edge')).toBe(2);
   });
 
   it('倒れると印を失う', () => {
@@ -212,7 +213,9 @@ describe('印の技', () => {
     const { w, p } = duel(['spentPrayer']);
     p.cooldowns = {};
     expect(w.canUseSkill('p', 'edgeSever')).toBe(false);
-    w.gainMark(p, 'edge', 4);
+    w.gainMark(p, 'edge', 14);
+    expect(w.canUseSkill('p', 'edgeSever')).toBe(false);
+    w.gainMark(p, 'edge', 2);
     expect(w.canUseSkill('p', 'edgeSever')).toBe(true);
     w.useSkill('p', 'edgeSever', w.units.get('t')!, 't');
     expect(w.marksOf(p, 'edge')).toBe(1);

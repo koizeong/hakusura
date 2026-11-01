@@ -36,7 +36,7 @@ export class Hud {
   private lockKey = '';
   private mode: BattleMode = 'auto';
   /** 自動のときに並べる、作戦のスキルのクールダウン */
-  private autoSkills = new Map<ActiveSkillId, HTMLElement>();
+  private autoSkills = new Map<ActiveSkillId, { shade: HTMLElement; marks: HTMLElement; chip: HTMLElement }>();
   private autoBar: HTMLElement;
   private trumpButton: HTMLButtonElement;
   /** 自動のときのステップ。切り札の隣に置く */
@@ -215,7 +215,7 @@ export class Hud {
       this.dodge.shade.style.height = `${(Math.max(0, dodgeReadyAt - world.time) / this.dodgeCooldown) * 100}%`;
       this.guard.shade.parentElement!.classList.toggle('active', player.guardSince !== null);
     } else {
-      this.updateAutoSkills(player, cooldownLeft);
+      this.updateAutoSkills(world, player, cooldownLeft);
       const trumpLeft = this.trump ? cooldownLeft(this.trump) : 1;
       this.trumpShade.style.height = `${trumpLeft * 100}%`;
       this.trumpButton.disabled = !this.trump || trumpLeft > 0;
@@ -284,18 +284,32 @@ export class Hud {
   }
 
   /** 作戦に入っているスキルを1つずつ並べ、クールダウンを見せる */
-  private updateAutoSkills(player: Unit, cooldownLeft: (skill: ActiveSkillId) => number): void {
+  private updateAutoSkills(world: CombatWorld, player: Unit, cooldownLeft: (skill: ActiveSkillId) => number): void {
     const skills = [...new Set(player.tactics.filter((t) => t.enabled && player.actives.includes(t.skill)).map((t) => t.skill))];
     if (skills.join() !== [...this.autoSkills.keys()].join()) {
       this.autoSkills.clear();
       this.autoBar.replaceChildren(
         ...skills.map((skill) => {
           const shade = h('div', { class: 'shade' });
-          this.autoSkills.set(skill, shade);
-          return h('div', { class: 'chip' }, shade, h('span', { class: 'name' }, ACTIVE_SKILLS[skill].name));
+          const marks = h('span', { class: 'mark-need' });
+          const chip = h('div', { class: 'chip' }, shade, h('span', { class: 'name' }, ACTIVE_SKILLS[skill].name), marks);
+          this.autoSkills.set(skill, { shade, marks, chip });
+          return chip;
         }),
       );
     }
-    for (const [skill, shade] of this.autoSkills) shade.style.height = `${cooldownLeft(skill) * 100}%`;
+    for (const [skill, view] of this.autoSkills) {
+      view.shade.style.height = `${cooldownLeft(skill) * 100}%`;
+      // 印の技は、印があといくつ要るかを出す。足りない間は暗く、溜まったら光る
+      const cost = world.markCostOf(player, skill);
+      if (cost) {
+        const have = world.marksOf(player, cost.mark);
+        const text = `${MARKS[cost.mark].name} ${Math.min(have, cost.amount)}/${cost.amount}`;
+        if (view.marks.textContent !== text) view.marks.textContent = text;
+        view.marks.style.color = `#${MARKS[cost.mark].color.toString(16).padStart(6, '0')}`;
+        view.chip.classList.toggle('starved', have < cost.amount);
+        view.chip.classList.toggle('charged', have >= cost.amount);
+      }
+    }
   }
 }

@@ -22,7 +22,7 @@ import { CONDITION_ADD_GROUP, conditionDef, type ConditionId } from './data/cond
 import { INTERACTIONS } from './data/interactions';
 import { DEFENSE_RULES } from './data/defense';
 import { levelHp, levelModifiers } from './data/levels';
-import { markDef, type MarkId } from './data/marks';
+import { MARK_RULES, markDef, type MarkId } from './data/marks';
 import { evaluatePredicate, ruleMatches, type Action, type Modifier, type Predicate, type PredicateContext, type Rule } from './rules';
 
 export type Team = 'player' | 'enemy';
@@ -765,9 +765,14 @@ export class CombatWorld {
     }
   }
 
+  /** 印の技なら、消費する印とその数 */
+  markCostOf(_unit: Unit, skillId: ActiveSkillId): { mark: MarkId; amount: number } | undefined {
+    return (activeSkillDef(skillId) as { markCost?: { mark: MarkId; amount: number } }).markCost;
+  }
+
   /** 印の技なら、消費する印が足りているか */
   hasMarksFor(unit: Unit, skillId: ActiveSkillId): boolean {
-    const cost = (activeSkillDef(skillId) as { markCost?: { mark: MarkId; amount: number } }).markCost;
+    const cost = this.markCostOf(unit, skillId);
     return !cost || this.marksOf(unit, cost.mark) >= cost.amount;
   }
 
@@ -780,7 +785,7 @@ export class CombatWorld {
     if (!unit || !this.canUseSkill(unitId, skillId)) return false;
     unit.lastAttackAt = this.time;
     // 印の技は、使うときに印を消費する(使うたびの札も働く)
-    const cost = (activeSkillDef(skillId) as { markCost?: { mark: MarkId; amount: number } }).markCost;
+    const cost = this.markCostOf(unit, skillId);
     if (cost) {
       const target = (targetId ? this.units.get(targetId) : undefined) ?? this.tacticTarget(unit) ?? unit;
       const name = activeSkillDef(skillId).name;
@@ -2079,7 +2084,7 @@ export class CombatWorld {
       const add = rule.perCharge
         ? rule.add * Math.min(rule.perCharge.max, Math.floor((hit.charge ?? 0) / rule.perCharge.every))
         : rule.perMark
-          ? rule.add * (attacker ? this.marksOf(attacker, rule.perMark) : 0)
+          ? rule.add * Math.min(MARK_RULES.perMarkCap, attacker ? this.marksOf(attacker, rule.perMark) : 0)
           : rule.add;
       if (add === 0) continue;
       bonuses.push({ label: rule.label, add, group: rule.group });
@@ -2422,8 +2427,10 @@ export class CombatWorld {
       case 'spendMarks': {
         const owner = src.attacker;
         if (!owner) break;
-        const n = this.marksOf(owner, action.mark);
-        if (n < (action.min ?? 1)) break;
+        const have = this.marksOf(owner, action.mark);
+        if (have < (action.min ?? 1)) break;
+        // 決まった数だけ使う(100溜めても暴発しないように)
+        const n = Math.min(have, action.amount ?? action.min ?? have);
         this.consumeMarks(owner, action.mark, n, label, target, { ...src, via }, () => {
           for (let i = 0; i < n; i++) for (const a of action.each ?? []) this.runAction(a, label, target, { ...src, via });
         });

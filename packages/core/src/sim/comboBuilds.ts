@@ -1,6 +1,7 @@
 import type { Build } from '../build';
 import type { Attributes } from '../data/attributes';
 import type { ConditionId } from '../data/conditions';
+import type { ActiveSkillId } from '../data/skills';
 import type { EquipSlotId, Item } from '../data/equipment';
 import type { WeaponSpec } from '../data/weapons';
 import type { ShieldTypeId } from '../data/shields';
@@ -17,6 +18,14 @@ export interface ComboBuild {
   build: Build;
   full: ConditionId[];
   givers: ConditionId[];
+  /** 印を溜めて出す印の技(全て揃えたものに足して、作戦の一番上に置く) */
+  art: ActiveSkillId;
+}
+
+/** 印の技を足す。アクティブの先頭に入れ(6つを超える分は後ろから外す)、作戦の一番上に置く */
+export function withArt(build: Build, art: ActiveSkillId): Build {
+  const actives = [art, ...build.actives.filter((a) => a !== art)].slice(0, 6);
+  return { ...build, actives, tactics: [{ skill: art, condition: 'always', enabled: true }, ...build.tactics] };
 }
 
 const attrs = (a: Partial<Attributes>): Attributes => ({ str: 8, dex: 8, int: 8, fai: 8, vit: 8, ...a });
@@ -60,6 +69,7 @@ export const COMBO_BUILDS: Record<string, ComboBuild> = {
     },
     full: ['honeEdge', 'keenEdge', 'edgeRelease', 'edgeBleed', 'bloodHarvest', 'bloodRewhet', 'spentHaste', 'bloodOffering'],
     givers: ['honeEdge', 'bloodHarvest'],
+    art: 'edgeSever',
   },
   emberAxe: {
     name: '熾火の斧',
@@ -74,6 +84,7 @@ export const COMBO_BUILDS: Record<string, ComboBuild> = {
     },
     full: ['kindleEmber', 'emberBlaze', 'emberBurst', 'emberMend', 'pyreHymn', 'spentPrayer', 'prayerKindling', 'prayerHalo'],
     givers: ['kindleEmber'],
+    art: 'emberSurge',
   },
   quietArcher: {
     name: '静寂の射手',
@@ -88,6 +99,7 @@ export const COMBO_BUILDS: Record<string, ComboBuild> = {
     },
     full: ['holdBreath', 'distantQuiet', 'stillAim', 'quietPrayer', 'prayerJudgement', 'focusedVolley', 'farHunter', 'spentHaste'],
     givers: ['holdBreath', 'distantQuiet'],
+    art: 'breathShot',
   },
   bloodShield: {
     name: '血潮の盾',
@@ -102,6 +114,7 @@ export const COMBO_BUILDS: Record<string, ComboBuild> = {
     },
     full: ['bloodTithe', 'shieldOath', 'bloodWhetstone', 'keenEdge', 'bloodFrenzy', 'bloodOffering', 'edgeRelease', 'bloodRewhet'],
     givers: ['bloodTithe', 'shieldOath'],
+    art: 'bloodWhirl',
   },
   prayerRites: {
     name: '祈りの儀式',
@@ -116,6 +129,7 @@ export const COMBO_BUILDS: Record<string, ComboBuild> = {
     },
     full: ['riteEcho', 'prayerHalo', 'prayerJudgement', 'prayerKindling', 'emberBlaze', 'ritualMaster', 'spentPrayer', 'prayerSpendBurst'],
     givers: ['riteEcho'],
+    art: 'prayerVerdict',
   },
   sparkStaff: {
     name: '雷火の術師',
@@ -130,6 +144,7 @@ export const COMBO_BUILDS: Record<string, ComboBuild> = {
     },
     full: ['sparkEmber', 'emberBlaze', 'emberBurst', 'stormConduit', 'arcaneSurge', 'emberMend', 'spentPrayer', 'prayerKindling'],
     givers: ['sparkEmber'],
+    art: 'emberSurge',
   },
   castleHammer: {
     name: '城崩しの戦槌',
@@ -144,6 +159,7 @@ export const COMBO_BUILDS: Record<string, ComboBuild> = {
     },
     full: ['honeEdge', 'keenEdge', 'edgeRelease', 'heavyGrip', 'edgeBleed', 'bloodHarvest', 'bloodRewhet', 'spentHaste'],
     givers: ['honeEdge'],
+    art: 'edgeStorm',
   },
   stormSpear: {
     name: '嵐の槍',
@@ -158,5 +174,6 @@ export const COMBO_BUILDS: Record<string, ComboBuild> = {
     },
     full: ['sparkEmber', 'emberBlaze', 'emberBurst', 'spearEdge', 'stormConduit', 'honeEdge', 'keenEdge', 'edgeRelease'],
     givers: ['sparkEmber', 'honeEdge'],
+    art: 'edgeSever',
   },
 };
