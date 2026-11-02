@@ -1976,3 +1976,9 @@ button.discard {
   grid-column: 1 / -1;
   padding-left: 28px;
 }
+
+/* 印の巡り:印が変わる・使うが途切れず続いた数 */
+.combo-line.lap {
+  color: #e8d8a8;
+  letter-spacing: 0.05em;
+}

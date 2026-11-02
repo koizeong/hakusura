@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+import { MarkFx } from './MarkFx';
+import { unlockAudio } from '../audio/sfx';
 import {
   ACTIVE_SKILLS,
   CombatWorld,
@@ -143,6 +145,9 @@ export class TrainingGroundScene extends Phaser.Scene {
   private lockTarget: Unit | null = null;
   private buffered: { skill: ActiveSkillId; until: number } | null = null;
   private slowUntil = 0;
+  /** 重い印の技が当たった瞬間、時を止める */
+  private hitstopUntil = 0;
+  private markFx!: MarkFx;
   /** 振りかぶりの予兆。効果が出るか潰れるまで描く */
   private telegraphs: { unitId: string; skill: ActiveSkillId; angle: number; start: number; at: number; action: SkillAction; element?: ElementId; aim: Point }[] = [];
   /** 飛ぶ者の今の浮き上がり(画面の高さ)。飛び上がりと降下をなめらかにする */
@@ -244,6 +249,12 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.veils = { fog: this.makeVeil('veil-fog', [200, 204, 208], 0.72, 200), night: this.makeVeil('veil-night', [5, 5, 12], 0.8, 240) };
     this.stickGfx = this.add.graphics().setScrollFactor(0).setDepth(60);
     this.combo = new ComboView();
+    // 印の演出。重い技が当たったら時を止め、印の巡りはコンボの欄に出す
+    this.markFx = new MarkFx(this, FONT, {
+      hitstop: (ms) => (this.hitstopUntil = Math.max(this.hitstopUntil, this.time.now + ms)),
+      onLap: (count) => this.combo.pushLap(count, this.time.now),
+    });
+    unlockAudio();
     this.cameras.main.setBounds(0, 0, ARENA.width, ARENA.height);
     this.cameras.main.centerOn(this.player.x, this.player.y);
 
@@ -523,7 +534,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.tickGrowth(time);
     // 支度の間と、一戦の知らせを見ている間は戦いを止める
     if (this.buildScreen.visible || this.encounter?.result) return;
-    const dt = Math.min(delta, 50) * (time < this.slowUntil ? SLOWMO.scale : 1) * this.speed;
+    const dt = time < this.hitstopUntil ? 0 : Math.min(delta, 50) * (time < this.slowUntil ? SLOWMO.scale : 1) * this.speed;
     const world = this.world;
     const input = this.input2;
     const player = this.player;
@@ -582,6 +593,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     cam.scrollY += (focus.y - cam.height / 2 - cam.scrollY) * 0.12;
 
     this.draw();
+    this.markFx.draw(world, player, dt);
     this.drawStick();
     this.combo.update(this.time.now);
     this.hud.update(world, player, this.dodgeReadyAt, this.lockTarget, !!player.queued && player.queued.until >= world.time);
@@ -1325,7 +1337,10 @@ export class TrainingGroundScene extends Phaser.Scene {
     switch (event.type) {
       case 'damage': {
         const { record } = event;
-        if (record.attackerId === this.player.id && record.targetTeam !== this.player.team) this.combo.push(record, this.time.now);
+        if (record.attackerId === this.player.id && record.targetTeam !== this.player.team) {
+          this.combo.push(record, this.time.now);
+          this.markFx.onDamage(record, this.world);
+        }
         if (record.amount > 0) this.hurtAt.set(record.targetId, this.time.now);
         if (record.targetId === this.player.id && record.amount > 0) this.onPlayerHurt(record.amount, record.tags.includes('dot'));
         if (record.amount <= 0 && record.depth > 0) return;
@@ -1625,9 +1640,10 @@ export class TrainingGroundScene extends Phaser.Scene {
         break;
       }
       case 'marks': {
+        this.markFx.onMarks(event, this.world, this.player);
         // 直撃で印がこぼれたら、こぼれた数を印の色で出す
         const unit = this.world.units.get(event.unitId);
-        if (unit && unit === this.player && event.lost && event.count >= 0 && !event.spent) {
+        if (unit && unit === this.player && event.lost && event.cause === 'hurt') {
           this.floatText(unit.x + 14, unit.y - 40, `${MARKS[event.mark].name} -${event.lost}`, `#${MARKS[event.mark].color.toString(16).padStart(6, '0')}`);
         }
         break;

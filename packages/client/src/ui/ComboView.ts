@@ -65,7 +65,24 @@ export class ComboView {
     }
   }
 
+  /** 印の巡り(印が変わる・使うが途切れず続いた数) */
+  private lapLine?: { el: HTMLElement; count: HTMLElement; until: number };
+  pushLap(count: number, now: number): void {
+    if (!this.lapLine) {
+      const c = h('span', { class: 'count' });
+      this.lapLine = { el: h('div', { class: 'combo-line lap' }, h('span', { class: 'name' }, '印の巡り'), c), count: c, until: 0 };
+    }
+    const line = this.lapLine;
+    if (!line.el.isConnected) this.list.prepend(line.el);
+    line.count.textContent = `${count}`;
+    line.until = now + COMBO_SHOW;
+    line.el.classList.remove('pop');
+    void line.el.offsetWidth;
+    line.el.classList.add('pop');
+  }
+
   update(now: number): void {
+    if (this.lapLine && this.lapLine.until <= now) this.lapLine.el.remove();
     this.streakEl.classList.toggle('shown', this.streak >= 2 && now - this.lastStreakAt <= STREAK_GAP);
     for (const [id, line] of this.lines) {
       if (line.until > now) continue;

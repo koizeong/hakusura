@@ -1,3 +1,4 @@
+import { setSoundEnabled, soundEnabled } from '../audio/sfx';
 import {
   ELEMENTS,
   ELEMENT_IDS,
@@ -193,6 +194,7 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
     section('敵を呼ぶ', enemies),
     section('戦い方', mode),
     section('天候', weather),
+    section('音', h('div', { class: 'choices' }, checkbox('鳴らす(仮の音)', soundEnabled(), (on) => setSoundEnabled(on)))),
     section('床', floors),
     section('案山子に刻む状態', statuses),
     section('案山子の耐性', resists),

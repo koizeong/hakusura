@@ -317,7 +317,11 @@ export type CombatEvent =
   /** 昂りが満ちた */
   | { type: 'fervor'; unitId: string }
   /** 印が増えた・使われた(spent は使った数) */
-  | { type: 'marks'; unitId: string; mark: MarkId; count: number; spent?: number; label?: string; lost?: number }
+  /**
+   * 印の出入り。得たときは gained(増えた数)と、どこから来たか(from:変えた元の印・sourceId:当てた相手)。
+   * 使ったときは spent と targetId(当てていた相手)。失ったときは lost
+   */
+  | { type: 'marks'; unitId: string; mark: MarkId; count: number; spent?: number; label?: string; lost?: number; cause?: 'expire' | 'hurt' | 'fall'; gained?: number; from?: MarkId; sourceId?: string; targetId?: string }
   /** 床が別の床に変わった */
   | { type: 'floorChanged'; id: number; from: FieldId; to: FieldId; x: number; y: number }
   /** 盲目で攻撃が外れた */
@@ -367,8 +371,10 @@ interface Source {
   via: readonly string[];
   depth: number;
   hit?: Hit;
-  /** 受けたダメージ(on: 'hurt' のとき) */
+  /** 受けたダメージ(on: 'hurt' のとき)。印の札では、きっかけの数 */
   amount?: number;
+  /** 印の札のきっかけになった印(変える札・使うたびの札)。演出で印の流れを見せる */
+  mark?: MarkId;
 }
 
 type RuleKind = 'interaction' | 'reaction' | 'passive' | 'condition' | 'artifact' | 'skill';
@@ -815,7 +821,7 @@ export class CombatWorld {
     }
     // 儀式や塗油のように当てない技は、使うと印を得る(技は当てたときに得る)
     const skillDef = activeSkillDef(skillId);
-    if (skillDef.markGain && !isTechnique(skillDef)) this.gainMark(unit, skillDef.markGain.mark, skillDef.markGain.amount);
+    if (skillDef.markGain && !isTechnique(skillDef)) this.gainMark(unit, skillDef.markGain.mark, skillDef.markGain.amount, 0, { label: skillDef.name });
     const uses = (unit.skillUses[skillId] ?? 0) + 1;
     unit.skillUses[skillId] = uses;
     // 1つ前の手。型で手順が空になる前に覚えておく
@@ -2361,19 +2367,19 @@ export class CombatWorld {
     const left = (owner.marks[mark]?.count ?? 0) - n;
     if (left > 0) owner.marks[mark] = { count: left, until: owner.marks[mark]!.until };
     else delete owner.marks[mark];
-    this.events.push({ type: 'marks', unitId: owner.id, mark, count: Math.max(0, Math.floor(left)), spent: n, label });
+    this.events.push({ type: 'marks', unitId: owner.id, mark, count: Math.max(0, Math.floor(left)), spent: n, label, targetId: target.id });
     between?.();
     // 印を使ったときの札(使うたびに〇〇)。連鎖は上限の段まで
     if (src.depth >= this.maxTriggerDepth) return;
     const ctx = this.context(target, owner, {});
     for (const { rule } of this.rulesFor(owner)) {
       if (rule.on !== 'markSpent' || (rule.mark && rule.mark !== mark) || !ruleMatches(rule, ctx)) continue;
-      for (const a of rule.do) this.runAction(a, rule.label, target, { attacker: owner, skill: rule.label, via: [...src.via, rule.label], depth: src.depth + 1, hit: src.hit, amount: n });
+      for (const a of rule.do) this.runAction(a, rule.label, target, { attacker: owner, skill: rule.label, via: [...src.via, rule.label], depth: src.depth + 1, hit: src.hit, amount: n, mark });
     }
   }
 
   /** 印を得る。得たときのルール(別の印に変える札など)も働く。連鎖は上限の段まで */
-  gainMark(unit: Unit, mark: MarkId, amount: number, depth = 0): void {
+  gainMark(unit: Unit, mark: MarkId, amount: number, depth = 0, origin: { label?: string; from?: MarkId; sourceId?: string } = {}): void {
     const def = markDef(mark);
     this.expireMarks(unit);
     // 溜まるほど溜まりやすい。端数も覚えておく(見せるのと使うのは整数)
@@ -2383,14 +2389,14 @@ export class CombatWorld {
     let keep = 1;
     for (const { rule } of this.rulesFor(unit)) if (rule.on === 'markKeep' && (!rule.mark || rule.mark === mark)) keep *= rule.scale;
     unit.marks[mark] = { count, until: this.time + def.duration * keep };
-    this.events.push({ type: 'marks', unitId: unit.id, mark, count: Math.floor(count) });
+    this.events.push({ type: 'marks', unitId: unit.id, mark, count: Math.floor(count), gained: Math.floor(count) - Math.floor(held), ...origin });
     if (depth >= this.maxTriggerDepth) return;
     const ctx = this.context(unit, unit, {});
     for (const { rule } of this.rulesFor(unit)) {
       if (rule.on !== 'markGained' || rule.mark !== mark || !ruleMatches(rule, ctx)) continue;
       // 届いた瞬間だけ働く札(〈研ぎ〉が30に届くと…)
       if (rule.reach !== undefined && !(held < rule.reach && count >= rule.reach)) continue;
-      for (const action of rule.do) this.runAction(action, rule.label, this.tacticTarget(unit) ?? unit, { attacker: unit, skill: rule.label, via: [rule.label], depth: depth + 1, amount: Math.floor(count) - Math.floor(held) });
+      for (const action of rule.do) this.runAction(action, rule.label, this.tacticTarget(unit) ?? unit, { attacker: unit, skill: rule.label, via: [rule.label], depth: depth + 1, amount: Math.floor(count) - Math.floor(held), mark });
     }
   }
 
@@ -2416,7 +2422,7 @@ export class CombatWorld {
       const left = m.count - lost;
       if (left > 0) unit.marks[mark] = { count: left, until: m.until };
       else delete unit.marks[mark];
-      this.events.push({ type: 'marks', unitId: unit.id, mark, count: Math.floor(Math.max(0, left)), lost });
+      this.events.push({ type: 'marks', unitId: unit.id, mark, count: Math.floor(Math.max(0, left)), lost, cause: 'hurt' });
       this.loseMarks(unit, mark, lost, 'hurt');
     }
   }
@@ -2424,11 +2430,11 @@ export class CombatWorld {
   /** 印を失った(消えた・倒れた)。失った数をきっかけに札が働く */
   private loseMarks(unit: Unit, mark: MarkId, n: number, cause: 'expire' | 'hurt' | 'fall'): void {
     if (n <= 0) return;
-    if (cause !== 'hurt') this.events.push({ type: 'marks', unitId: unit.id, mark, count: 0, lost: n });
+    if (cause !== 'hurt') this.events.push({ type: 'marks', unitId: unit.id, mark, count: 0, lost: n, cause });
     const ctx = this.context(unit, unit, {});
     for (const { rule } of this.rulesFor(unit)) {
       if (rule.on !== 'markLost' || (rule.mark && rule.mark !== mark) || (rule.cause && rule.cause !== cause) || !ruleMatches(rule, ctx)) continue;
-      for (const action of rule.do) this.runAction(action, rule.label, this.tacticTarget(unit) ?? unit, { attacker: unit, skill: rule.label, via: [rule.label], depth: 1, amount: n });
+      for (const action of rule.do) this.runAction(action, rule.label, this.tacticTarget(unit) ?? unit, { attacker: unit, skill: rule.label, via: [rule.label], depth: 1, amount: n, mark });
     }
   }
 
@@ -2510,7 +2516,7 @@ export class CombatWorld {
       case 'gainMark':
         if (src.attacker) {
           const n = action.amount + Math.floor((action.per ?? 0) * (src.amount ?? 0));
-          if (n > 0) this.gainMark(src.attacker, action.mark, n, src.depth);
+          if (n > 0) this.gainMark(src.attacker, action.mark, n, src.depth, { label, from: src.mark, sourceId: !src.mark && target !== src.attacker ? target.id : undefined });
         }
         break;
       case 'spendMarks': {
