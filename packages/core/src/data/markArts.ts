@@ -12,6 +12,14 @@ import type { TechniqueDef } from './skills';
 export type ArtSlot = 'art1' | 'art2' | 'art3';
 export const ART_SLOTS: ArtSlot[] = ['art1', 'art2', 'art3'];
 export const ART_SLOT_NAMES: Record<ArtSlot, string> = { art1: '印の技・壱', art2: '印の技・弐', art3: '印の技・参' };
+/**
+ * 手で撃つ枠。壱・弐はプレイヤーが撃つ時を決める(貯めた印をいつ換金するか)。参は作戦に任せる。
+ * 手で撃たない者(シミュレーター・遠征の測り・おすすめの測り)は、足りしだい撃つ
+ */
+export const HAND_ART_SLOTS: readonly ArtSlot[] = ['art1', 'art2'];
+export function isHandArt(skill: string): boolean {
+  return (HAND_ART_SLOTS as readonly string[]).includes(skill);
+}
 
 export type ArtShape = 'swing' | 'shot' | 'nova';
 

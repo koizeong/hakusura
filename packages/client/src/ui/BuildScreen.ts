@@ -104,6 +104,7 @@ import {
   VARIANT_BASES,
   ART_SLOTS,
   ART_SLOT_NAMES,
+  isHandArt,
   artDescription,
   artNeeds,
   rollMarkArt,
@@ -948,7 +949,7 @@ export class BuildScreen {
       'section',
       { class: 'art-slots' },
       h('h3', {}, '印の技の枠'),
-      h('p', { class: 'note' }, '拾った印の技を入れる。印を多く使う技ほど急に重くなる。小さく回し続けるか、貯めて大技を撃つか'),
+      h('p', { class: 'note' }, '拾った印の技を入れる。印を多く使う技ほど急に重くなる。壱・弐は戦いの中で自分で撃つ(いつ換金するかを決める)。参は作戦に任せる'),
       ...ART_SLOTS.map((slot) => {
         const current = build.arts?.[slot];
         // ビルドコードから読み込んだ技は、蓄えになくても選べるままにする
@@ -975,6 +976,7 @@ export class BuildScreen {
             'span',
             {},
             ART_SLOT_NAMES[slot],
+            h('span', { class: 'art-hand' }, isHandArt(slot) ? '手で撃つ' : '作戦'),
             current
               ? h('span', { class: 'mark-cost', style: `border-color:${markColor(current.mark)};color:${markColor(current.mark)}` }, `${MARKS[current.mark].name}×${current.cost}`)
               : '',
@@ -989,7 +991,8 @@ export class BuildScreen {
                   build.arts[slot] = a;
                   // 空きの枠に入れたら、アクティブに入れ、印が溜まれば撃つ作戦を先頭に置く(印が足りない間は次の行へ進む)
                   if (!build.actives.includes(slot) && build.actives.length < BUILD_LIMITS.actives) build.actives.push(slot);
-                  if (!build.tactics.some((t) => t.skill === slot)) build.tactics.unshift({ skill: slot, condition: 'always', enabled: true });
+                  // 参は作戦の先頭に置く。壱・弐は手で撃つので作戦には入れない
+                  if (!isHandArt(slot) && !build.tactics.some((t) => t.skill === slot)) build.tactics.unshift({ skill: slot, condition: 'always', enabled: true });
                 } else {
                   delete build.arts[slot];
                   build.actives = build.actives.filter((x) => x !== slot);
@@ -1173,7 +1176,8 @@ export class BuildScreen {
     const build = this.build;
     const editor = createTacticsEditor(build.tactics, {
       skillName: (id) => this.skillName(id),
-      skills: () => build.actives,
+      // 手で撃つ印の技は作戦に入れない
+      skills: () => build.actives.filter((id) => !isHandArt(id)),
       // 型は初めて決めるまで伏せておく
       forms: () => (isUnlocked(this.host.state, 'forms') ? learnedForms(this.host.state.learned) : []),
       onChange: () => this.host.onChange(),

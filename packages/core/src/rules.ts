@@ -39,6 +39,14 @@ export type Predicate =
   | { type: 'selfMarksAtMost'; mark: MarkId; max: number }
   /** 自分が持つ印の種類が min 以上 */
   | { type: 'selfMarkKinds'; min: number }
+  /** ジャスト回避から within ミリ秒の間 */
+  | { type: 'afterJustDodge'; within: number }
+  /** 直撃を受けてから within ミリ秒の間 */
+  | { type: 'afterHurt'; within: number }
+  /** 印を使ったとき(on: 'markSpent')、使った数が min 以上 */
+  | { type: 'spentAtLeast'; min: number }
+  /** 印を使ったとき(on: 'markSpent')、枠の印の技で使った */
+  | { type: 'spentByArt' }
   /** 自分の印の数の合計が min 以上 */
   | { type: 'selfMarksTotal'; min: number }
   /** 自分の魔力の高まり(杖のコンボで溜まる数)が min 以上 */
@@ -93,8 +101,8 @@ export type Action =
   | { type: 'cooldown'; ms: number; tags?: readonly string[] }
   /** 持ち主の次の charges 回の技の振りかぶりと硬直を scale 倍にする(duration の間) */
   | { type: 'quicken'; scale: number; charges: number; duration: number }
-  /** 持ち主が印を得る。per があれば、きっかけの数(使った・失った印の数)の per 倍を足す。flat なら溜まり方の曲線を通さない(技が自分で溜める分) */
-  | { type: 'gainMark'; mark: MarkId; amount: number; per?: number; flat?: boolean }
+  /** 持ち主が印を得る。mark が 'source' なら、きっかけの印(使った・失った印)と同じ印。per があれば、きっかけの数(使った・失った印の数)の per 倍を足す。flat なら溜まり方の曲線を通さない(技が自分で溜める分) */
+  | { type: 'gainMark'; mark: MarkId | 'source'; amount: number; per?: number; flat?: boolean }
   /** 持ち主の印を amount 使う(なければ min、それもなければ全て)。min に足りなければ使わない。1つにつき each を行う */
   | { type: 'spendMarks'; mark: MarkId; min?: number; amount?: number; each?: readonly Action[] };
 
@@ -212,6 +220,12 @@ export interface PredicateContext {
   prevStep?: { element?: ElementId; category: string; gap: number };
   attackerRites?: number;
   ritesReleased?: number;
+  /** ジャスト回避・直撃を受けてからの間(ミリ秒) */
+  attackerJustDodgeAgo?: number;
+  attackerHurtAgo?: number;
+  /** 印を使ったときの数と、枠の印の技で使ったか */
+  spentAmount?: number;
+  spentByArt?: boolean;
 }
 
 export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean {
@@ -250,6 +264,14 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return (ctx.attackerMarks?.(p.mark) ?? 0) >= p.min;
     case 'selfMarksAtMost':
       return (ctx.attackerMarks?.(p.mark) ?? 0) <= p.max;
+    case 'afterJustDodge':
+      return (ctx.attackerJustDodgeAgo ?? Infinity) <= p.within;
+    case 'afterHurt':
+      return (ctx.attackerHurtAgo ?? Infinity) <= p.within;
+    case 'spentAtLeast':
+      return (ctx.spentAmount ?? 0) >= p.min;
+    case 'spentByArt':
+      return !!ctx.spentByArt;
     case 'selfMarkKinds':
       return MARK_IDS.filter((m) => (ctx.attackerMarks?.(m) ?? 0) > 0).length >= p.min;
     case 'selfMarksTotal':

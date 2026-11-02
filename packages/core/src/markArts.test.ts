@@ -115,3 +115,51 @@ describe('印の技(生成)', () => {
     expect(n).toBeLessThan(140);
   });
 });
+
+describe('手で撃つ印の技', () => {
+  it('手で撃つ者には、作戦が壱・弐を出さない。手で撃たない者は足りしだい撃つ', () => {
+    const fired = (mode: 'manual' | 'auto') => {
+      const art = starterArts()[0]!;
+      const w = new CombatWorld({ seed: 1, markCurve: false });
+      const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000, autoBattle: true });
+      w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 50, y: 0, maxHp: 1e9 });
+      applyBuild(w, p, { actives: ['art1', 'slash'], passives: [], equipment: sword, tactics: [{ skill: 'art1', condition: 'always', enabled: true }, { skill: 'slash', condition: 'always', enabled: true }], arts: { art1: art } });
+      p.handArts = mode;
+      w.gainMark(p, 'edge', 5);
+      run(w, 2000);
+      return w.log.some((r) => r.skill === art.name);
+    };
+    expect(fired('manual')).toBe(false);
+    expect(fired('auto')).toBe(true);
+  });
+
+  it('見切りの一閃:ジャスト回避の直後に撃つと、印を取り戻す', () => {
+    const art: MarkArt = { ...starterArts()[0]!, cost: 20, power: 20 };
+    const { w, p, t } = armed(art);
+    p.conditions = ['dodgeArt'];
+    w.gainMark(p, 'edge', 20);
+    p.lastJustDodgeAt = w.time;
+    w.useSkill('p', 'art1', t, 't');
+    expect(w.marksOf(p, 'edge')).toBe(20);
+    run(w, 3000);
+    p.busyUntil = 0;
+    p.cooldowns = {};
+    w.useSkill('p', 'art1', t, 't');
+    expect(w.marksOf(p, 'edge')).toBe(0);
+  });
+
+  it('溜め込みの欲:50以上なら得るたびにもう1つ。自分の分では重ならない', () => {
+    const w = new CombatWorld({ seed: 1, markCurve: false });
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000, conditions: ['hoarder', 'honeEdge'] });
+    const t = w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 50, y: 0, maxHp: 1e9 });
+    applyBuild(w, p, { actives: [], passives: [], equipment: sword, tactics: [] });
+    p.conditions = ['hoarder', 'honeEdge'];
+    // 50に届いた分でも1つ多く得る
+    w.gainMark(p, 'edge', 50);
+    expect(w.marksOf(p, 'edge')).toBe(51);
+    // 研ぎ重ねの1つに、もう1つ(溜め込みの欲が生んだ1つでは、もう働かない)
+    w.useSkill('p', 'slash', t, 't');
+    run(w, 800);
+    expect(w.marksOf(p, 'edge')).toBe(53);
+  });
+});

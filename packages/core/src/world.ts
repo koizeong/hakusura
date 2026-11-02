@@ -7,7 +7,7 @@ import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits,
 import { WEAPON_TYPES, toWeaponSpec, type WeaponRef, type WeaponSpec, type WeaponTypeDef, type WeaponTypeId } from './data/weapons';
 import { shieldBurstElement, shieldDef, shieldName, type ShieldSpec } from './data/shields';
 import type { SkillVariant } from './data/variations';
-import { artTechnique, type ArtSlot, type MarkArt } from './data/markArts';
+import { HAND_ART_SLOTS, artTechnique, isHandArt, type ArtSlot, type MarkArt } from './data/markArts';
 import { enemyDef, type EnemyId } from './data/enemies';
 import { FERVOR, STARTING_FORMS, formDef, masteryLevel, masteryScale, type FormId } from './data/forms';
 import { attributeModifiers, type Attributes } from './data/attributes';
@@ -91,6 +91,8 @@ export interface Unit {
   /** 作戦。autoBattle が真なら、上の行から順に見て最初に使えるスキルを使う */
   tactics: Tactic[];
   autoBattle: boolean;
+  /** 手で撃つ枠(印の技・壱・弐)を、手で撃つか(manual)、足りしだい撃つか(auto) */
+  handArts: 'manual' | 'auto';
   /** 作戦で優先して狙う相手 */
   focusId?: string;
   passives: PassiveId[];
@@ -112,6 +114,8 @@ export interface Unit {
   tags: string[];
   /** 最後に被弾した時刻。一度もなければ -Infinity */
   lastHurtAt: number;
+  /** 最後にジャスト回避した時刻 */
+  lastJustDodgeAt: number;
   /** 前の攻撃から歩いた距離。次の攻撃の溜めになる */
   distanceSinceSkill: number;
   /** 着けている武器(枠の順)。技はこの中から条件に合うものを使う。空なら素手 */
@@ -511,6 +515,7 @@ export class CombatWorld {
       barrageSpin: 0,
       tactics: spec.tactics ? spec.tactics.map((t) => ({ ...t })) : [],
       autoBattle: spec.autoBattle ?? false,
+      handArts: 'auto',
       trump: spec.trump,
       passives: spec.passives ?? [],
       conditions: spec.conditions ?? [],
@@ -522,6 +527,7 @@ export class CombatWorld {
       trailAcc: 0,
       tags: [],
       lastHurtAt: -Infinity,
+      lastJustDodgeAt: -Infinity,
       distanceSinceSkill: 0,
       weapons: spec.weapons ? spec.weapons.map(toWeaponSpec) : [],
       shields: [],
@@ -821,7 +827,7 @@ export class CombatWorld {
     if (cost) {
       const target = (targetId ? this.units.get(targetId) : undefined) ?? this.tacticTarget(unit) ?? unit;
       const name = this.skillName(unit, skillId);
-      this.consumeMarks(unit, cost.mark, cost.amount, name, target, { attacker: unit, skill: name, via: [name], depth: 0 });
+      this.consumeMarks(unit, cost.mark, cost.amount, name, target, { attacker: unit, skill: name, via: [name], depth: 0 }, undefined, !!this.artOf(unit, skillId));
     }
     // 儀式や塗油のように当てない技は、使うと印を得る(技は当てたときに得る)
     const skillDef = activeSkillDef(skillId);
@@ -1302,6 +1308,8 @@ export class CombatWorld {
 
   /** 作戦の1行が今使えるか。届くかどうかは見ない */
   private tacticReady(unit: Unit, tactic: Tactic, target: Unit | undefined): boolean {
+    // 手で撃つ枠は作戦では出さない(手で撃たない者は、作戦より先に足りしだい撃つ)
+    if (isHandArt(tactic.skill)) return false;
     if (!tactic.enabled || !this.canUseSkill(unit.id, tactic.skill)) return false;
     if (unit.actives.length > 0 && !unit.actives.includes(tactic.skill)) return false;
     const def = this.skillFor(unit, tactic.skill);
@@ -1389,6 +1397,12 @@ export class CombatWorld {
     const follow = unit.followUp;
     if (follow && follow.until >= this.time && follow.skills.length > 0) {
       const next = follow.skills[0]!;
+      // 手で撃つ枠は連携でも出さない
+      if (isHandArt(next) && unit.handArts === 'manual') {
+        unit.followUp = undefined;
+        this.runTactics(unit);
+        return;
+      }
       const reach = this.reachOf(unit, next);
       const reachable = reach === undefined || (!!target && this.inReach(unit, target, reach));
       const usable = this.canUseSkill(unit.id, next) && (unit.actives.length === 0 || unit.actives.includes(next));
@@ -1407,6 +1421,15 @@ export class CombatWorld {
       }
     } else if (follow) {
       unit.followUp = undefined;
+    }
+    // 手で撃たない者は、手で撃つ枠の印の技を足りしだい撃つ
+    if (unit.handArts === 'auto') {
+      for (const slot of HAND_ART_SLOTS) {
+        if (!unit.actives.includes(slot) || !this.canUseSkill(unit.id, slot)) continue;
+        const reach = this.reachOf(unit, slot);
+        if (reach !== undefined && (!target || !this.inReach(unit, target, reach))) continue;
+        if (this.useSkill(unit.id, slot, aim, reach !== undefined ? target?.id : undefined)) return;
+      }
     }
     for (const tactic of unit.tactics) {
       if (!this.tacticReady(unit, tactic, target)) continue;
@@ -2082,6 +2105,8 @@ export class CombatWorld {
       attackerHas: (s) => (attacker ? this.isActive(attacker, s) : false),
       weather: this.weather,
       attackerImbued: !!attacker?.imbue && attacker.imbue.until > this.time,
+      attackerJustDodgeAgo: attacker ? this.time - attacker.lastJustDodgeAt : undefined,
+      attackerHurtAgo: attacker ? this.time - attacker.lastHurtAt : undefined,
       attackerHasBuff: (label) => !!attacker?.buffs.some((b) => b.label === label && b.until > this.time && b.charges > 0),
       // 瀕死・無傷のように様子で決まるものは、かかっている状態の数に入れない
       targetStatusCount: () => COUNTED_STATUSES.filter((s) => this.isActive(target, s)).length,
@@ -2307,6 +2332,7 @@ export class CombatWorld {
     if (target.invulnerableUntil > this.time) {
       if (direct && !target.justDodged && this.time - target.dodgeStartedAt <= DEFENSE.justDodgeWindow) {
         target.justDodged = true;
+        target.lastJustDodgeAt = this.time;
         this.events.push({ type: 'justDodge', unitId: target.id, attackerId: attacker?.id });
         this.react('justDodge', target, attacker, hit);
       }
@@ -2367,7 +2393,7 @@ export class CombatWorld {
   /**
    * 印を n 使う。残りは残る。使ったら between を行い、使うたびの札(on: 'markSpent')が働く。対象は当てていた相手
    */
-  consumeMarks(owner: Unit, mark: MarkId, n: number, label: string, target: Unit, src: Source, between?: () => void): void {
+  consumeMarks(owner: Unit, mark: MarkId, n: number, label: string, target: Unit, src: Source, between?: () => void, byArt = false): void {
     const left = (owner.marks[mark]?.count ?? 0) - n;
     if (left > 0) owner.marks[mark] = { count: left, until: owner.marks[mark]!.until };
     else delete owner.marks[mark];
@@ -2375,7 +2401,7 @@ export class CombatWorld {
     between?.();
     // 印を使ったときの札(使うたびに〇〇)。連鎖は上限の段まで
     if (src.depth >= this.maxTriggerDepth) return;
-    const ctx = this.context(target, owner, {});
+    const ctx = this.context(target, owner, { spentAmount: n, spentByArt: byArt });
     for (const { rule } of this.rulesFor(owner)) {
       if (rule.on !== 'markSpent' || (rule.mark && rule.mark !== mark) || !ruleMatches(rule, ctx)) continue;
       for (const a of rule.do) this.runAction(a, rule.label, target, { attacker: owner, skill: rule.label, via: [...src.via, rule.label], depth: src.depth + 1, hit: src.hit, amount: n, mark });
@@ -2402,6 +2428,8 @@ export class CombatWorld {
     const ctx = this.context(unit, unit, {});
     for (const { rule } of this.rulesFor(unit)) {
       if (rule.on !== 'markGained' || rule.mark !== mark || !ruleMatches(rule, ctx)) continue;
+      // 自分が生んだ印では、もう一度働かない(得るたびにもう1つ得る札が、自分を燃料にしないように)
+      if (origin.label === rule.label) continue;
       // 届いた瞬間だけ働く札(〈研ぎ〉が30に届くと…)
       if (rule.reach !== undefined && !(held < rule.reach && count >= rule.reach)) continue;
       for (const action of rule.do) this.runAction(action, rule.label, this.tacticTarget(unit) ?? unit, { attacker: unit, skill: rule.label, via: [rule.label], depth: depth + 1, amount: Math.floor(count) - Math.floor(held), mark });
@@ -2525,7 +2553,8 @@ export class CombatWorld {
       case 'gainMark':
         if (src.attacker) {
           const n = action.amount + Math.floor((action.per ?? 0) * (src.amount ?? 0));
-          if (n > 0) this.gainMark(src.attacker, action.mark, n, src.depth, { label, from: src.mark, sourceId: !src.mark && target !== src.attacker ? target.id : undefined, swell: !action.flat });
+          const mark = action.mark === 'source' ? src.mark : action.mark;
+          if (n > 0 && mark) this.gainMark(src.attacker, mark, n, src.depth, { label, from: src.mark, sourceId: !src.mark && target !== src.attacker ? target.id : undefined, swell: !action.flat });
         }
         break;
       case 'spendMarks': {

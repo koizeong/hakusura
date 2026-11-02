@@ -42,6 +42,7 @@ import {
   type EncounterId,
   type EnemyId,
   MARKS,
+  type ArtSlot,
 } from '@hakusura/core';
 import { EncounterView } from '../ui/EncounterView';
 import { GRIP, SHIELD_SIZE, WEAPON_SIZE, createPilgrimTexture, enemyArtOrigin, enemyArtSize, enemyTexture, floorAlpha, floorTexture, frameIndex, groundTexture, PROJECTILE_CORE, PROJECTILE_CORE_RADIUS, PROJECTILE_SIZE, projectileTexture, statusIconTexture, preloadPilgrim, shieldTexture, weaponTexture, type Anim, type Dir } from '../art';
@@ -216,6 +217,8 @@ export class TrainingGroundScene extends Phaser.Scene {
     });
     this.buildState = loadBuildState(Math.random);
     applyBuild(this.world, this.player, currentBuild(this.buildState));
+    // 自分は印の技・壱・弐を手で撃つ
+    this.player.handArts = 'manual';
     this.player.forms = learnedForms(this.buildState.learned);
     // 型の熟達は覚えたものと同じ入れ物に貯める(全キャラで共有)
     this.player.formUses = this.buildState.learned.formUses ??= {};
@@ -264,6 +267,7 @@ export class TrainingGroundScene extends Phaser.Scene {
     this.hud = new Hud(this.player.actives, DODGE.cooldown, STEP.cooldown, this.player.trump!, {
       onTrump: () => this.useTrump(),
       onStep: () => (this.stepRequested = true),
+      onArt: (slot) => this.fireArt(slot),
       onSpeed: () => this.cycleSpeed(),
       onBreakdown: () => this.toggleBreakdown(),
       onBuild: () => this.openBuild(),
@@ -417,6 +421,23 @@ export class TrainingGroundScene extends Phaser.Scene {
     if (!trump) return;
     const def = resolveSkill(trump);
     this.world.queueSkill(this.player.id, trump, def && actionReach(def.action) !== undefined ? 6000 : 1500);
+  }
+
+  /** 手で撃つ印の技。印が足りていれば構え、届かなければ寄ってから撃つ */
+  private fireArt(slot: ArtSlot): void {
+    const p = this.player;
+    const art = p.actives.includes(slot) ? p.arts[slot] : undefined;
+    if (!art) return;
+    if (!this.world.hasMarksFor(p, slot)) {
+      this.floatText(p.x, p.y - 52, `〈${MARKS[art.mark].name}〉が足りない`, '#a89a8a');
+      return;
+    }
+    const def = this.world.skillFor(p, slot);
+    if (!def) {
+      this.floatText(p.x, p.y - 52, '今の武器では出せない', '#a89a8a');
+      return;
+    }
+    this.world.queueSkill(p.id, slot, actionReach(def.action) !== undefined ? 4000 : 1200);
   }
 
   /** 数秒ごとに、遠征から戻った者と振れる点数を見て、支度のボタンに知らせる */
@@ -624,6 +645,8 @@ export class TrainingGroundScene extends Phaser.Scene {
       this.facing = player.facing;
     }
     if (input.consumePressed('trump')) this.useTrump();
+    if (input.consumePressed('art1')) this.fireArt('art1');
+    if (input.consumePressed('art2')) this.fireArt('art2');
 
     let mx = (input.isDown('right') ? 1 : 0) - (input.isDown('left') ? 1 : 0);
     let my = (input.isDown('down') ? 1 : 0) - (input.isDown('up') ? 1 : 0);

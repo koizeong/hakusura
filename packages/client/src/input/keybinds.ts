@@ -15,6 +15,8 @@ export const INPUT_ACTIONS = {
   lockOn: 'ターゲット固定',
   trump: '切り札(自動)',
   step: 'ステップ(自動)',
+  art1: '印の技・壱(自動)',
+  art2: '印の技・弐(自動)',
   breakdown: '内訳',
 } as const;
 
@@ -43,6 +45,9 @@ export const DEFAULT_KEYBINDS: Keybinds = {
   trump: { device: 'key', code: 'Space' },
   // 自動のステップは、手動のガードと同じキー
   step: { device: 'key', code: 'ShiftLeft' },
+  // 手で撃つ印の技。手動の Q・E とは戦い方が違うので重ねてよい
+  art1: { device: 'key', code: 'KeyQ' },
+  art2: { device: 'key', code: 'KeyE' },
   breakdown: { device: 'key', code: 'Tab' },
 };
 

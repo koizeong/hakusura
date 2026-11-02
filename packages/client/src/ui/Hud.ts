@@ -1,5 +1,6 @@
 import { ACTIVE_SKILLS, FERVOR, FIELDS, MARKS, MARK_IDS, SKILL_CATEGORIES, STATUSES, STATUS_IDS, type ActiveSkillId, type CombatWorld, type Unit } from '@hakusura/core';
 import { ACTIVE_SLOT_ACTIONS, bindingLabel, type Keybinds } from '../input/keybinds';
+import { ART_SLOT_NAMES, HAND_ART_SLOTS, isHandArt, type ArtSlot } from '@hakusura/core';
 import { statusIconUrl } from '../art/icons';
 import { h } from './dom';
 import type { BattleMode } from './TrainingPanel';
@@ -15,6 +16,8 @@ export interface HudActions {
   onBreakdown(): void;
   onBuild(): void;
   onStep(): void;
+  /** 手で撃つ印の技(壱・弐) */
+  onArt(slot: ArtSlot): void;
 }
 
 /** 画面下の体力・状態・スキル枠と、自動のときの切り札・早送り */
@@ -40,6 +43,8 @@ export class Hud {
   private autoKey = '';
   private autoBar: HTMLElement;
   private trumpButton: HTMLButtonElement;
+  /** 手で撃つ印の技のボタン(壱・弐) */
+  private artButtons = new Map<ArtSlot, { button: HTMLButtonElement; shade: HTMLElement; key: HTMLElement; name: HTMLElement; need: HTMLElement; shown: string }>();
   /** 自動のときのステップ。切り札の隣に置く */
   private stepButton: HTMLButtonElement;
   private stepShade: HTMLElement;
@@ -95,6 +100,18 @@ export class Hud {
       h('span', { class: 'label' }, '見切り'),
       h('span', { class: 'name' }, 'ステップ'),
     );
+    for (const slot of HAND_ART_SLOTS) {
+      const view = { shade: h('div', { class: 'shade' }), key: h('span', { class: 'key' }), name: h('span', { class: 'name' }, '—'), need: h('span', { class: 'need' }), shown: '' };
+      const button = h(
+        'button',
+        { class: 'hand-art', onclick: (e: Event) => (actions.onArt(slot), (e.currentTarget as HTMLElement).blur()) },
+        view.shade,
+        view.key,
+        view.need,
+        view.name,
+      ) as HTMLButtonElement;
+      this.artButtons.set(slot, { ...view, button });
+    }
     this.speedButton = h('button', { class: 'speed', onclick: (e: Event) => (actions.onSpeed(), (e.currentTarget as HTMLElement).blur()) }, '×1');
     const breakdownButton = h(
       'button',
@@ -123,7 +140,7 @@ export class Hud {
           h('div', { class: 'slot dodge' }, this.dodge.shade, this.dodge.key, h('span', { class: 'name' }, '回避'), h('span', { class: 'cat' }, '見切り')),
           h('div', { class: 'slot' }, this.guard.shade, this.guard.key, h('span', { class: 'name' }, 'ガード'), h('span', { class: 'cat' }, '弾き')),
         ),
-        h('div', { class: 'auto-row auto-only' }, this.autoBar, this.stepButton, this.trumpButton),
+        h('div', { class: 'auto-row auto-only' }, this.autoBar, ...[...this.artButtons.values()].map((v) => v.button), this.stepButton, this.trumpButton),
         this.hint,
       ),
     );
@@ -185,6 +202,7 @@ export class Hud {
     this.guard.key.textContent = bindingLabel(binds.guard);
     this.trumpKey.textContent = bindingLabel(binds.trump);
     this.stepKey.textContent = bindingLabel(binds.step);
+    for (const [slot, view] of this.artButtons) view.key.textContent = bindingLabel(binds[slot as 'art1' | 'art2']);
     this.lockKey = bindingLabel(binds.lockOn);
   }
 
@@ -226,6 +244,7 @@ export class Hud {
       const stepLeft = Math.max(0, dodgeReadyAt - world.time) / this.stepCooldown;
       this.stepShade.style.height = `${Math.min(1, stepLeft) * 100}%`;
       this.stepButton.disabled = stepLeft > 0;
+      this.updateHandArts(world, player, cooldownLeft);
     }
 
     const parts: string[] = [];
@@ -284,9 +303,44 @@ export class Hud {
     v.style.opacity = '0';
   }
 
+  /** 手で撃つ印の技。印があといくつ要るかを出し、足りたら光る */
+  private updateHandArts(world: CombatWorld, player: Unit, cooldownLeft: (skill: ActiveSkillId) => number): void {
+    for (const [slot, view] of this.artButtons) {
+      const art = player.actives.includes(slot) ? player.arts[slot] : undefined;
+      if (!art) {
+        if (view.shown !== '') {
+          view.shown = '';
+          view.name.textContent = '—';
+          view.need.textContent = ART_SLOT_NAMES[slot].replace('印の技・', '');
+          view.button.style.borderColor = '';
+        }
+        view.button.disabled = true;
+        view.button.classList.remove('ready');
+        view.shade.style.height = '0%';
+        continue;
+      }
+      const have = world.marksOf(player, art.mark);
+      const need = `${MARKS[art.mark].name} ${Math.min(have, art.cost)}/${art.cost}`;
+      if (view.shown !== art.id + need) {
+        view.shown = art.id + need;
+        view.name.textContent = art.name;
+        view.need.textContent = need;
+        const color = `#${MARKS[art.mark].color.toString(16).padStart(6, '0')}`;
+        view.need.style.color = color;
+        view.button.style.borderColor = color;
+      }
+      const left = cooldownLeft(slot);
+      view.shade.style.height = `${(have >= art.cost ? left : 1 - have / art.cost) * 100}%`;
+      const ready = have >= art.cost && left <= 0;
+      view.button.disabled = !ready;
+      view.button.classList.toggle('ready', ready);
+    }
+  }
+
   /** 作戦に入っているスキルを1つずつ並べ、クールダウンを見せる */
   private updateAutoSkills(world: CombatWorld, player: Unit, cooldownLeft: (skill: ActiveSkillId) => number): void {
-    const skills = [...new Set(player.tactics.filter((t) => t.enabled && player.actives.includes(t.skill)).map((t) => t.skill))];
+    // 手で撃つ枠は、下のボタンに出す
+    const skills = [...new Set(player.tactics.filter((t) => t.enabled && player.actives.includes(t.skill) && !isHandArt(t.skill)).map((t) => t.skill))];
     // 印の技の枠は、入れた技が替われば作り直す
     const key = skills.map((s) => world.skillName(player, s)).join();
     if (key !== this.autoKey) {
