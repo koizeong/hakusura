@@ -1,4 +1,4 @@
-import type { MarkId } from './data/marks';
+import { MARK_IDS, type MarkId } from './data/marks';
 import type { ElementId } from './data/elements';
 import type { FieldId } from './data/fields';
 import type { StatusId } from './data/statuses';
@@ -35,6 +35,12 @@ export type Predicate =
   | { type: 'selfFocus'; min: number }
   /** 自分の印が min 以上 */
   | { type: 'selfMarks'; mark: MarkId; min: number }
+  /** 自分のその印が max 以下(飢えの札。0 なら印を持っていないとき) */
+  | { type: 'selfMarksAtMost'; mark: MarkId; max: number }
+  /** 自分が持つ印の種類が min 以上 */
+  | { type: 'selfMarkKinds'; min: number }
+  /** 自分の印の数の合計が min 以上 */
+  | { type: 'selfMarksTotal'; min: number }
   /** 自分の魔力の高まり(杖のコンボで溜まる数)が min 以上 */
   | { type: 'selfCombo'; min: number }
   /** 相手との間(縁から縁)が min 以上 */
@@ -87,8 +93,8 @@ export type Action =
   | { type: 'cooldown'; ms: number; tags?: readonly string[] }
   /** 持ち主の次の charges 回の技の振りかぶりと硬直を scale 倍にする(duration の間) */
   | { type: 'quicken'; scale: number; charges: number; duration: number }
-  /** 持ち主が印を得る */
-  | { type: 'gainMark'; mark: MarkId; amount: number }
+  /** 持ち主が印を得る。per があれば、きっかけの数(使った・失った印の数)の per 倍を足す */
+  | { type: 'gainMark'; mark: MarkId; amount: number; per?: number }
   /** 持ち主の印を amount 使う(なければ min、それもなければ全て)。min に足りなければ使わない。1つにつき each を行う */
   | { type: 'spendMarks'; mark: MarkId; min?: number; amount?: number; each?: readonly Action[] };
 
@@ -110,11 +116,28 @@ export type Rule = RuleBase &
         group?: string;
         /** あれば、その印1つにつき add を足す(印がなければ効かない) */
         perMark?: MarkId;
+        /** あれば、持っている印の種類1つにつき add を足す */
+        perMarkKind?: boolean;
         perCharge?: { every: number; max: number };
       }
     | /** ヒットが当たった後 */ { on: 'hit'; do: readonly Action[] }
-    | /** 自分がその印を得たとき(印を別の印に変える札など) */ { on: 'markGained'; mark: MarkId; do: readonly Action[] }
-    | /** 自分が印を使ったとき。mark がなければどの印でも。対象は当てていた相手 */ { on: 'markSpent'; mark?: MarkId; do: readonly Action[] }
+    | /** 自分がその印を得たとき(印を別の印に変える札など)。reach があれば、その数に届いた瞬間だけ */ {
+        on: 'markGained';
+        mark: MarkId;
+        reach?: number;
+        do: readonly Action[];
+      }
+    | /** 自分が印を使ったとき。mark がなければどの印でも。対象は当てていた相手。使った数がきっかけの数 */ {
+        on: 'markSpent';
+        mark?: MarkId;
+        do: readonly Action[];
+      }
+    | /** 自分の印が消えたとき(8秒得なかった・倒れた)。mark がなければどの印でも。失った数がきっかけの数 */ {
+        on: 'markLost';
+        mark?: MarkId;
+        do: readonly Action[];
+      }
+    | /** その印が消えるまでの時間を scale 倍にする。mark がなければ全ての印 */ { on: 'markKeep'; mark?: MarkId; scale: number }
     | /** 状態が発動した瞬間。scale で持続と範囲を変える */ {
         on: 'statusActivate';
         do?: readonly Action[];
@@ -223,6 +246,12 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return (ctx.attackerFocus ?? 0) >= p.min;
     case 'selfMarks':
       return (ctx.attackerMarks?.(p.mark) ?? 0) >= p.min;
+    case 'selfMarksAtMost':
+      return (ctx.attackerMarks?.(p.mark) ?? 0) <= p.max;
+    case 'selfMarkKinds':
+      return MARK_IDS.filter((m) => (ctx.attackerMarks?.(m) ?? 0) > 0).length >= p.min;
+    case 'selfMarksTotal':
+      return MARK_IDS.reduce((s, m) => s + (ctx.attackerMarks?.(m) ?? 0), 0) >= p.min;
     case 'selfCombo':
       return (ctx.attackerCombo ?? 0) >= p.min;
     case 'targetFar':

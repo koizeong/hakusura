@@ -23,7 +23,7 @@ import { CONDITION_ADD_GROUP, conditionDef, type ConditionId } from './data/cond
 import { INTERACTIONS } from './data/interactions';
 import { DEFENSE_RULES } from './data/defense';
 import { levelHp, levelModifiers } from './data/levels';
-import { MARK_RULES, markDef, type MarkId } from './data/marks';
+import { MARK_IDS, MARK_RULES, markDef, type MarkId } from './data/marks';
 import { evaluatePredicate, ruleMatches, type Action, type Modifier, type Predicate, type PredicateContext, type Rule } from './rules';
 
 export type Team = 'player' | 'enemy';
@@ -1457,6 +1457,7 @@ export class CombatWorld {
     }
 
     for (const unit of this.units.values()) {
+      this.expireMarks(unit);
       const weatherApplies = this.weather ? fieldDef(this.weather).applies : undefined;
       if (weatherApplies) this.addBuildup(unit, weatherApplies.status, weatherApplies.perSec * sec, { skill: '', via: [], depth: 0 });
       // 飛んでいる者は床を踏まない。飛ぶ時間が切れたら地に降りる
@@ -1702,7 +1703,10 @@ export class CombatWorld {
     unit.invulnerableUntil = Math.max(unit.invulnerableUntil, unit.downUntil);
     unit.rites = [];
     unit.buffs = [];
+    // 倒れると印を全て失う(失ったときの札は働く)
+    const lost = unit.marks;
     unit.marks = {};
+    for (const mark of Object.keys(lost) as MarkId[]) if (lost[mark]!.until > this.time) this.loseMarks(unit, mark, Math.floor(lost[mark]!.count));
     this.pending = this.pending.filter((p) => p.unitId !== unit.id);
     unit.busyUntil = 0;
     unit.windupUntil = 0;
@@ -2120,7 +2124,9 @@ export class CombatWorld {
         ? rule.add * Math.min(rule.perCharge.max, Math.floor((hit.charge ?? 0) / rule.perCharge.every))
         : rule.perMark
           ? rule.add * Math.min(MARK_RULES.perMarkCap, attacker ? this.marksOf(attacker, rule.perMark) : 0)
-          : rule.add;
+          : rule.perMarkKind
+            ? rule.add * (attacker ? MARK_IDS.filter((m) => this.marksOf(attacker, m) > 0).length : 0)
+            : rule.add;
       if (add === 0) continue;
       bonuses.push({ label: rule.label, add, group: rule.group });
       if (kind === 'interaction') qualifiers.push(rule.label);
@@ -2341,11 +2347,8 @@ export class CombatWorld {
   /** 今の印の数。最後に得てから時間が経っていれば0 */
   marksOf(unit: Unit, mark: MarkId): number {
     const m = unit.marks[mark];
-    if (!m) return 0;
-    if (m.until <= this.time) {
-      delete unit.marks[mark];
-      return 0;
-    }
+    // 消えた印は、時の流れ(update)か次に得るときに片付ける(消えたときの札が働く)
+    if (!m || m.until <= this.time) return 0;
     return Math.floor(m.count);
   }
 
@@ -2353,7 +2356,6 @@ export class CombatWorld {
    * 印を n 使う。残りは残る。使ったら between を行い、使うたびの札(on: 'markSpent')が働く。対象は当てていた相手
    */
   consumeMarks(owner: Unit, mark: MarkId, n: number, label: string, target: Unit, src: Source, between?: () => void): void {
-    this.marksOf(owner, mark);
     const left = (owner.marks[mark]?.count ?? 0) - n;
     if (left > 0) owner.marks[mark] = { count: left, until: owner.marks[mark]!.until };
     else delete owner.marks[mark];
@@ -2364,24 +2366,50 @@ export class CombatWorld {
     const ctx = this.context(target, owner, {});
     for (const { rule } of this.rulesFor(owner)) {
       if (rule.on !== 'markSpent' || (rule.mark && rule.mark !== mark) || !ruleMatches(rule, ctx)) continue;
-      for (const a of rule.do) this.runAction(a, rule.label, target, { attacker: owner, skill: rule.label, via: [...src.via, rule.label], depth: src.depth + 1, hit: src.hit });
+      for (const a of rule.do) this.runAction(a, rule.label, target, { attacker: owner, skill: rule.label, via: [...src.via, rule.label], depth: src.depth + 1, hit: src.hit, amount: n });
     }
   }
 
   /** 印を得る。得たときのルール(別の印に変える札など)も働く。連鎖は上限の段まで */
   gainMark(unit: Unit, mark: MarkId, amount: number, depth = 0): void {
     const def = markDef(mark);
+    this.expireMarks(unit);
     // 溜まるほど溜まりやすい。端数も覚えておく(見せるのと使うのは整数)
-    this.marksOf(unit, mark);
     const held = unit.marks[mark]?.count ?? 0;
     const count = Math.min(def.max, held + amount * (1 + held / MARK_RULES.swell));
-    unit.marks[mark] = { count, until: this.time + def.duration };
+    // 消えるまでの時間を延ばす札
+    let keep = 1;
+    for (const { rule } of this.rulesFor(unit)) if (rule.on === 'markKeep' && (!rule.mark || rule.mark === mark)) keep *= rule.scale;
+    unit.marks[mark] = { count, until: this.time + def.duration * keep };
     this.events.push({ type: 'marks', unitId: unit.id, mark, count: Math.floor(count) });
     if (depth >= this.maxTriggerDepth) return;
     const ctx = this.context(unit, unit, {});
     for (const { rule } of this.rulesFor(unit)) {
       if (rule.on !== 'markGained' || rule.mark !== mark || !ruleMatches(rule, ctx)) continue;
-      for (const action of rule.do) this.runAction(action, rule.label, unit, { attacker: unit, skill: rule.label, via: [rule.label], depth: depth + 1 });
+      // 届いた瞬間だけ働く札(〈研ぎ〉が30に届くと…)
+      if (rule.reach !== undefined && !(held < rule.reach && count >= rule.reach)) continue;
+      for (const action of rule.do) this.runAction(action, rule.label, this.tacticTarget(unit) ?? unit, { attacker: unit, skill: rule.label, via: [rule.label], depth: depth + 1, amount: Math.floor(count) - Math.floor(held) });
+    }
+  }
+
+  /** 時間切れの印を片付け、消えたときの札(on: 'markLost')を働かせる */
+  expireMarks(unit: Unit): void {
+    for (const mark of Object.keys(unit.marks) as MarkId[]) {
+      const m = unit.marks[mark]!;
+      if (m.until > this.time) continue;
+      delete unit.marks[mark];
+      this.loseMarks(unit, mark, Math.floor(m.count));
+    }
+  }
+
+  /** 印を失った(消えた・倒れた)。失った数をきっかけに札が働く */
+  private loseMarks(unit: Unit, mark: MarkId, n: number): void {
+    if (n <= 0) return;
+    this.events.push({ type: 'marks', unitId: unit.id, mark, count: 0 });
+    const ctx = this.context(unit, unit, {});
+    for (const { rule } of this.rulesFor(unit)) {
+      if (rule.on !== 'markLost' || (rule.mark && rule.mark !== mark) || !ruleMatches(rule, ctx)) continue;
+      for (const action of rule.do) this.runAction(action, rule.label, this.tacticTarget(unit) ?? unit, { attacker: unit, skill: rule.label, via: [rule.label], depth: 1, amount: n });
     }
   }
 
@@ -2461,7 +2489,10 @@ export class CombatWorld {
         if (src.attacker) src.attacker.quicken = { scale: action.scale, charges: action.charges, until: this.time + action.duration };
         break;
       case 'gainMark':
-        if (src.attacker) this.gainMark(src.attacker, action.mark, action.amount, src.depth);
+        if (src.attacker) {
+          const n = action.amount + Math.floor((action.per ?? 0) * (src.amount ?? 0));
+          if (n > 0) this.gainMark(src.attacker, action.mark, n, src.depth);
+        }
         break;
       case 'spendMarks': {
         const owner = src.attacker;

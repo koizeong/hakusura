@@ -314,3 +314,83 @@ describe('技と印(溜める・保つ・使う)', () => {
     expect(pw(r) / pw(base)).toBeCloseTo(2.2 + spendBonus(10));
   });
 });
+
+describe('印の札・二の巻', () => {
+  it('飢える札は、印がないときだけ働く', () => {
+    const { w, p, swing } = duel(['edgeHunger']);
+    const count = () => w.log.filter((r) => r.via.includes('刃こぼれの執念')).length;
+    swing();
+    expect(count()).toBeGreaterThan(0);
+    const before = count();
+    w.gainMark(p, 'edge', 3);
+    swing();
+    expect(count()).toBe(before);
+  });
+
+  it('取り揃える札は、印の種類で伸びる', () => {
+    const dmg = (marks: readonly ('edge' | 'ember' | 'blood' | 'stillness' | 'prayer')[]) => {
+      const { w, p, swing } = duel(['fiveMarks', 'prismBlade']);
+      for (const m of marks) w.gainMark(p, m, 1);
+      swing();
+      return w.log.find((r) => r.depth === 0)!.amount;
+    };
+    const none = dmg([]);
+    expect(dmg(['edge', 'ember'])).toBeCloseTo(none * 1.24, 0);
+    expect(dmg(['edge', 'ember', 'blood', 'stillness', 'prayer'])).toBeCloseTo(none * 1.6 * 2, 0);
+  });
+
+  it('頂の札は、その数に届いた瞬間だけ働く', () => {
+    const { w, p } = duel(['bloodCrest']);
+    p.hp = 100;
+    w.gainMark(p, 'blood', 29);
+    expect(p.hp).toBe(100);
+    w.gainMark(p, 'blood', 1);
+    expect(p.hp).toBeCloseTo(100 + p.maxHp * 0.2);
+    w.gainMark(p, 'blood', 5);
+    expect(p.hp).toBeCloseTo(100 + p.maxHp * 0.2);
+  });
+
+  it('名残の札は、印が消えたときと倒れたときに、失った数で働く', () => {
+    const { w, p } = duel(['stillnessToEdge']);
+    w.gainMark(p, 'stillness', 6);
+    run(w, MARKS.stillness.duration + 100);
+    expect(w.marksOf(p, 'stillness')).toBe(0);
+    expect(w.marksOf(p, 'edge')).toBe(6);
+  });
+
+  it('埋み火の札で、印が消えるまでの時間が延びる', () => {
+    const { w, p } = duel(['restingEdge']);
+    w.gainMark(p, 'edge', 5);
+    run(w, MARKS.edge.duration * 2);
+    expect(w.marksOf(p, 'edge')).toBe(5);
+  });
+
+  it('倹約の札は、使った数の一部を取り戻す', () => {
+    const { w, p } = duel(['edgeThrift']);
+    p.cooldowns = {};
+    w.gainMark(p, 'edge', 10);
+    w.useSkill('p', 'cleave', w.units.get('t')!, 't');
+    expect(w.marksOf(p, 'edge')).toBe(3);
+  });
+
+  it('使い手の札は、印を使う技にだけ効く', () => {
+    const hit = (conditions: ConditionId[], skill: 'cleave' | 'slash') => {
+      const { w, p } = duel(conditions);
+      p.cooldowns = {};
+      w.gainMark(p, 'edge', 10);
+      w.useSkill('p', skill, w.units.get('t')!, 't');
+      run(w, 1500);
+      return w.log.find((r) => r.depth === 0)!.amount;
+    };
+    expect(hit(['spenderHand'], 'cleave') / hit([], 'cleave')).toBeCloseTo(1.5, 1);
+    expect(hit(['spenderHand'], 'slash') / hit([], 'slash')).toBeCloseTo(1, 1);
+  });
+
+  it('状態の発動から印を生む札', () => {
+    const { w, p, t, swing } = duel(['bleedEdge']);
+    t.statuses.bleed.buildup = 99;
+    swing();
+    expect(w.isActive(t, 'bleed')).toBe(true);
+    expect(w.marksOf(p, 'edge')).toBe(3);
+  });
+});

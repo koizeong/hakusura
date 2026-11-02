@@ -1261,7 +1261,8 @@ function resolveRaw(id: ActiveSkillId, weapon?: WeaponRef, variant?: SkillVarian
     intervalWhen: intervalWhen.length > 0 ? intervalWhen : undefined,
     category: w.kind === 'melee' ? 'melee' : 'ranged',
     element: t.element ?? w.element,
-    tags: [...def.tags, ...w.tags, w.id, ...(w.kind === 'ranged' ? ['projectile'] : [])],
+    // 印との結びつきもタグにする(印を使う技に効く札などのため)
+    tags: [...def.tags, ...w.tags, w.id, ...(w.kind === 'ranged' ? ['projectile'] : []), ...markTags(def)],
     windup: w.windup * (t.windup ?? 1),
     recovery: w.recovery * (t.windup ?? 1),
     cooldown: w.interval * t.interval,
@@ -1270,6 +1271,11 @@ function resolveRaw(id: ActiveSkillId, weapon?: WeaponRef, variant?: SkillVarian
     weaponSpec: toWeaponSpec(weapon),
     missing: 0,
   };
+}
+
+/** 技と印の結びつきのタグ。溜める markGain・保つ markHold・使う markSpend */
+export function markTags(def: SkillBase): string[] {
+  return [...(def.markGain ? ['markGain'] : []), ...(def.markHold ? ['markHold'] : []), ...(def.markCost ? ['markSpend'] : [])];
 }
 
 /** 印を溜める技のルール。1回の使用で、当てた相手1体につき1度 */
