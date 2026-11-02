@@ -36,7 +36,9 @@ describe('印の技(生成)', () => {
     expect(Math.min(...costs)).toBe(5);
     expect(Math.max(...costs)).toBeGreaterThanOrEqual(90);
     // 小さい技が多く、大技は稀
-    expect(costs.filter((c) => c <= 10).length).toBeGreaterThan(costs.filter((c) => c >= 70).length * 4);
+    expect(costs.filter((c) => c <= 10).length).toBeGreaterThan(costs.filter((c) => c >= 70).length * 2);
+    expect(costs.filter((c) => c >= 150).length).toBeGreaterThan(0);
+    expect(Math.max(...costs)).toBeLessThanOrEqual(1000);
     expect(new Set(arts.map((a) => a.shape)).size).toBe(3);
     expect(new Set(arts.map((a) => a.quirk)).size).toBe(Object.keys(ART_QUIRKS).length + 1);
     for (const a of arts) {

@@ -132,9 +132,11 @@ export type Rule = RuleBase &
         mark?: MarkId;
         do: readonly Action[];
       }
-    | /** 自分の印が消えたとき(8秒得なかった・倒れた)。mark がなければどの印でも。失った数がきっかけの数 */ {
+    | /** 自分の印を失ったとき(8秒得なかった・直撃でこぼれた・倒れた)。mark がなければどの印でも。失った数がきっかけの数 */ {
         on: 'markLost';
         mark?: MarkId;
+        /** あれば、そのきっかけで失ったときだけ(expire:消えた・hurt:直撃でこぼれた・fall:倒れた) */
+        cause?: 'expire' | 'hurt' | 'fall';
         do: readonly Action[];
       }
     | /** その印が消えるまでの時間を scale 倍にする。mark がなければ全ての印 */ { on: 'markKeep'; mark?: MarkId; scale: number }

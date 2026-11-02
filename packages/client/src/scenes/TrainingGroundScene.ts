@@ -39,6 +39,7 @@ import {
   encounterLevel,
   type EncounterId,
   type EnemyId,
+  MARKS,
 } from '@hakusura/core';
 import { EncounterView } from '../ui/EncounterView';
 import { GRIP, SHIELD_SIZE, WEAPON_SIZE, createPilgrimTexture, enemyArtOrigin, enemyArtSize, enemyTexture, floorAlpha, floorTexture, frameIndex, groundTexture, PROJECTILE_CORE, PROJECTILE_CORE_RADIUS, PROJECTILE_SIZE, projectileTexture, statusIconTexture, preloadPilgrim, shieldTexture, weaponTexture, type Anim, type Dir } from '../art';
@@ -1621,6 +1622,14 @@ export class TrainingGroundScene extends Phaser.Scene {
       case 'missed': {
         const unit = this.world.units.get(event.unitId);
         if (unit) this.floatText(unit.x, unit.y - 30, '外れ', '#8a7aaa');
+        break;
+      }
+      case 'marks': {
+        // 直撃で印がこぼれたら、こぼれた数を印の色で出す
+        const unit = this.world.units.get(event.unitId);
+        if (unit && unit === this.player && event.lost && event.count >= 0 && !event.spent) {
+          this.floatText(unit.x + 14, unit.y - 40, `${MARKS[event.mark].name} -${event.lost}`, `#${MARKS[event.mark].color.toString(16).padStart(6, '0')}`);
+        }
         break;
       }
       case 'warded': {

@@ -232,7 +232,7 @@ describe.skipIf(!process.env.SIM_COMBO)('印と型のビルド', () => {
     const avg = (b: Parameters<typeof measureField>[0]) => {
       const runs = [1, 2].map((s) => measureField(b, 30, s));
       const sum = <T>(f: (r: (typeof runs)[number]) => T) => runs.map(f);
-      const merge = (key: 'marksGained' | 'marksSpent' | 'forms') => {
+      const merge = (key: 'marksGained' | 'marksSpent' | 'marksLost' | 'forms') => {
         const out: Record<string, number> = {};
         for (const r of runs) for (const [k, v] of Object.entries(r[key])) out[k] = (out[k] ?? 0) + (v as number) / runs.length;
         return out;
@@ -240,6 +240,7 @@ describe.skipIf(!process.env.SIM_COMBO)('印と型のビルド', () => {
       return {
         dps: sum((r) => r.dps).reduce((a, b) => a + b, 0) / runs.length,
         falls: sum((r) => r.falls).reduce((a, b) => a + b, 0) / runs.length,
+        lost: merge('marksLost'),
         gained: merge('marksGained'),
         spent: merge('marksSpent'),
         forms: merge('forms'),
@@ -257,15 +258,15 @@ describe.skipIf(!process.env.SIM_COMBO)('印と型のビルド', () => {
       const art = avg(withArt(withConditions(c.build, c.full), c.art));
       const marks = (o: Record<string, number>) => Object.entries(o).map(([k, v]) => `${MARKS[k as MarkId].name}${Math.round(v)}`).join('・') || '—';
       rows.push(
-        `| ${c.name} | ${n0(bare.dps)} | ${n0(givers.dps)} | ${n0(full.dps)} | ${n0(art.dps)}(${ACTIVE_SKILLS[c.art].name}) | ×${(art.dps / Math.max(1, bare.dps)).toFixed(2)} | ${art.falls.toFixed(1)} | ${marks(art.gained)} | ${marks(art.spent)} | ${Object.entries(art.forms).map(([k, v]) => `${k}${Math.round(v)}`).join('・') || '—'} |`,
+        `| ${c.name} | ${n0(bare.dps)} | ${n0(givers.dps)} | ${n0(full.dps)} | ${n0(art.dps)}(${ACTIVE_SKILLS[c.art].name}) | ×${(art.dps / Math.max(1, bare.dps)).toFixed(2)} | ${art.falls.toFixed(1)} | ${marks(art.gained)} | ${marks(art.spent)} | ${marks(art.lost)} | ${Object.entries(art.forms).map(([k, v]) => `${k}${Math.round(v)}`).join('・') || '—'} |`,
       );
       notes.push(`- **${c.name}**:${c.idea}。揃えの傷の出どころ:${full.sources.map(([k, v]) => `${k} ${pct(v)}`).join('、')}。効いた札:${full.via.map(([k, v]) => `${k} ${pct(v)}`).join('、') || '—'}`);
     }
     console.log(
       [
         '<<<REPORT',
-        '| ビルド | 札なし | 生む札だけ | 揃え | 揃え+印の技 | 揃え+印の技/札なし | 倒れた | 印を得た回数 | 印を使った数 | 型 |',
-        '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+        '| ビルド | 札なし | 生む札だけ | 揃え | 揃え+印の技 | 揃え+印の技/札なし | 倒れた | 印を得た回数 | 印を使った数 | 失った印(消えた・こぼれた) | 型 |',
+        '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
         ...rows,
         '',
         ...notes,
@@ -287,7 +288,7 @@ describe.skipIf(!process.env.SIM_ARTS)('印の技の重さ', () => {
       return { dps: runs.reduce((a, r) => a + r.dps, 0) / runs.length, uses: runs.reduce((a, r) => a + (r.uses.art1 ?? 0), 0) / runs.length };
     };
     const n0 = (v: number) => Math.round(v).toLocaleString('en-US');
-    const costs = [5, 15, 40, 100];
+    const costs = [5, 15, 40, 100, 300, 1000];
     const rows: string[] = [];
     for (const c of Object.values(COMBO_BUILDS)) {
       const mark = (ACTIVE_SKILLS[c.art] as { markCost: { mark: MarkId } }).markCost.mark;

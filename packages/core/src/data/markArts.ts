@@ -6,7 +6,7 @@ import type { TechniqueDef } from './skills';
 
 /**
  * 印の技(生成)。使うときに印を消費する技を、拾うたびに作る。消費する印の数(5〜100)・形・ヒットの数・属性・癖が変わる。
- * 威力の合計は消費で決まり(markArtPower)、癖があると少し下がる。印5を回し続ける技から、印100を貯めて撃つ大技まで出る。
+ * 威力の合計は消費で決まり(markArtPower)、癖があると少し下がる。印5を回し続ける技から、印1000を貯めて撃つ大技まで出る。
  * ビルドの印の技の枠(壱・弐・参)に入れて使う。拾った技は全キャラで共有する
  */
 export type ArtSlot = 'art1' | 'art2' | 'art3';
@@ -50,12 +50,14 @@ export interface MarkArt {
   echoMark?: MarkId;
 }
 
-/** 消費する印の数の出やすさ。小さい技が多く、100に届く大技は稀 */
+/** 消費する印の数の出やすさ。小さい技が多く、100を超える大技は稀、1000に迫る技はごく稀 */
 const COST_BANDS = [
-  { weight: 50, min: 5, max: 10 },
-  { weight: 30, min: 12, max: 30 },
+  { weight: 45, min: 5, max: 10 },
+  { weight: 27, min: 12, max: 30 },
   { weight: 15, min: 35, max: 60 },
-  { weight: 5, min: 70, max: 100 },
+  { weight: 8, min: 70, max: 100 },
+  { weight: 4, min: 150, max: 400 },
+  { weight: 1, min: 500, max: 1000 },
 ] as const;
 
 /** 印ごとの形の出やすさ */
@@ -74,11 +76,11 @@ const ELEMENT: Partial<Record<MarkId, ElementId>> = { ember: 'fire', blood: 'blo
 const NEEDS_ATTR: Record<MarkId, keyof AttributeNeeds> = { edge: 'str', blood: 'vit', stillness: 'dex', ember: 'fai', prayer: 'fai' };
 
 const NAME_HEADS: Record<MarkId, readonly string[]> = {
-  edge: ['研ぎの', '冴えの', '千刃の', '万刃の'],
-  blood: ['血の', '緋の', '血河の', '血海の'],
-  stillness: ['静かな', '息止めの', '無音の', '死寂の'],
-  ember: ['熾火の', '焦熱の', '劫火の', '終焉の火の'],
-  prayer: ['祈りの', '裁きの', '天啓の', '神罰の'],
+  edge: ['研ぎの', '冴えの', '千刃の', '万刃の', '億刃の'],
+  blood: ['血の', '緋の', '血河の', '血海の', '流血の大海の'],
+  stillness: ['静かな', '息止めの', '無音の', '死寂の', '永劫の静寂の'],
+  ember: ['熾火の', '焦熱の', '劫火の', '終焉の火の', '世界焼きの'],
+  prayer: ['祈りの', '裁きの', '天啓の', '神罰の', '神殺しの'],
 };
 const NAME_TAILS: Record<ArtShape, readonly string[]> = {
   swing: ['払い', '斬', '舞', '断ち'],
@@ -88,7 +90,7 @@ const NAME_TAILS: Record<ArtShape, readonly string[]> = {
 
 /** 消費の段。名前の重さに使う */
 function tierOf(cost: number): number {
-  return cost < 10 ? 0 : cost < 30 ? 1 : cost < 60 ? 2 : 3;
+  return cost < 10 ? 0 : cost < 30 ? 1 : cost < 60 ? 2 : cost < 150 ? 3 : 4;
 }
 
 let artCounter = 0;
@@ -136,7 +138,8 @@ export function rollMarkArt(random: () => number, mark?: MarkId): MarkArt {
 /** 求める能力値。重い技ほど高い */
 export function artNeeds(art: MarkArt): AttributeNeeds | undefined {
   if (art.cost < 12) return undefined;
-  return { [NEEDS_ATTR[art.mark]]: Math.min(24, 10 + Math.floor(art.cost / 8)) };
+  // 重い技ほど高い。100で22、1000で30
+  return { [NEEDS_ATTR[art.mark]]: Math.min(30, 10 + Math.floor(art.cost / 8), 22 + Math.floor(Math.max(0, art.cost - 100) / 112)) };
 }
 
 /** 印の技の癖のルール */

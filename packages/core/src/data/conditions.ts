@@ -1068,6 +1068,28 @@ const HANDMADE = {
     rule: { label: '重い研ぎ', on: 'damage', when: [{ type: 'hitHasTag', tag: 'melee' }, { type: 'selfMarks', mark: 'edge', min: 20 }], add: 1 },
     extraRules: [{ label: '重い研ぎ', on: 'stat', stat: 'moveSpeed', when: [{ type: 'selfMarks', mark: 'edge', min: 20 }], add: -0.2 }],
   },
+  // 被弾でこぼれる印を守る・活かす
+  steadyHeart: {
+    no: 493,
+    text: '直撃を受けて失う印が半分になる',
+    cost: 25,
+    marks: {},
+    rule: { label: '据わった肝', on: 'stat', stat: 'markLoss', when: [], add: -0.5 },
+  },
+  shieldKeep: {
+    no: 494,
+    text: '盾が張られている間、直撃を受けても印を失わない',
+    cost: 30,
+    marks: {},
+    rule: { label: '盾の内の印', on: 'stat', stat: 'markLoss', when: [{ type: 'selfShieldReady' }], add: -1 },
+  },
+  spilledFury: {
+    no: 495,
+    text: '直撃で印をこぼすたび、こぼした数の分だけ〈血潮〉を得る',
+    cost: 25,
+    marks: { gives: ['blood'] },
+    rule: { label: 'こぼれた怒り', on: 'markLost', cause: 'hurt', when: [], do: [{ type: 'gainMark', mark: 'blood', amount: 0, per: 1 }] },
+  },
 } as const satisfies Record<string, ConditionDef>;
 
 export type HandmadeConditionId = keyof typeof HANDMADE;

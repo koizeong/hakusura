@@ -22,6 +22,8 @@ export const STATS = {
   meleeRange: { name: '近攻撃の射程', kind: 'mult' },
   projectiles: { name: '弾の数', kind: 'add' },
   healing: { name: '回復', kind: 'mult' },
+  // 敵の直撃で失う印の割合
+  markLoss: { name: '被弾で失う印', kind: 'mult', lowerIsBetter: true },
 } as const satisfies Record<string, StatDef>;
 
 export type StatId = keyof typeof STATS;

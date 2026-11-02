@@ -27,7 +27,7 @@ describe('印', () => {
     const { w, p, swing } = duel(['honeEdge']);
     swing();
     expect(w.marksOf(p, 'edge')).toBe(1);
-    w.gainMark(p, 'edge', 500);
+    w.gainMark(p, 'edge', 5000);
     expect(w.marksOf(p, 'edge')).toBe(MARKS.edge.max);
     run(w, MARKS.edge.duration + 100);
     expect(w.marksOf(p, 'edge')).toBe(0);
@@ -392,5 +392,38 @@ describe('印の札・二の巻', () => {
     swing();
     expect(w.isActive(t, 'bleed')).toBe(true);
     expect(w.marksOf(p, 'edge')).toBe(3);
+  });
+});
+
+describe('印は被弾でこぼれる', () => {
+  it('敵の直撃を受けると、印をそれぞれ1割と傷の割合だけ失い、失ったときの札が働く', () => {
+    const w = new CombatWorld({ seed: 1 });
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000, conditions: ['lostBlood'] });
+    const e = w.addUnit({ id: 'e', name: '亡者', team: 'enemy', x: 40, y: 0, maxHp: 1e9, ai: ['strawSwipe'] });
+    w.gainMark(p, 'edge', 100);
+    const before = w.marksOf(p, 'edge');
+    run(w, 4000);
+    const hurt = w.log.filter((r) => r.targetId === 'p' && r.attackerId === e.id && r.depth === 0);
+    expect(hurt.length).toBeGreaterThan(0);
+    expect(w.marksOf(p, 'edge')).toBeLessThan(before);
+    // 失せ物の血:失った数の半分の血潮
+    expect(w.marksOf(p, 'blood')).toBeGreaterThan(0);
+  });
+
+  it('被弾で失う印の割合は、上限で止まり、補正値で減らせる', () => {
+    const w = new CombatWorld({ seed: 1 });
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000 });
+    w.gainMark(p, 'ember', 100);
+    w.shakeMarks(p, 10_000);
+    expect(w.marksOf(p, 'ember')).toBe(50);
+    const q = w.addUnit({ id: 'q', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000, conditions: ['steadyHeart'] });
+    w.gainMark(q, 'ember', 100);
+    w.shakeMarks(q, 0);
+    expect(w.marksOf(q, 'ember')).toBe(95);
+    // こぼれた怒り:直撃でこぼした数だけ血潮(消えたときは働かない)
+    const r = w.addUnit({ id: 'r', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000, conditions: ['spilledFury'] });
+    w.gainMark(r, 'edge', 100);
+    w.shakeMarks(r, 0);
+    expect(w.marksOf(r, 'blood')).toBe(10);
   });
 });

@@ -292,6 +292,8 @@ export interface FieldRun {
   hitsTaken: number;
   marksGained: Partial<Record<MarkId, number>>;
   marksSpent: Partial<Record<MarkId, number>>;
+  /** 消えた・被弾で失った印の数 */
+  marksLost: Partial<Record<MarkId, number>>;
   forms: Record<string, number>;
   /** スキルを使った回数 */
   uses: Partial<Record<ActiveSkillId, number>>;
@@ -337,6 +339,7 @@ export function measureField(
   const state: PilotState = { readyAt: 0, dodges: 0, closes: 0, awareness: FIELD.awareness, rngSeed: seed };
   const marksGained: Partial<Record<MarkId, number>> = {};
   const marksSpent: Partial<Record<MarkId, number>> = {};
+  const marksLost: Partial<Record<MarkId, number>> = {};
   const forms: Record<string, number> = {};
   const dt = 25;
   for (let time = 0; time < seconds * 1000; time += dt) {
@@ -354,7 +357,8 @@ export function measureField(
     for (const e of w.drainEvents()) {
       if (e.type === 'marks' && e.unitId === p.id) {
         if (e.spent) marksSpent[e.mark] = (marksSpent[e.mark] ?? 0) + e.spent;
-        else marksGained[e.mark] = (marksGained[e.mark] ?? 0) + 1;
+        else if (e.lost) marksLost[e.mark] = (marksLost[e.mark] ?? 0) + e.lost;
+        else if (e.count > 0) marksGained[e.mark] = (marksGained[e.mark] ?? 0) + 1;
       } else if (e.type === 'form' && e.unitId === p.id) forms[e.name] = (forms[e.name] ?? 0) + 1;
     }
   }
@@ -370,6 +374,7 @@ export function measureField(
     hitsTaken,
     marksGained,
     marksSpent,
+    marksLost,
     forms,
     uses: { ...p.skillUses },
     topSources: share(b.bySource, 3),

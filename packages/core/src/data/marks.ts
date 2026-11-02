@@ -12,19 +12,20 @@ export interface MarkDef {
 }
 
 export const MARKS = {
-  ember: { name: '熾り', description: '火で燃え立つ', max: 100, duration: 8000, color: 0xff7a2e },
-  edge: { name: '研ぎ', description: '刃を重ねて研ぎ澄ます', max: 100, duration: 8000, color: 0xd8d0c0 },
-  blood: { name: '血潮', description: '流した血と浴びた血', max: 100, duration: 8000, color: 0xc8323c },
-  stillness: { name: '静寂', description: '足を止め、息を殺す', max: 100, duration: 8000, color: 0x8aa0c8 },
-  prayer: { name: '祈り', description: '儀式の残り香', max: 100, duration: 8000, color: 0xe8d8a8 },
+  ember: { name: '熾り', description: '火で燃え立つ', max: 1000, duration: 8000, color: 0xff7a2e },
+  edge: { name: '研ぎ', description: '刃を重ねて研ぎ澄ます', max: 1000, duration: 8000, color: 0xd8d0c0 },
+  blood: { name: '血潮', description: '流した血と浴びた血', max: 1000, duration: 8000, color: 0xc8323c },
+  stillness: { name: '静寂', description: '足を止め、息を殺す', max: 1000, duration: 8000, color: 0x8aa0c8 },
+  prayer: { name: '祈り', description: '儀式の残り香', max: 1000, duration: 8000, color: 0xe8d8a8 },
 } as const satisfies Record<string, MarkDef>;
 
 /**
- * 印の決まり。印は100まで溜まり(印を重く使う大技のため)、8秒得なければ全て消える。
+ * 印の決まり。印は1000まで溜まり(印を重く使う大技のため)、8秒得なければ全て消える。
  * 「印1つにつき」の札が数えるのは perMarkCap まで(100溜めても暴れないように)
+ * 敵の攻撃の直撃を受けると、持っている印をそれぞれ hurtBase + 受けた傷/最大HP の割合(hurtMax まで)失う。避ける・防ぐほど印が残る
  * 溜まるほど溜まりやすい:得る数は (1 + 今の数 / swell) 倍(swell 30 なら、30溜めて2倍、90で4倍)。大技を貯める間が延びすぎないように
  */
-export const MARK_RULES = { perMarkCap: 10, swell: 30 } as const;
+export const MARK_RULES = { perMarkCap: 10, swell: 30, hurtBase: 0.1, hurtMax: 0.5 } as const;
 
 /**
  * 印の技の威力。消費する印の数 cost に対して、威力(武器の威力に掛ける倍率の合計)は base × cost^exponent。

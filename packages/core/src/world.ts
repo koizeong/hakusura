@@ -317,7 +317,7 @@ export type CombatEvent =
   /** 昂りが満ちた */
   | { type: 'fervor'; unitId: string }
   /** 印が増えた・使われた(spent は使った数) */
-  | { type: 'marks'; unitId: string; mark: MarkId; count: number; spent?: number; label?: string }
+  | { type: 'marks'; unitId: string; mark: MarkId; count: number; spent?: number; label?: string; lost?: number }
   /** 床が別の床に変わった */
   | { type: 'floorChanged'; id: number; from: FieldId; to: FieldId; x: number; y: number }
   /** 盲目で攻撃が外れた */
@@ -1706,7 +1706,7 @@ export class CombatWorld {
     // 倒れると印を全て失う(失ったときの札は働く)
     const lost = unit.marks;
     unit.marks = {};
-    for (const mark of Object.keys(lost) as MarkId[]) if (lost[mark]!.until > this.time) this.loseMarks(unit, mark, Math.floor(lost[mark]!.count));
+    for (const mark of Object.keys(lost) as MarkId[]) if (lost[mark]!.until > this.time) this.loseMarks(unit, mark, Math.floor(lost[mark]!.count), 'fall');
     this.pending = this.pending.filter((p) => p.unitId !== unit.id);
     unit.busyUntil = 0;
     unit.windupUntil = 0;
@@ -2240,6 +2240,8 @@ export class CombatWorld {
         const gain = statusDef(s).gainOnHurt;
         if (gain) this.addBuildup(target, s, gain, { attacker: target, skill: '', via: [], depth: hit.depth });
       }
+      // 敵の攻撃の直撃は、持っている印を揺さぶり落とす(深い傷ほど多く)
+      if (hit.depth === 0 && hit.tags.has('attack')) this.shakeMarks(target, amount);
       const hurtCtx = this.context(attacker, target, { hitTags: hit.tags, hitElement: hit.element });
       for (const { rule } of this.rulesFor(target)) {
         if (rule.on !== 'hurt' || !ruleMatches(rule, hurtCtx)) continue;
@@ -2398,17 +2400,34 @@ export class CombatWorld {
       const m = unit.marks[mark]!;
       if (m.until > this.time) continue;
       delete unit.marks[mark];
-      this.loseMarks(unit, mark, Math.floor(m.count));
+      this.loseMarks(unit, mark, Math.floor(m.count), 'expire');
+    }
+  }
+
+  /** 直撃を受けて印を失う。それぞれの印の hurtBase + 傷/最大HP の割合(hurtMax まで)。失ったときの札も働く */
+  shakeMarks(unit: Unit, damage: number): void {
+    this.expireMarks(unit);
+    const ratio = Math.min(MARK_RULES.hurtMax, MARK_RULES.hurtBase + damage / Math.max(1, unit.maxHp)) * this.statOf(unit, 'markLoss', []);
+    if (ratio <= 0) return;
+    for (const mark of Object.keys(unit.marks) as MarkId[]) {
+      const m = unit.marks[mark]!;
+      const lost = Math.min(Math.floor(m.count), Math.ceil(m.count * ratio));
+      if (lost <= 0) continue;
+      const left = m.count - lost;
+      if (left > 0) unit.marks[mark] = { count: left, until: m.until };
+      else delete unit.marks[mark];
+      this.events.push({ type: 'marks', unitId: unit.id, mark, count: Math.floor(Math.max(0, left)), lost });
+      this.loseMarks(unit, mark, lost, 'hurt');
     }
   }
 
   /** 印を失った(消えた・倒れた)。失った数をきっかけに札が働く */
-  private loseMarks(unit: Unit, mark: MarkId, n: number): void {
+  private loseMarks(unit: Unit, mark: MarkId, n: number, cause: 'expire' | 'hurt' | 'fall'): void {
     if (n <= 0) return;
-    this.events.push({ type: 'marks', unitId: unit.id, mark, count: 0 });
+    if (cause !== 'hurt') this.events.push({ type: 'marks', unitId: unit.id, mark, count: 0, lost: n });
     const ctx = this.context(unit, unit, {});
     for (const { rule } of this.rulesFor(unit)) {
-      if (rule.on !== 'markLost' || (rule.mark && rule.mark !== mark) || !ruleMatches(rule, ctx)) continue;
+      if (rule.on !== 'markLost' || (rule.mark && rule.mark !== mark) || (rule.cause && rule.cause !== cause) || !ruleMatches(rule, ctx)) continue;
       for (const action of rule.do) this.runAction(action, rule.label, this.tacticTarget(unit) ?? unit, { attacker: unit, skill: rule.label, via: [rule.label], depth: 1, amount: n });
     }
   }
