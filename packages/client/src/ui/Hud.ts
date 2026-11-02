@@ -305,10 +305,13 @@ export class Hud {
     for (const [skill, view] of this.autoSkills) {
       view.shade.style.height = `${cooldownLeft(skill) * 100}%`;
       // 印の技は、印があといくつ要るかを出す。足りない間は暗く、溜まったら光る
-      const cost = world.markCostOf(player, skill);
+      // 印を保つ技は「研ぎ 3/5以上」、使う技は「研ぎ 3/10」
+      const spend = world.markCostOf(player, skill);
+      const hold = world.markHoldOf(skill);
+      const cost = spend ?? (hold ? { mark: hold.mark, amount: hold.min } : undefined);
       if (cost) {
         const have = world.marksOf(player, cost.mark);
-        const text = `${MARKS[cost.mark].name} ${Math.min(have, cost.amount)}/${cost.amount}`;
+        const text = `${MARKS[cost.mark].name} ${Math.min(have, cost.amount)}/${cost.amount}${spend ? '' : '以上'}`;
         if (view.marks.textContent !== text) view.marks.textContent = text;
         view.marks.style.color = `#${MARKS[cost.mark].color.toString(16).padStart(6, '0')}`;
         view.chip.classList.toggle('starved', have < cost.amount);

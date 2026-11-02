@@ -46,6 +46,9 @@ import {
   MASTERY,
   MARKS,
   type MarkId,
+  type ActiveSkillDef,
+  holdPower,
+  spendBonus,
   formDef,
   learnedForms,
   ELEMENT_IDS,
@@ -883,6 +886,8 @@ export class BuildScreen {
           if (r.missing) detail += `・${shortfallText(r.missing)}`;
         }
         if (def.needs) detail = `要 ${needsText(def.needs)}・${detail}`;
+        const terms = markTerms(def);
+        if (terms) detail += `・${terms}`;
         const known = isLearned(this.host.state.learned, id);
         if (!known) detail = '未修得。遠征で見つかる';
         const row = h(
@@ -899,13 +904,7 @@ export class BuildScreen {
             {},
             build.variants?.[id] ? variantName(build.variants[id], def.name) : def.name,
             // 印の技は、消費する印を印の色で名前の横に出す
-            def.markCost
-              ? h(
-                  'span',
-                  { class: 'mark-cost', style: `border-color:${markColor(def.markCost.mark)};color:${markColor(def.markCost.mark)}` },
-                  `${MARKS[def.markCost.mark].name}×${def.markCost.amount}`,
-                )
-              : '',
+            markChip(def),
           ),
           h('small', {}, detail),
         );
@@ -1575,6 +1574,27 @@ function itemCard(attrs: Attributes, item: Item, ...parts: HTMLElement[]): HTMLE
     ...verdicts,
     actions.length > 0 ? h('div', { class: 'item-actions' }, ...actions) : '',
   );
+}
+
+/** 技と印の結びつきを言葉にする(スマホでも読めるよう説明に添える) */
+function markTerms(def: ActiveSkillDef): string {
+  if (def.markCost && !(def.tags as readonly string[]).includes('mark')) return `〈${MARKS[def.markCost.mark].name}〉を${def.markCost.amount}使い、威力が+${Math.round(spendBonus(def.markCost.amount))}倍分`;
+  if (def.markHold) return `〈${MARKS[def.markHold.mark].name}〉が${def.markHold.min}以上ある間だけ出せ(減らない)、威力${holdPower(def.markHold.min).toFixed(1)}倍`;
+  if (def.markGain) return `${isTechnique(def) ? '当てると' : '使うと'}〈${MARKS[def.markGain.mark].name}〉+${def.markGain.amount}`;
+  return '';
+}
+
+/** 技と印の結びつきを名前の横に出す:溜める「研ぎ+2」・保つ「研ぎ5以上 ×1.3」・使う「研ぎ×10」 */
+function markChip(def: ActiveSkillDef): HTMLElement | string {
+  const tag = (mark: MarkId, text: string, title: string) =>
+    h('span', { class: 'mark-cost', title, style: `border-color:${markColor(mark)};color:${markColor(mark)}` }, text);
+  if (def.markCost) {
+    const pure = (def.tags as readonly string[]).includes('mark');
+    return tag(def.markCost.mark, `${MARKS[def.markCost.mark].name}×${def.markCost.amount}`, pure ? '印を使う技' : `印を使う。威力+${Math.round(spendBonus(def.markCost.amount))}倍分`);
+  }
+  if (def.markHold) return tag(def.markHold.mark, `${MARKS[def.markHold.mark].name}${def.markHold.min}以上 ×${holdPower(def.markHold.min).toFixed(1)}`, '印がこの数ある間だけ出せる。印は減らない');
+  if (def.markGain) return tag(def.markGain.mark, `${MARKS[def.markGain.mark].name}+${def.markGain.amount}`, isTechnique(def) ? '当てると印を溜める' : '使うと印を溜める');
+  return '';
 }
 
 function markColor(id: MarkId): string {

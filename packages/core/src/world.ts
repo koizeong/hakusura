@@ -789,7 +789,13 @@ export class CombatWorld {
   /** 印の技なら、消費する印が足りているか */
   hasMarksFor(unit: Unit, skillId: ActiveSkillId): boolean {
     const cost = this.markCostOf(unit, skillId);
-    return !cost || this.marksOf(unit, cost.mark) >= cost.amount;
+    const hold = this.markHoldOf(skillId);
+    return (!cost || this.marksOf(unit, cost.mark) >= cost.amount) && (!hold || this.marksOf(unit, hold.mark) >= hold.min);
+  }
+
+  /** 印を保つ技なら、要る印とその数(使っても減らない) */
+  markHoldOf(skillId: ActiveSkillId): { mark: MarkId; min: number } | undefined {
+    return activeSkillDef(skillId).markHold;
   }
 
   /**
@@ -807,6 +813,9 @@ export class CombatWorld {
       const name = this.skillName(unit, skillId);
       this.consumeMarks(unit, cost.mark, cost.amount, name, target, { attacker: unit, skill: name, via: [name], depth: 0 });
     }
+    // 儀式や塗油のように当てない技は、使うと印を得る(技は当てたときに得る)
+    const skillDef = activeSkillDef(skillId);
+    if (skillDef.markGain && !isTechnique(skillDef)) this.gainMark(unit, skillDef.markGain.mark, skillDef.markGain.amount);
     const uses = (unit.skillUses[skillId] ?? 0) + 1;
     unit.skillUses[skillId] = uses;
     // 1つ前の手。型で手順が空になる前に覚えておく
@@ -1373,8 +1382,11 @@ export class CombatWorld {
       const reach = this.reachOf(unit, next);
       const reachable = reach === undefined || (!!target && this.inReach(unit, target, reach));
       const usable = this.canUseSkill(unit.id, next) && (unit.actives.length === 0 || unit.actives.includes(next));
-      if (!usable && !this.skillFor(unit, next)) {
+      // 出せない技(今の武器で出ない・印が足りない)が次なら、連携をやめて作戦に戻る
+      if (!usable && (!this.skillFor(unit, next) || (!this.isBusy(unit) && !this.hasMarksFor(unit, next)))) {
         unit.followUp = undefined;
+        this.runTactics(unit);
+        return;
       } else {
         if (usable && reachable && this.useSkill(unit.id, next, aim, reach !== undefined ? target?.id : undefined)) {
           const rest = follow.skills.slice(1);

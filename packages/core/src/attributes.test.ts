@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CombatWorld } from './world';
 import { resolveSkill } from './data/skills';
+import { spendBonus } from './data/marks';
 import { WEAPON_TYPES, WEAPON_KIND_POWER } from './data/weapons';
 import { ATTRIBUTE_RULES, baseAttributes, expToNext, missingPoints, pointsAtLevel, shortfallPenalty, type Attributes } from './data/attributes';
 import { addExp, applyBuild, buildProblems, characterPoints, decodeBuild, encodeBuild, levelForPoints, newCharacter, unspentPoints, type Build } from './build';
@@ -26,7 +27,8 @@ describe('能力値の足りなさ', () => {
     // 叩き割りは筋力20、錆びた大剣は筋力18。筋力14なら 6 + 4
     const r = resolveSkill('cleave', 'rustGreatsword', attrs({ str: 14 }))!;
     expect(r.missing).toBe(10);
-    expect(power(r)).toBeCloseTo((WEAPON_TYPES.rustGreatsword.power * WEAPON_KIND_POWER.melee) * 2.2 * 0.2);
+    // 叩き割りは研ぎを10使う技で、消費に見合う威力が足される
+    expect(power(r)).toBeCloseTo((WEAPON_TYPES.rustGreatsword.power * WEAPON_KIND_POWER.melee) * (2.2 + spendBonus(10)) * 0.2);
   });
 
   it('威力は0を下回らない', () => {

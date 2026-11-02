@@ -1,4 +1,4 @@
-import type { MarkId } from './marks';
+import { holdPower, spendBonus, type MarkId } from './marks';
 import type { ElementId } from './elements';
 import type { FieldId } from './fields';
 import { toWeaponSpec, weaponDef, type WeaponKind, type WeaponRef, type WeaponSpec, type WeaponTypeId } from './weapons';
@@ -119,6 +119,10 @@ interface SkillBase {
   needs?: AttributeNeeds;
   /** 使うときに消費する印。足りなければ使えない。消費が多い技ほど強い */
   markCost?: { mark: MarkId; amount: number };
+  /** 印が min 以上ある間だけ出せる(印は減らない)。技なら威力が holdPower(min) 倍 */
+  markHold?: { mark: MarkId; min: number };
+  /** 印を溜める。技は当てると(1回の使用で相手1体につき1度)、それ以外は使うと得る */
+  markGain?: { mark: MarkId; amount: number };
 }
 
 /** 数値を自分で持つスキル。付与・切り札・敵のスキル */
@@ -210,6 +214,7 @@ export const ACTIVE_SKILLS = {
     description: '細く遠くまで突く。射程が1.6倍、扇は30度',
     needs: { dex: 14 },
     tags: ['attack'],
+    markGain: { mark: 'edge', amount: 2 },
     technique: { requires: { kind: 'melee' }, shape: 'swing', power: 1.1, interval: 1.1, range: 1.6, arc: 30 },
   },
   whirlwind: {
@@ -218,6 +223,7 @@ export const ACTIVE_SKILLS = {
     description: '周り全てを薙ぎ、弾もまとめてかき消す(二刀流向け)',
     needs: { dex: 16 },
     tags: ['attack', 'dual'],
+    markHold: { mark: 'edge', min: 10 },
     technique: { requires: { kind: 'melee' }, shape: 'swing', power: 0.8, interval: 1.4, range: 0.95, arc: 360 },
   },
   cleave: {
@@ -226,6 +232,7 @@ export const ACTIVE_SKILLS = {
     description: '大きく振りかぶって叩き割る。威力2.2倍、間隔2倍',
     needs: { str: 20 },
     tags: ['attack'],
+    markCost: { mark: 'edge', amount: 10 },
     technique: { requires: { kind: 'melee' }, shape: 'swing', power: 2.2, interval: 2, windup: 1.6 },
   },
   gouge: {
@@ -234,6 +241,7 @@ export const ACTIVE_SKILLS = {
     description: '斬の武器で抉る。蓄積が2倍(二刀流向け)',
     needs: { dex: 14 },
     tags: ['attack', 'dual'],
+    markGain: { mark: 'blood', amount: 2 },
     technique: { requires: { kind: 'melee', element: 'slash' }, shape: 'swing', power: 0.8, interval: 1.1, buildup: 2, arc: 90 },
   },
   scorch: {
@@ -242,6 +250,7 @@ export const ACTIVE_SKILLS = {
     description: '火の武器で焼き払う。扇が200度になり、蓄積が1.4倍',
     needs: { fai: 14 },
     tags: ['attack'],
+    markGain: { mark: 'ember', amount: 2 },
     technique: { requires: { kind: 'melee', element: 'fire' }, shape: 'swing', power: 0.9, interval: 1.4, buildup: 1.4, arc: 200 },
   },
   shoot: {
@@ -257,6 +266,7 @@ export const ACTIVE_SKILLS = {
     description: '3発を扇に撃つ。1発ごとの威力は半分',
     needs: { dex: 16 },
     tags: ['attack'],
+    markGain: { mark: 'stillness', amount: 2 },
     technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 0.5, interval: 1.5, count: 3, spread: 12 },
   },
   /** 弓にしか使えない大技。狭い扇に5本を一度に放つ。同じ相手に束ねて当たり、狙いの締まりが一気に溜まる */
@@ -266,6 +276,7 @@ export const ACTIVE_SKILLS = {
     description: '弓の大技。狭い扇に5本の矢を一度に放つ。1本の威力0.9倍、間隔2倍',
     needs: { dex: 20 },
     tags: ['attack'],
+    markCost: { mark: 'stillness', amount: 20 },
     technique: { requires: { tag: 'bow' }, shape: 'shot', power: 0.9, interval: 2, count: 5, spread: 5 },
   },
   // ---- 印の技の枠。拾った印の技(markArts.ts、自動で作る)を入れて使う。空なら出ない ----
@@ -409,6 +420,7 @@ export const ACTIVE_SKILLS = {
     description: 'じっくり狙う。威力2.4倍、射程1.3倍、間隔2.2倍',
     needs: { dex: 18 },
     tags: ['attack'],
+    markCost: { mark: 'stillness', amount: 10 },
     technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 2.4, interval: 2.2, range: 1.3, windup: 1.8 },
   },
   discharge: {
@@ -417,6 +429,7 @@ export const ACTIVE_SKILLS = {
     description: '雷の武器から周りへ放つ。蓄積が1.5倍',
     needs: { int: 16 },
     tags: ['attack'],
+    markGain: { mark: 'ember', amount: 2 },
     technique: { requires: { element: 'lightning' }, shape: 'nova', power: 0.9, interval: 2.2, buildup: 1.5, radius: 150 },
   },
   flurry: {
@@ -425,6 +438,7 @@ export const ACTIVE_SKILLS = {
     description: '細かく3回斬る。1回ごとの威力は4割',
     needs: { dex: 12 },
     tags: ['attack', 'dual'],
+    markGain: { mark: 'edge', amount: 2 },
     technique: { requires: { kind: 'melee' }, shape: 'swing', power: 0.4, interval: 1.1, hits: 3, buildup: 0.5, arc: 100 },
   },
   lunge: {
@@ -433,6 +447,7 @@ export const ACTIVE_SKILLS = {
     description: '踏み込んで斬る。射程1.4倍、扇は70度',
     needs: { str: 10, dex: 10 },
     tags: ['attack'],
+    markHold: { mark: 'edge', min: 5 },
     technique: { requires: { kind: 'melee' }, shape: 'swing', power: 1.15, interval: 1.2, range: 1.4, arc: 70 },
   },
   breaker: {
@@ -441,6 +456,7 @@ export const ACTIVE_SKILLS = {
     description: '体勢を崩す。威力は低いが、当てると昏倒が溜まる',
     needs: { str: 14 },
     tags: ['attack'],
+    markGain: { mark: 'edge', amount: 2 },
     technique: {
       requires: { kind: 'melee' },
       shape: 'swing',
@@ -455,6 +471,7 @@ export const ACTIVE_SKILLS = {
     description: '斬の武器で、自分の血も払って斬る。威力1.8倍、当てると自分に出血が溜まる',
     needs: { dex: 12 },
     tags: ['attack'],
+    markHold: { mark: 'blood', min: 5 },
     technique: {
       requires: { kind: 'melee', element: 'slash' },
       shape: 'swing',
@@ -469,6 +486,7 @@ export const ACTIVE_SKILLS = {
     description: '重い武器で地を叩き、周りを揺らす。当てると昏倒が溜まる',
     needs: { str: 18 },
     tags: ['attack'],
+    markHold: { mark: 'edge', min: 5 },
     technique: {
       requires: { kind: 'melee' },
       shape: 'nova',
@@ -484,6 +502,7 @@ export const ACTIVE_SKILLS = {
     category: 'ranged',
     description: '近くへ5発をばら撒く。射程は半分、1発ごとの威力は3割',
     tags: ['attack'],
+    markGain: { mark: 'blood', amount: 2 },
     technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 0.3, interval: 1.2, range: 0.5, count: 5, spread: 9 },
   },
   pierceShot: {
@@ -492,6 +511,7 @@ export const ACTIVE_SKILLS = {
     description: '弾が3体まで貫いて飛ぶ',
     needs: { dex: 14 },
     tags: ['attack'],
+    markHold: { mark: 'stillness', min: 5 },
     technique: { requires: { kind: 'ranged' }, shape: 'shot', power: 0.85, interval: 1.4, pierce: 3 },
   },
   quickShot: {
@@ -507,6 +527,7 @@ export const ACTIVE_SKILLS = {
     description: '杖の魔弾を大きく弾けさせる。周りにも7割の威力',
     needs: { int: 14 },
     tags: ['attack', 'magic'],
+    markHold: { mark: 'ember', min: 10 },
     technique: { requires: { kind: 'ranged', tag: 'staff' }, shape: 'shot', power: 1.1, interval: 1.5, windup: 1.3, explode: { radius: 100, ratio: 0.7 } },
   },
   soulOrbs: {
@@ -515,6 +536,7 @@ export const ACTIVE_SKILLS = {
     description: '杖から魂を3つ放つ。1つごとの威力は4割',
     needs: { int: 12 },
     tags: ['attack', 'magic'],
+    markGain: { mark: 'prayer', amount: 2 },
     technique: { requires: { kind: 'ranged', tag: 'staff' }, shape: 'shot', power: 0.4, interval: 1.2, count: 3, spread: 26 },
   },
   prayerTorrent: {
@@ -523,6 +545,7 @@ export const ACTIVE_SKILLS = {
     description: '杖を掲げ、周りに属性の奔流を放つ',
     needs: { fai: 12 },
     tags: ['attack', 'magic'],
+    markHold: { mark: 'prayer', min: 10 },
     technique: { requires: { tag: 'staff' }, shape: 'nova', power: 0.8, interval: 1.6, radius: 150, windup: 1.4 },
   },
   emberOil: {
@@ -532,6 +555,7 @@ export const ACTIVE_SKILLS = {
     description: '一定時間、武器の攻撃に火の追撃が乗る',
     needs: { fai: 12 },
     tags: ['buff'],
+    markGain: { mark: 'ember', amount: 5 },
     windup: 500,
     recovery: 300,
     cooldown: 20000,
@@ -545,6 +569,7 @@ export const ACTIVE_SKILLS = {
     description: '一定時間、武器の攻撃に雷の追撃が乗る',
     needs: { int: 12 },
     tags: ['buff'],
+    markGain: { mark: 'ember', amount: 5 },
     windup: 500,
     recovery: 300,
     cooldown: 20000,
@@ -643,6 +668,7 @@ export const ACTIVE_SKILLS = {
     category: 'rite',
     description: '短く祈り、次の技の与ダメージ+60%',
     tags: ['rite'],
+    markGain: { mark: 'prayer', amount: 3 },
     windup: 400,
     recovery: 150,
     cooldown: 5000,
@@ -653,6 +679,7 @@ export const ACTIVE_SKILLS = {
     category: 'rite',
     description: '刃に唾して研ぐ。次の技が3回多く当たる(威力は半分)',
     tags: ['rite'],
+    markGain: { mark: 'edge', amount: 3 },
     needs: { dex: 14 },
     windup: 600,
     recovery: 200,
@@ -664,6 +691,7 @@ export const ACTIVE_SKILLS = {
     category: 'rite',
     description: '自分の最大HPの8%を捧げ、次の技の与ダメージ+150%',
     tags: ['rite', 'blood'],
+    markGain: { mark: 'blood', amount: 3 },
     windup: 500,
     recovery: 200,
     cooldown: 9000,
@@ -674,6 +702,7 @@ export const ACTIVE_SKILLS = {
     category: 'rite',
     description: '次の技を灰の属性に変え、当たると灰化を溜める',
     tags: ['rite', 'ash'],
+    markHold: { mark: 'ember', min: 5 },
     needs: { fai: 14 },
     windup: 700,
     recovery: 200,
@@ -685,6 +714,7 @@ export const ACTIVE_SKILLS = {
     category: 'rite',
     description: '次の技が当たると、雷の追撃が落ちる',
     tags: ['rite', 'lightning'],
+    markGain: { mark: 'ember', amount: 2 },
     needs: { int: 14 },
     windup: 600,
     recovery: 200,
@@ -696,6 +726,7 @@ export const ACTIVE_SKILLS = {
     category: 'rite',
     description: '宿している儀式(これを含む)1つごとに、次の技の与ダメージ+50%',
     tags: ['rite', 'fire'],
+    markHold: { mark: 'prayer', min: 3 },
     windup: 800,
     recovery: 300,
     cooldown: 11000,
@@ -1203,7 +1234,10 @@ function resolveRaw(id: ActiveSkillId, weapon?: WeaponRef, variant?: SkillVarian
   const w = weaponDef(weapon);
   // 変化があれば、技の倍率に重ねる
   const t = variant ? applyVariations(def.technique, variant.variations) : def.technique;
-  const power = w.power * t.power;
+  let power = w.power * t.power;
+  // 印を保つ技は条件のきつさだけ重く、印を使う技は消費に見合う威力を足す(印の技は威力を自分で持つ)
+  if (def.markHold) power *= holdPower(def.markHold.min);
+  if (def.markCost && !(def.tags as readonly string[]).includes('mark')) power += (w.power * spendBonus(def.markCost.amount)) / ((t.hits ?? 1) * (t.count ?? 1));
   const buildup = w.buildup * (t.buildup ?? 1);
   const range = w.range * (t.range ?? 1);
   let action: SkillAction;
@@ -1217,7 +1251,7 @@ function resolveRaw(id: ActiveSkillId, weapon?: WeaponRef, variant?: SkillVarian
     action = { type: 'nova', radius: (t.radius ?? 150) * (t.range ?? 1), power, buildup, hits: t.hits };
   }
   const variations = variant ? variant.variations.map((v) => VARIATIONS[v]) : [];
-  const rules = [...(w.rules ?? []), ...(t.rules ?? []), ...variations.flatMap((v) => (v as VariationDef).rules ?? [])];
+  const rules = [...(w.rules ?? []), ...(t.rules ?? []), ...variations.flatMap((v) => (v as VariationDef).rules ?? []), ...markGainRules(def)];
   const intervalWhen = variations.flatMap((v) => ((v as VariationDef).intervalWhen ? [(v as VariationDef).intervalWhen!] : []));
   return {
     id,
@@ -1236,6 +1270,20 @@ function resolveRaw(id: ActiveSkillId, weapon?: WeaponRef, variant?: SkillVarian
     weaponSpec: toWeaponSpec(weapon),
     missing: 0,
   };
+}
+
+/** 印を溜める技のルール。1回の使用で、当てた相手1体につき1度 */
+function markGainRules(def: ActiveSkillDef): Rule[] {
+  const g = def.markGain;
+  if (!g) return [];
+  return [
+    {
+      label: def.name,
+      on: 'hit',
+      when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }],
+      do: [{ type: 'gainMark', mark: g.mark, amount: g.amount }],
+    },
+  ];
 }
 
 /** 攻撃と付与のスキルの属性 */

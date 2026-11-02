@@ -26,6 +26,8 @@ function duel(weapon: WeaponTypeId, v?: SkillVariant, enemies: { x: number; y: n
 function useNow(w: CombatWorld, p: { cooldowns: object; busyUntil: number }, skill: ActiveSkillId, at = { x: 70, y: 0 }) {
   p.cooldowns = {};
   p.busyUntil = 0;
+  w.gainMark(w.units.get('p')!, 'stillness', 100);
+  w.gainMark(w.units.get('p')!, 'edge', 100);
   expect(w.useSkill('p', skill, at)).toBe(true);
   run(w, 900);
 }

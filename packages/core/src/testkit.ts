@@ -27,3 +27,4 @@ export function bu(skill: ResolvedSkill): number {
 export function withoutAttributes(unit: { attributes?: Attributes }): void {
   unit.attributes = undefined;
 }
+

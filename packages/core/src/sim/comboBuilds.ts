@@ -119,14 +119,14 @@ export const COMBO_BUILDS: Record<string, ComboBuild> = {
   },
   quietArcher: {
     name: '静寂の射手',
-    idea: '足を止め、離れて撃って静寂を溜める。静寂は祈りに変わり、祈り5つで裁きの一矢',
+    idea: '足を止め、離れて撃ち、三連射で静寂を溜める。静寂を使って狙い撃ちと骨矢の驟雨、静寂は祈りに変わり、祈り10で裁きの一矢',
     build: {
       attributes: attrs({ dex: 28, vit: 16 }),
-      actives: ['quickShot', 'aimedShot', 'boneVolley', 'shoot'],
+      actives: ['quickShot', 'aimedShot', 'boneVolley', 'volley'],
       passives: [],
       equipment: { weapon1: weapon('bow', { type: 'boneBow' }) },
       trump: 'oilFlask',
-      tactics: [always('quickShot', ['aimedShot']), always('boneVolley'), always('shoot'), always('aimedShot')],
+      tactics: [always('quickShot', ['aimedShot']), always('boneVolley'), always('volley'), always('aimedShot')],
     },
     full: ['holdBreath', 'distantQuiet', 'stillAim', 'quietPrayer', 'prayerJudgement', 'focusedVolley', 'farHunter', 'spentHaste'],
     givers: ['holdBreath', 'distantQuiet'],
@@ -188,7 +188,8 @@ export const COMBO_BUILDS: Record<string, ComboBuild> = {
       trump: 'frenzyDraught',
       tactics: [always('breaker', ['quake', 'cleave']), always('slash'), always('quake'), always('cleave')],
     },
-    full: ['honeEdge', 'keenEdge', 'edgeRelease', 'heavyGrip', 'edgeBleed', 'bloodHarvest', 'bloodRewhet', 'spentHaste'],
+    // 叩き割りが研ぎを10使うので、研ぎを吐く札は着けない
+    full: ['honeEdge', 'keenEdge', 'edgeHaste', 'heavyGrip', 'edgeBleed', 'bloodHarvest', 'bloodRewhet', 'spentHaste'],
     givers: ['honeEdge'],
     art: 'edgeStorm',
   },
@@ -203,7 +204,8 @@ export const COMBO_BUILDS: Record<string, ComboBuild> = {
       trump: 'rainBell',
       tactics: [always('thrust', ['sweep', 'whirlwind']), always('slash'), always('sweep'), always('whirlwind')],
     },
-    full: ['sparkEmber', 'emberBlaze', 'emberBurst', 'spearEdge', 'stormConduit', 'honeEdge', 'keenEdge', 'edgeRelease'],
+    // 旋風が研ぎ10以上を保つ技なので、研ぎを吐く札は着けない
+    full: ['sparkEmber', 'emberBlaze', 'emberBurst', 'spearEdge', 'stormConduit', 'honeEdge', 'keenEdge', 'edgeHaste'],
     givers: ['sparkEmber', 'honeEdge'],
     art: 'edgeSever',
   },

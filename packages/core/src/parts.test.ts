@@ -66,6 +66,7 @@ describe('武器の条件文', () => {
 
   it('176: 両手持ちのとき、二刀流向けのスキルの威力が2倍', () => {
     const { w, p } = setup({ weapons: [weapon('a', [])], conditions: ['twoHandedDual'] });
+    w.gainMark(p, 'edge', 100);
     swing(w, p, 'whirlwind');
     expect(w.log[0]!.amount).toBeCloseTo(hitPw(resolveSkill('whirlwind', 'rustGreatsword')!) * 1.25 * 2);
     expect(w.log[0]!.combos).toContain('oddGrip');
@@ -108,6 +109,7 @@ describe('追加した条件文', () => {
     const ring = [0, 1, 2, 3, 4].map((i) => ({ x: Math.cos(i * 1.25) * 70, y: Math.sin(i * 1.25) * 70 }));
     const { w, p } = setup({ conditions: ['crowdCleaver'], enemies: ring });
     p.cooldowns.emberOil = w.time + 5000;
+    w.gainMark(p, 'edge', 100);
     w.useSkill('p', 'whirlwind', { x: 1, y: 0 });
     const before = p.cooldowns.whirlwind!;
     run(w, w.skillFor(p, 'whirlwind')!.windup + 20);

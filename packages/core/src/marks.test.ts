@@ -140,6 +140,7 @@ describe('型の熟達', () => {
       const w = new CombatWorld({ seed: 1 });
       const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, weapons: [{ type: 'ironSword' }] });
       p.formUses = { steppingCut: uses };
+      w.gainMark(p, 'edge', 100);
       const t = w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 60, y: 0, maxHp: 1e9 });
       w.useSkill('p', 'slash', t, 't');
       run(w, 800);
@@ -258,5 +259,58 @@ describe('印の技', () => {
       // どの武器でも出せる印の技か、合う種類の武器なら出せる
       expect(resolveSkill(family[0], family[0] === 'quietShot' ? 'boneBow' : 'ironSword')).toBeDefined();
     }
+  });
+});
+
+describe('技と印(溜める・保つ・使う)', () => {
+  it('基本の技のほかは、どの技も印を溜める・保つ・使う', async () => {
+    const { ACTIVE_SKILLS } = await import('./data/skills');
+    const basics = ['slash', 'sweep', 'shoot', 'quickShot'];
+    for (const [id, def] of Object.entries(ACTIVE_SKILLS) as [string, { tags: readonly string[]; markGain?: unknown; markHold?: unknown; markCost?: unknown }][]) {
+      if (basics.includes(id) || def.tags.includes('enemy') || def.tags.includes('trump') || def.tags.includes('art')) continue;
+      expect(!!(def.markGain || def.markHold || def.markCost), id).toBe(true);
+    }
+  });
+
+  it('溜める技は当てると印を得る。儀式は使うと得る', () => {
+    const { w, p } = duel([]);
+    const t = w.units.get('t')!;
+    w.useSkill('p', 'thrust', t, 't');
+    run(w, 900);
+    expect(w.marksOf(p, 'edge')).toBe(2);
+    p.busyUntil = 0;
+    w.useSkill('p', 'whetRite', t);
+    expect(w.marksOf(p, 'edge')).toBeGreaterThanOrEqual(5);
+  });
+
+  it('保つ技は印が足りなければ出ず、出しても印は減らず、条件がきついほど重い', async () => {
+    const { resolveSkill } = await import('./data/skills');
+    const { holdPower } = await import('./data/marks');
+    const { w, p } = duel([]);
+    p.cooldowns = {};
+    expect(w.canUseSkill('p', 'lunge')).toBe(false);
+    w.gainMark(p, 'edge', 5);
+    expect(w.canUseSkill('p', 'lunge')).toBe(true);
+    w.useSkill('p', 'lunge', w.units.get('t')!, 't');
+    expect(w.marksOf(p, 'edge')).toBe(5);
+    const r = resolveSkill('lunge', 'ironSword')!;
+    const base = resolveSkill('slash', 'ironSword')!;
+    const pw = (x: typeof r) => ('power' in x.action ? x.action.power : 0);
+    expect(pw(r) / pw(base)).toBeCloseTo(1.15 * holdPower(5));
+    expect(holdPower(10)).toBeGreaterThan(holdPower(5));
+  });
+
+  it('使う技は印を消費し、消費に見合う威力が足される', async () => {
+    const { resolveSkill } = await import('./data/skills');
+    const { spendBonus } = await import('./data/marks');
+    const { w, p } = duel([]);
+    p.cooldowns = {};
+    w.gainMark(p, 'edge', 12);
+    w.useSkill('p', 'cleave', w.units.get('t')!, 't');
+    expect(w.marksOf(p, 'edge')).toBe(2);
+    const r = resolveSkill('cleave', 'ironSword')!;
+    const base = resolveSkill('slash', 'ironSword')!;
+    const pw = (x: typeof r) => ('power' in x.action ? x.action.power : 0);
+    expect(pw(r) / pw(base)).toBeCloseTo(2.2 + spendBonus(10));
   });
 });

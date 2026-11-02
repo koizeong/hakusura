@@ -191,6 +191,7 @@ describe('技の型と連用の疲れ', () => {
       const w = new CombatWorld({ seed: 1 });
       const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, weapons: [{ type: 'stormSpear' }] });
       w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 80, y: 0, maxHp: 1e9 });
+      w.gainMark(p, 'edge', 100);
       for (const skill of withSetup ? (['thrust', 'sweep'] as const) : []) {
         p.busyUntil = 0;
         w.useSkill('p', skill, { x: 80, y: 0 });

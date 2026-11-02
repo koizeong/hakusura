@@ -43,3 +43,22 @@ export const MARK_IDS = Object.keys(MARKS) as MarkId[];
 export function markDef(id: MarkId): MarkDef {
   return MARKS[id];
 }
+
+/**
+ * 技と印の結びつき。基本の技(斬りつけ・薙ぎ払い・射撃・牽制射)のほかは、どれも印を「溜める」「保つ」「使う」:
+ * - 溜める(markGain):当てると印を得る(儀式・塗油は使うと得る)。威力はそのまま
+ * - 保つ(markHold):印が min 以上ある間だけ出せる。印は減らない。威力は 1 + holdPerMark × min 倍
+ * - 使う(markCost):使うときに印を消費する。威力の合計に、印の技(markArtPower)の spendShare 割を足す
+ * 条件がきついほど見返りが大きい。印の技(タグ mark)は威力を自分で持つので、この足し算はしない
+ */
+export const MARK_SKILL = { holdPerMark: 0.06, spendShare: 0.5 } as const;
+
+/** 印を保つ技の威力の倍率 */
+export function holdPower(min: number): number {
+  return 1 + MARK_SKILL.holdPerMark * min;
+}
+
+/** 印を使う技が足す威力(合計) */
+export function spendBonus(cost: number): number {
+  return MARK_SKILL.spendShare * markArtPower(cost);
+}

@@ -18,6 +18,8 @@ function duel() {
 /** 儀式を順に唱えてから斬り、斬りの与ダメージの合計・ヒット数・属性を返す */
 function ritesThenSlash(rites: ActiveSkillId[]) {
   const { w, p } = duel();
+  w.gainMark(p, 'ember', 100);
+  w.gainMark(p, 'prayer', 100);
   const t = w.units.get('t')!;
   for (const r of rites) {
     p.busyUntil = 0;
@@ -176,6 +178,7 @@ describe('儀式は潰れても失われない', () => {
   it('唱えている儀式が潰れたら、その儀式のクールダウンは戻る', () => {
     const { w, p } = duel();
     const t = w.units.get('t')!;
+    w.gainMark(p, 'prayer', 100);
     w.useSkill('p', 'pyreOffering', t);
     run(w, 100);
     expect(w.canUseSkill('p', 'pyreOffering')).toBe(false);
