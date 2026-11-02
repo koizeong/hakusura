@@ -403,6 +403,8 @@ export interface WorldOptions {
   seed?: number;
   /** 場の広さ。敵はこの中を歩く */
   bounds?: { width: number; height: number };
+  /** false なら、札と技から得る印も溜まり方の曲線(MARK_RULES.swell)を通さず、そのまま足す(仕組みのテスト用) */
+  markCurve?: boolean;
 }
 
 /**
@@ -419,6 +421,7 @@ export class CombatWorld {
   projectiles: Projectile[] = [];
   log: DamageRecord[] = [];
   readonly maxTriggerDepth: number;
+  readonly markCurve: boolean;
   readonly bounds?: { width: number; height: number };
   /** 倒れて消えた者の記録 */
   deaths: { unitId: string; kind?: EnemyId; team: Team; time: number }[] = [];
@@ -433,6 +436,7 @@ export class CombatWorld {
     this.maxTriggerDepth = options.maxTriggerDepth ?? MAX_TRIGGER_DEPTH;
     this.seed = options.seed ?? 1;
     this.bounds = options.bounds;
+    this.markCurve = options.markCurve ?? true;
   }
 
   /** 敵を1体置く。数値と動き方は ENEMIES から。level が高いほど硬く、重く、速く、技が増える */
@@ -2247,7 +2251,7 @@ export class CombatWorld {
         if (gain) this.addBuildup(target, s, gain, { attacker: target, skill: '', via: [], depth: hit.depth });
       }
       // 敵の攻撃の直撃は、持っている印を揺さぶり落とす(深い傷ほど多く)
-      if (hit.depth === 0 && hit.tags.has('attack')) this.shakeMarks(target, amount);
+      if (hit.depth === 0 && hit.tags.has('attack')) this.shakeMarks(target, amount, this.statOf(attacker, 'markRend'));
       const hurtCtx = this.context(attacker, target, { hitTags: hit.tags, hitElement: hit.element });
       for (const { rule } of this.rulesFor(target)) {
         if (rule.on !== 'hurt' || !ruleMatches(rule, hurtCtx)) continue;
@@ -2379,17 +2383,21 @@ export class CombatWorld {
   }
 
   /** 印を得る。得たときのルール(別の印に変える札など)も働く。連鎖は上限の段まで */
-  gainMark(unit: Unit, mark: MarkId, amount: number, depth = 0, origin: { label?: string; from?: MarkId; sourceId?: string } = {}): void {
+  /**
+   * 印を得る。札と技から得るとき(swell)は、溜め始めは遅く溜まるほど速い。外から直に足すとき(試し斬り・テスト)はそのまま
+   */
+  gainMark(unit: Unit, mark: MarkId, amount: number, depth = 0, origin: { label?: string; from?: MarkId; sourceId?: string; swell?: boolean } = {}): void {
     const def = markDef(mark);
     this.expireMarks(unit);
     // 溜まるほど溜まりやすい。端数も覚えておく(見せるのと使うのは整数)
     const held = unit.marks[mark]?.count ?? 0;
-    const count = Math.min(def.max, held + amount * (1 + held / MARK_RULES.swell));
+    const { swell, ...shown } = origin;
+    const count = Math.min(def.max, held + amount * (swell && this.markCurve ? MARK_RULES.swellBase + held / MARK_RULES.swell : 1));
     // 消えるまでの時間を延ばす札
     let keep = 1;
     for (const { rule } of this.rulesFor(unit)) if (rule.on === 'markKeep' && (!rule.mark || rule.mark === mark)) keep *= rule.scale;
     unit.marks[mark] = { count, until: this.time + def.duration * keep };
-    this.events.push({ type: 'marks', unitId: unit.id, mark, count: Math.floor(count), gained: Math.floor(count) - Math.floor(held), ...origin });
+    this.events.push({ type: 'marks', unitId: unit.id, mark, count: Math.floor(count), gained: Math.floor(count) - Math.floor(held), ...shown });
     if (depth >= this.maxTriggerDepth) return;
     const ctx = this.context(unit, unit, {});
     for (const { rule } of this.rulesFor(unit)) {
@@ -2411,9 +2419,10 @@ export class CombatWorld {
   }
 
   /** 直撃を受けて印を失う。それぞれの印の hurtBase + 傷/最大HP の割合(hurtMax まで)。失ったときの札も働く */
-  shakeMarks(unit: Unit, damage: number): void {
+  shakeMarks(unit: Unit, damage: number, rend = 1): void {
     this.expireMarks(unit);
-    const ratio = Math.min(MARK_RULES.hurtMax, MARK_RULES.hurtBase + damage / Math.max(1, unit.maxHp)) * this.statOf(unit, 'markLoss', []);
+    // 印剥ぎの敵は、上限ごと押し上げる
+    const ratio = Math.min(MARK_RULES.hurtMax * rend, (MARK_RULES.hurtBase + damage / Math.max(1, unit.maxHp)) * rend, 1) * this.statOf(unit, 'markLoss', []);
     if (ratio <= 0) return;
     for (const mark of Object.keys(unit.marks) as MarkId[]) {
       const m = unit.marks[mark]!;
@@ -2516,7 +2525,7 @@ export class CombatWorld {
       case 'gainMark':
         if (src.attacker) {
           const n = action.amount + Math.floor((action.per ?? 0) * (src.amount ?? 0));
-          if (n > 0) this.gainMark(src.attacker, action.mark, n, src.depth, { label, from: src.mark, sourceId: !src.mark && target !== src.attacker ? target.id : undefined });
+          if (n > 0) this.gainMark(src.attacker, action.mark, n, src.depth, { label, from: src.mark, sourceId: !src.mark && target !== src.attacker ? target.id : undefined, swell: !action.flat });
         }
         break;
       case 'spendMarks': {
@@ -2562,6 +2571,8 @@ export class CombatWorld {
     if (active && !def.refresh) return;
     // 大物は動きを止める状態が溜まりにくい
     if (def.incapacitates && unit.kind) amount *= enemyDef(unit.kind).poise ?? 1;
+    // 頑健・不屈のように、受ける蓄積を減らす持ち味
+    amount *= this.statOf(unit, 'buildupTaken', [status, ...(def.incapacitates ? ['incapacitates'] : [])]);
     st.buildup += amount;
     if (st.buildup < def.max) return;
     st.buildup = 0;

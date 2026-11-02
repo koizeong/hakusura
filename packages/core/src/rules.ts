@@ -93,8 +93,8 @@ export type Action =
   | { type: 'cooldown'; ms: number; tags?: readonly string[] }
   /** 持ち主の次の charges 回の技の振りかぶりと硬直を scale 倍にする(duration の間) */
   | { type: 'quicken'; scale: number; charges: number; duration: number }
-  /** 持ち主が印を得る。per があれば、きっかけの数(使った・失った印の数)の per 倍を足す */
-  | { type: 'gainMark'; mark: MarkId; amount: number; per?: number }
+  /** 持ち主が印を得る。per があれば、きっかけの数(使った・失った印の数)の per 倍を足す。flat なら溜まり方の曲線を通さない(技が自分で溜める分) */
+  | { type: 'gainMark'; mark: MarkId; amount: number; per?: number; flat?: boolean }
   /** 持ち主の印を amount 使う(なければ min、それもなければ全て)。min に足りなければ使わない。1つにつき each を行う */
   | { type: 'spendMarks'; mark: MarkId; min?: number; amount?: number; each?: readonly Action[] };
 

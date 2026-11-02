@@ -17,6 +17,8 @@ import {
   type EnemyId,
   type FieldId,
   type Unit,
+  LEVEL_TRAITS,
+  levelTraits,
 } from '@hakusura/core';
 import { INPUT_ACTIONS, INPUT_ACTION_IDS, bindingLabel, saveKeybinds, type Binding, type Keybinds } from '../input/keybinds';
 import type { InputController } from '../input/InputController';
@@ -173,7 +175,13 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
       // 開いたレベルまで選べる。既定は一番上
       const pick = h('select', { class: 'battle-level', 'aria-label': 'レベル' }) as HTMLSelectElement;
       const button = h('button', { class: 'start-battle', onclick: blurAfter(() => host.startEncounter(id, Number(pick.value))) });
-      const label = () => (button.textContent = `${ENCOUNTERS[id].name}に挑む(${minutesText(ENCOUNTERS[id].duration)})`);
+      // 選んだレベルの敵の持ち味
+      const traits = h('small', { class: 'level-traits' });
+      const label = () => {
+        button.textContent = `${ENCOUNTERS[id].name}に挑む(${minutesText(ENCOUNTERS[id].duration)})`;
+        const list = levelTraits(Number(pick.value));
+        traits.textContent = list.length > 0 ? `敵の持ち味:${list.map((t) => `${LEVEL_TRAITS[t].name}(${LEVEL_TRAITS[t].text})`).join('・')}` : '';
+      };
       const refresh = () => {
         const max = host.encounterLevel(id);
         pick.replaceChildren(...Array.from({ length: max }, (_, i) => h('option', { value: String(max - i) }, `Lv${max - i}`)));
@@ -183,7 +191,7 @@ export function createTrainingPanel(host: TrainingHost): HTMLElement {
       pick.addEventListener('change', blurAfter(label));
       levelRefreshers.push(refresh);
       refresh();
-      return h('div', {}, h('div', { class: 'battle-row' }, button, pick), h('small', {}, ENCOUNTERS[id].description));
+      return h('div', {}, h('div', { class: 'battle-row' }, button, pick), h('small', {}, ENCOUNTERS[id].description), traits);
     }),
   );
 

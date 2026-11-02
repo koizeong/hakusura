@@ -20,7 +20,7 @@ function seeded(seed: number): () => number {
 const sword: Build['equipment'] = { weapon1: { id: 'w', name: '剣', kind: 'weapon', weaponType: 'ironSword', affixes: [] } };
 
 function armed(art: MarkArt, equipment: Build['equipment'] = sword) {
-  const w = new CombatWorld({ seed: 1 });
+  const w = new CombatWorld({ seed: 1, markCurve: false });
   const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000 });
   const t = w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 50, y: 0, maxHp: 1e9 });
   applyBuild(w, p, { actives: ['art1'], passives: [], equipment, tactics: [], arts: { art1: art } });

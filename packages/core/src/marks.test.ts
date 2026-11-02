@@ -9,7 +9,7 @@ const run = (w: CombatWorld, ms: number) => {
 };
 
 function duel(conditions: ConditionId[], weapon: 'ironSword' | 'cinderAxe' = 'ironSword') {
-  const w = new CombatWorld({ seed: 1 });
+  const w = new CombatWorld({ seed: 1, markCurve: false });
   const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000, weapons: [{ type: weapon, element: weapon === 'cinderAxe' ? 'fire' : undefined }], conditions });
   const t = w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 60, y: 0, maxHp: 1e9 });
   const swing = () => {
@@ -70,15 +70,26 @@ describe('印', () => {
     expect(second.w.marksOf(second.p, 'edge')).toBe(9);
   });
 
-  it('溜まるほど溜まりやすい', () => {
-    const { w, p } = duel([]);
-    w.gainMark(p, 'edge', 30);
-    expect(w.marksOf(p, 'edge')).toBe(30);
-    w.gainMark(p, 'edge', 1);
-    expect(w.marksOf(p, 'edge')).toBe(32);
-    // 32溜まっていれば、30得ると60余り増える(倍より多い)
-    w.gainMark(p, 'edge', 30);
-    expect(w.marksOf(p, 'edge')).toBe(94);
+  it('札と技から得る印は、溜め始めは遅く、溜まるほど速い', () => {
+    const w = new CombatWorld({ seed: 1 });
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000, conditions: ['honeEdge'] });
+    const t = w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 60, y: 0, maxHp: 1e9 });
+    const gainOnce = () => {
+      const before = p.marks.edge?.count ?? 0;
+      p.busyUntil = 0;
+      p.cooldowns = {};
+      p.streak = { count: 0 };
+      w.useSkill('p', 'slash', t, 't');
+      run(w, 700);
+      return (p.marks.edge?.count ?? 0) - before;
+    };
+    // 0から:半分
+    expect(gainOnce()).toBeCloseTo(MARK_RULES.swellBase, 5);
+    // 外から直に足すときは、そのまま
+    w.gainMark(p, 'edge', 150 - (p.marks.edge?.count ?? 0));
+    expect(w.marksOf(p, 'edge')).toBe(150);
+    // 150溜まっていれば、2倍
+    expect(gainOnce()).toBeCloseTo(MARK_RULES.swellBase + 150 / MARK_RULES.swell, 5);
   });
 
   it('倒れると印を失う', () => {
@@ -137,7 +148,7 @@ describe('型の熟達', () => {
     expect(masteryLevel(0)).toBe(1);
     expect(masteryLevel(MASTERY.levels[0]!)).toBe(2);
     const finisher = (uses: number) => {
-      const w = new CombatWorld({ seed: 1 });
+      const w = new CombatWorld({ seed: 1, markCurve: false });
       const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, weapons: [{ type: 'ironSword' }] });
       p.formUses = { steppingCut: uses };
       w.gainMark(p, 'edge', 100);
@@ -182,7 +193,7 @@ describe('印の札の拾い物', () => {
   it('条件文の半分ほどが印の札で、足りない側の札が出やすい', async () => {
     const { generateItem, EQUIP_RULES } = await import('./data/equipment');
     const { lootFit } = await import('./build');
-    const w = new CombatWorld({ seed: 11 });
+    const w = new CombatWorld({ seed: 11, markCurve: false });
     // 研ぎを使う札だけを着けたビルド。研ぎを生む札が欲しい
     const build = {
       actives: ['slash'],
@@ -204,7 +215,7 @@ describe('印の札の拾い物', () => {
 describe('印の札に役目を譲った札', () => {
   it('どこでも効く+の札は拾い物に出ない。代わりの印を生む札は働く', async () => {
     const { generateItem } = await import('./data/equipment');
-    const w = new CombatWorld({ seed: 12 });
+    const w = new CombatWorld({ seed: 12, markCurve: false });
     const conds = Array.from({ length: 800 }, () => generateItem(() => w.random(), { conditionChance: 1 })).flatMap((i) => (i.condition ? [i.condition] : []));
     for (const id of ['unscathed', 'manyAilments', 'woundedFury', 'behindShield'] as const) {
       expect(conditionDef(id).retired).toBe(true);
@@ -216,7 +227,7 @@ describe('印の札に役目を譲った札', () => {
   });
 
   it('群れ斬り:1回の攻撃で3体以上に当てると研ぎを2つ得る', () => {
-    const w = new CombatWorld({ seed: 1 });
+    const w = new CombatWorld({ seed: 1, markCurve: false });
     const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000, weapons: [{ type: 'rustGreatsword' }], conditions: ['throngEdge'] });
     for (const [i, y] of [-30, 0, 30].entries()) w.addUnit({ id: `t${i}`, name: '案山子', team: 'enemy', x: 70, y, maxHp: 1e9 });
     w.useSkill('p', 'sweep', { x: 70, y: 0 });
@@ -397,7 +408,7 @@ describe('印の札・二の巻', () => {
 
 describe('印は被弾でこぼれる', () => {
   it('敵の直撃を受けると、印をそれぞれ1割と傷の割合だけ失い、失ったときの札が働く', () => {
-    const w = new CombatWorld({ seed: 1 });
+    const w = new CombatWorld({ seed: 1, markCurve: false });
     const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000, conditions: ['lostBlood'] });
     const e = w.addUnit({ id: 'e', name: '亡者', team: 'enemy', x: 40, y: 0, maxHp: 1e9, ai: ['strawSwipe'] });
     w.gainMark(p, 'edge', 100);
@@ -411,7 +422,7 @@ describe('印は被弾でこぼれる', () => {
   });
 
   it('被弾で失う印の割合は、上限で止まり、補正値で減らせる', () => {
-    const w = new CombatWorld({ seed: 1 });
+    const w = new CombatWorld({ seed: 1, markCurve: false });
     const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000 });
     w.gainMark(p, 'ember', 100);
     w.shakeMarks(p, 10_000);

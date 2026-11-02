@@ -284,6 +284,9 @@ export function runEncounter(
 }
 
 /** 実戦に近い場で戦った結果。印の出入り(得た回数・使った数)と、決まった型の回数も数える */
+/** 印の立ち上がりを測る節目 */
+export const RAMP_STEPS = [15, 40, 100, 300, 1000] as const;
+
 export interface FieldRun {
   dps: number;
   maxHit: number;
@@ -294,6 +297,8 @@ export interface FieldRun {
   marksSpent: Partial<Record<MarkId, number>>;
   /** 消えた・被弾で失った印の数 */
   marksLost: Partial<Record<MarkId, number>>;
+  /** どれかの印が初めてその数に届いた秒(RAMP_STEPS) */
+  reached: Partial<Record<number, number>>;
   forms: Record<string, number>;
   /** スキルを使った回数 */
   uses: Partial<Record<ActiveSkillId, number>>;
@@ -340,6 +345,7 @@ export function measureField(
   const marksGained: Partial<Record<MarkId, number>> = {};
   const marksSpent: Partial<Record<MarkId, number>> = {};
   const marksLost: Partial<Record<MarkId, number>> = {};
+  const reached: Partial<Record<number, number>> = {};
   const forms: Record<string, number> = {};
   const dt = 25;
   for (let time = 0; time < seconds * 1000; time += dt) {
@@ -359,6 +365,7 @@ export function measureField(
         if (e.spent) marksSpent[e.mark] = (marksSpent[e.mark] ?? 0) + e.spent;
         else if (e.lost) marksLost[e.mark] = (marksLost[e.mark] ?? 0) + e.lost;
         else if (e.count > 0) marksGained[e.mark] = (marksGained[e.mark] ?? 0) + 1;
+        for (const step of RAMP_STEPS) if (e.count >= step && reached[step] === undefined) reached[step] = Math.round(w.time / 100) / 10;
       } else if (e.type === 'form' && e.unitId === p.id) forms[e.name] = (forms[e.name] ?? 0) + 1;
     }
   }
@@ -375,6 +382,7 @@ export function measureField(
     marksGained,
     marksSpent,
     marksLost,
+    reached,
     forms,
     uses: { ...p.skillUses },
     topSources: share(b.bySource, 3),

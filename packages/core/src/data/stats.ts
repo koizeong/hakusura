@@ -24,6 +24,10 @@ export const STATS = {
   healing: { name: '回復', kind: 'mult' },
   // 敵の直撃で失う印の割合
   markLoss: { name: '被弾で失う印', kind: 'mult', lowerIsBetter: true },
+  // 自分の直撃が、相手から剥がす印の割合(敵のレベルの持ち味)
+  markRend: { name: '印剥ぎ', kind: 'mult' },
+  // 自分に溜まる状態の蓄積(敵のレベルの持ち味:頑健・不屈)
+  buildupTaken: { name: '受ける状態の蓄積', kind: 'mult', lowerIsBetter: true },
 } as const satisfies Record<string, StatDef>;
 
 export type StatId = keyof typeof STATS;

@@ -4,7 +4,7 @@ import { applyBuild } from '../build';
 import { dealtBy, summarize } from '../breakdown';
 import { ENEMIES } from '../data/enemies';
 import { ARCHETYPES } from './archetypes';
-import { measureField, outfit, reportArchetype, runEncounter } from './simulate';
+import { RAMP_STEPS, measureField, outfit, reportArchetype, runEncounter } from './simulate';
 import { measureSingle, theoreticalMax, THEORY } from './theory';
 import { COMBO_BUILDS, SPEND_CARDS, fixedArt, withArt, withConditions, withMarkArt } from './comboBuilds';
 import { buildWeapons } from '../build';
@@ -312,6 +312,37 @@ describe.skipIf(!process.env.SIM_ARTS)('印の技の重さ', () => {
         '',
         `| ビルド | 揃え | ${costs.map((c) => `吐く札あり 印${c}`).join(' | ')} | ${costs.map((c) => `吐く札なし 印${c}`).join(' | ')} |`,
         `| --- | --- | ${costs.map(() => '---').join(' | ')} | ${costs.map(() => '---').join(' | ')} |`,
+        ...rows,
+        'REPORT>>>',
+      ].join('\n'),
+    );
+  }, 3_600_000);
+});
+
+/**
+ * 印の立ち上がり。`npm run sim:ramp`
+ * 札を揃えた見本(吐く札は外す)を一戦の長さ(3分半)戦わせ、どれかの印が15・40・100・300・1000に初めて届いた秒を出す
+ */
+describe.skipIf(!process.env.SIM_RAMP)('印の立ち上がり', () => {
+  it('節目に届く秒', () => {
+    const seconds = Number(process.env.SIM_SECONDS ?? 210);
+    const rows: string[] = [];
+    for (const c of Object.values(COMBO_BUILDS)) {
+      const runs = [1, 2].map((s) => measureField(withConditions(c.build, c.full.filter((id) => !SPEND_CARDS.includes(id))), seconds, s));
+      const cell = (step: number) => {
+        const ts = runs.map((r) => r.reached[step]).filter((t): t is number => t !== undefined);
+        return ts.length === 0 ? '—' : `${(ts.reduce((a, b) => a + b, 0) / ts.length).toFixed(0)}秒${ts.length < runs.length ? '(片方)' : ''}`;
+      };
+      const dps = runs.reduce((a, r) => a + r.dps, 0) / runs.length;
+      rows.push(`| ${c.name} | ${RAMP_STEPS.map(cell).join(' | ')} | ${Math.round(dps).toLocaleString('en-US')} |`);
+    }
+    console.log(
+      [
+        '<<<REPORT',
+        `${seconds}秒、2回の平均。札は揃え(吐く札は外す)、印の技なし`,
+        '',
+        `| ビルド | ${RAMP_STEPS.map((s) => `印${s}`).join(' | ')} | DPS |`,
+        `| --- | ${RAMP_STEPS.map(() => '---').join(' | ')} | --- |`,
         ...rows,
         'REPORT>>>',
       ].join('\n'),

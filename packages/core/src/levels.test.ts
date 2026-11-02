@@ -105,3 +105,43 @@ describe('一戦のレベル', () => {
     expect(high.items.length).toBeGreaterThan(low.items.length);
   });
 });
+
+describe('レベルの持ち味', () => {
+  it('レベルごとに持ち味が増える', async () => {
+    const { levelTraits } = await import('./data/levels');
+    expect(levelTraits(1)).toEqual([]);
+    expect(levelTraits(2)).toEqual(['rend']);
+    expect(levelTraits(5)).toContain('chainBreaker');
+  });
+
+  it('頑健の敵は状態が溜まりにくく、不屈の敵は動きを止める状態がさらに溜まりにくい', () => {
+    const buildup = (level: number, status: 'bleed' | 'stun') => {
+      const { w } = arena();
+      const g = w.spawnEnemy('ghoul', 'g', 830, 500, 'enemy', level);
+      w.applyBuildup('g', status, 10);
+      return g.statuses[status].buildup;
+    };
+    expect(buildup(3, 'bleed')).toBeCloseTo(buildup(1, 'bleed') * 0.7);
+    expect(buildup(7, 'stun')).toBeCloseTo(buildup(1, 'stun') * 0.7 * 0.5);
+  });
+
+  it('連鎖断ちの敵は、追撃・連鎖・増えるヒットの傷を減らす', () => {
+    const { w } = arena();
+    const low = w.spawnEnemy('ghoul', 'g1', 830, 500, 'enemy', 1);
+    const high = w.spawnEnemy('ghoul', 'g5', 830, 520, 'enemy', 5);
+    expect(w.statOf(high, 'damageTaken', ['strike']) / w.statOf(low, 'damageTaken', ['strike'])).toBeCloseTo(0.6);
+    expect(w.statOf(high, 'damageTaken', ['attack']) / w.statOf(low, 'damageTaken', ['attack'])).toBeCloseTo(1);
+  });
+
+  it('印剥ぎの敵の直撃は、印を多く剥がす', () => {
+    const shaken = (rend: number) => {
+      const { w, p } = arena();
+      w.gainMark(p, 'edge', 100);
+      w.shakeMarks(p, 0, rend);
+      return 100 - w.marksOf(p, 'edge');
+    };
+    expect(shaken(2)).toBe(shaken(1) * 2);
+    const { w } = arena();
+    expect(w.statOf(w.spawnEnemy('ghoul', 'g', 830, 500, 'enemy', 6), 'markRend')).toBeCloseTo(3);
+  });
+});

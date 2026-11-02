@@ -679,7 +679,7 @@ export const ACTIVE_SKILLS = {
     category: 'rite',
     description: '刃に唾して研ぐ。次の技が3回多く当たる(威力は半分)',
     tags: ['rite'],
-    markGain: { mark: 'edge', amount: 3 },
+    markGain: { mark: 'edge', amount: 5 },
     needs: { dex: 14 },
     windup: 600,
     recovery: 200,
@@ -1287,7 +1287,7 @@ function markGainRules(def: ActiveSkillDef): Rule[] {
       label: def.name,
       on: 'hit',
       when: [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }],
-      do: [{ type: 'gainMark', mark: g.mark, amount: g.amount }],
+      do: [{ type: 'gainMark', mark: g.mark, amount: g.amount, flat: true }],
     },
   ];
 }

@@ -17,7 +17,8 @@
     "sim:pilot": "SIM_PILOT=1 vitest run --root packages/core src/sim/report.test.ts --silent=false",
     "sim:theory": "SIM_THEORY=1 vitest run --root packages/core src/sim/report.test.ts --silent=false",
     "sim:combo": "SIM_COMBO=1 vitest run --root packages/core src/sim/report.test.ts --silent=false",
-    "sim:arts": "SIM_ARTS=1 vitest run --root packages/core src/sim/report.test.ts --silent=false"
+    "sim:arts": "SIM_ARTS=1 vitest run --root packages/core src/sim/report.test.ts --silent=false",
+    "sim:ramp": "SIM_RAMP=1 vitest run --root packages/core src/sim/report.test.ts --silent=false"
   },
   "devDependencies": {
     "typescript": "~5.9.3",

@@ -23,9 +23,10 @@ export const MARKS = {
  * 印の決まり。印は1000まで溜まり(印を重く使う大技のため)、8秒得なければ全て消える。
  * 「印1つにつき」の札が数えるのは perMarkCap まで(100溜めても暴れないように)
  * 敵の攻撃の直撃を受けると、持っている印をそれぞれ hurtBase + 受けた傷/最大HP の割合(hurtMax まで)失う。避ける・防ぐほど印が残る
- * 溜まるほど溜まりやすい:得る数は (1 + 今の数 / swell) 倍(swell 30 なら、30溜めて2倍、90で4倍)。大技を貯める間が延びすぎないように
+ * 溜め始めは遅く、溜まるほど速い:札から得る数は(技が自分で溜める分は、技の数字どおり) (swellBase + 今の数 / swell) 倍(0では半分、50で等倍、150で2倍、1000で10.5倍)。
+ * 一戦の初めにエンジンが回り出すまでの間を作り、回り出せば大技まで加速する
  */
-export const MARK_RULES = { perMarkCap: 10, swell: 30, hurtBase: 0.1, hurtMax: 0.5 } as const;
+export const MARK_RULES = { perMarkCap: 10, swellBase: 0.5, swell: 100, hurtBase: 0.1, hurtMax: 0.5 } as const;
 
 /**
  * 印の技の威力。消費する印の数 cost に対して、威力(武器の威力に掛ける倍率の合計)は base × cost^exponent。

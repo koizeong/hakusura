@@ -39,11 +39,75 @@ export function levelReward(level: number): number {
   return LEVEL_RULES.reward ** Math.max(0, level - 1);
 }
 
-/** レベルが敵に掛ける補正値。与ダメージと技の間隔の、それぞれ別の種類 */
+/**
+ * レベルの持ち味。そのレベルから、一戦の敵の全てが持つ。
+ * プレイヤーを縛る掟ではなく敵の強さとして、組み上げたエンジンの得意を少しずつ削り、次のエンジンへの更新を迫る。
+ * 1件足すだけで増やせる
+ */
+export interface LevelTrait {
+  from: number;
+  name: string;
+  text: string;
+  modifiers: readonly Modifier[];
+}
+
+export const LEVEL_TRAITS = {
+  rend: {
+    from: 2,
+    name: '印剥ぎ',
+    text: '直撃で剥がす印が2倍(貯め込むほど、避けて守る腕が問われる)',
+    modifiers: [{ stat: 'markRend', tags: [], value: 1, group: 'level:rend' }],
+  },
+  sturdy: {
+    from: 3,
+    name: '頑健',
+    text: '状態が溜まりにくい(3割減)',
+    modifiers: [{ stat: 'buildupTaken', tags: [], value: -0.3, group: 'level:sturdy' }],
+  },
+  swift: {
+    from: 4,
+    name: '俊足',
+    text: '足が速い(+25%)。回り出す前に詰めてくる',
+    modifiers: [{ stat: 'moveSpeed', tags: [], value: 0.25, group: 'level:swift' }],
+  },
+  chainBreaker: {
+    from: 5,
+    name: '連鎖断ち',
+    text: '追撃・連鎖・増えるヒットの傷が4割減(1発の重さで押し切れる)',
+    modifiers: [
+      { stat: 'damageTaken', tags: ['strike'], value: -0.4, group: 'level:chain' },
+      { stat: 'damageTaken', tags: ['chain'], value: -0.4, group: 'level:chain' },
+      { stat: 'damageTaken', tags: ['repeat'], value: -0.4, group: 'level:chain' },
+    ],
+  },
+  deepRend: {
+    from: 6,
+    name: '深い印剥ぎ',
+    text: '直撃で剥がす印がさらに増え、3倍',
+    modifiers: [{ stat: 'markRend', tags: [], value: 1, group: 'level:rend' }],
+  },
+  steadfast: {
+    from: 7,
+    name: '不屈',
+    text: '昏倒・凍結のような動きを止める状態が、さらに溜まりにくい(5割減)',
+    modifiers: [{ stat: 'buildupTaken', tags: ['incapacitates'], value: -0.5, group: 'level:steadfast' }],
+  },
+} as const satisfies Record<string, LevelTrait>;
+
+export type LevelTraitId = keyof typeof LEVEL_TRAITS;
+export const LEVEL_TRAIT_IDS = Object.keys(LEVEL_TRAITS) as LevelTraitId[];
+
+/** そのレベルの敵が持つ持ち味 */
+export function levelTraits(level: number): LevelTraitId[] {
+  return LEVEL_TRAIT_IDS.filter((id) => level >= LEVEL_TRAITS[id].from);
+}
+
+/** レベルが敵に掛ける補正値。与ダメージと技の間隔の、それぞれ別の種類と、持ち味 */
 export function levelModifiers(level: number): Modifier[] {
   if (level <= 1) return [];
   return [
     { tags: [], value: levelDamage(level) - 1, group: 'level' },
     { stat: 'cooldown', tags: [], value: levelCooldown(level) - 1, group: 'level:cooldown' },
+    ...levelTraits(level).flatMap((id): Modifier[] => [...(LEVEL_TRAITS[id] as LevelTrait).modifiers]),
   ];
 }

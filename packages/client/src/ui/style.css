@@ -1982,3 +1982,10 @@ button.discard {
   color: #e8d8a8;
   letter-spacing: 0.05em;
 }
+
+/* 一戦のレベルの敵の持ち味 */
+.level-traits {
+  display: block;
+  color: #c8907a;
+  margin-top: 2px;
+}
