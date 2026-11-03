@@ -238,8 +238,8 @@ export function finishExpedition(c: Character, learned: Learned, now: number = e
     }
   }
 
-  // 印の技を拾う。強いほど多い
-  const arts = rollArts(rand, def.artChance * y, ex.build ?? c.build);
+  // 印の技は装備の覚醒になったので、別には持ち帰らない
+  const arts: MarkArt[] = [];
 
   // 弱いまま危ない所へ行くと、負傷して戻ることがある
   let injuredFor = 0;

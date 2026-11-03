@@ -323,6 +323,25 @@ export class Hud {
         view.shade.style.height = '0%';
         continue;
       }
+      // 目覚める前は、覚醒の進みを出す
+      const sleeping = player.awakenings.find((a) => a.slot === slot && !a.awake);
+      if (sleeping) {
+        const text = `覚醒 ${Math.floor(sleeping.progress)}/${sleeping.amount}`;
+        if (view.shown !== art.id + text) {
+          view.shown = art.id + text;
+          view.name.textContent = art.name;
+          view.need.textContent = text;
+          const color = `#${MARKS[sleeping.mark].color.toString(16).padStart(6, '0')}`;
+          view.need.style.color = color;
+          view.button.style.borderColor = 'var(--line)';
+        }
+        view.shade.style.height = `${(1 - Math.min(1, sleeping.progress / sleeping.amount)) * 100}%`;
+        view.button.disabled = true;
+        view.button.classList.remove('ready');
+        view.button.classList.add('dormant');
+        continue;
+      }
+      view.button.classList.remove('dormant');
       const have = world.marksOf(player, art.mark);
       const need = `${MARKS[art.mark].name} ${Math.min(have, art.cost)}/${art.cost}`;
       if (view.shown !== art.id + need) {

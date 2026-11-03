@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { MarkFx } from './MarkFx';
-import { unlockAudio } from '../audio/sfx';
+import { sfxAwaken, unlockAudio } from '../audio/sfx';
 import {
   ACTIVE_SKILLS,
   CombatWorld,
@@ -382,6 +382,9 @@ export class TrainingGroundScene extends Phaser.Scene {
     p.hp = p.maxHp;
     p.falls = 0;
     p.cooldowns = {};
+    // 一戦の始まりは、装備はまだ眠っている。印も持ち越さない
+    p.marks = {};
+    this.world.resetAwakenings(p);
     for (const st of Object.values(p.statuses)) (st.buildup = 0), (st.activeUntil = 0);
     this.world.moveUnit(p.id, ARENA.width / 2, ARENA.height / 2);
     this.lockTarget = null;
@@ -1669,6 +1672,19 @@ export class TrainingGroundScene extends Phaser.Scene {
         if (unit && unit === this.player && event.lost && event.cause === 'hurt') {
           this.floatText(unit.x + 14, unit.y - 40, `${MARKS[event.mark].name} -${event.lost}`, `#${MARKS[event.mark].color.toString(16).padStart(6, '0')}`);
         }
+        break;
+      }
+      case 'awakened': {
+        // 装備が目覚めた。名前を大きく出し、印の色で閃く
+        const unit = this.world.units.get(event.unitId);
+        if (!unit || unit !== this.player) break;
+        const art = unit.arts[event.slot];
+        const color = art ? MARKS[art.mark].color : 0xe8d8a8;
+        const rgb = Phaser.Display.Color.IntegerToRGB(color);
+        this.cameras.main.flash(260, rgb.r, rgb.g, rgb.b);
+        this.callout(unit, `${event.item}が目覚めた`, `#${color.toString(16).padStart(6, '0')}`);
+        this.floatText(unit.x, unit.y - 80, `‹${event.art}›`, `#${color.toString(16).padStart(6, '0')}`);
+        sfxAwaken();
         break;
       }
       case 'warded': {

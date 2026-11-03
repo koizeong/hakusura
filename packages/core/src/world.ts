@@ -7,7 +7,7 @@ import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits,
 import { WEAPON_TYPES, toWeaponSpec, type WeaponRef, type WeaponSpec, type WeaponTypeDef, type WeaponTypeId } from './data/weapons';
 import { shieldBurstElement, shieldDef, shieldName, type ShieldSpec } from './data/shields';
 import type { SkillVariant } from './data/variations';
-import { HAND_ART_SLOTS, artTechnique, isHandArt, type ArtSlot, type MarkArt } from './data/markArts';
+import { HAND_ART_SLOTS, artTechnique, isHandArt, type ArtSlot, type AwakenTrigger, type MarkArt } from './data/markArts';
 import { sigilLabel, sigilRules, type SigilInstance } from './data/sigils';
 import { enemyDef, type EnemyId } from './data/enemies';
 import { FERVOR, STARTING_FORMS, formDef, masteryLevel, masteryScale, type FormId } from './data/forms';
@@ -133,8 +133,10 @@ export interface Unit {
   attributes?: Attributes;
   /** 技の型として使う変化つきの技 */
   variants: Partial<Record<ActiveSkillId, SkillVariant>>;
-  /** 印の技の枠に入れた技(拾った印の技) */
+  /** 印の技の枠に入れた技(覚醒した装備の技) */
   arts: Partial<Record<ArtSlot, MarkArt>>;
+  /** 覚醒の枠ごとの進み。目覚めるまでは、その枠の技は出ない */
+  awakenings: AwakenState[];
   /** 技を使った回数 */
   skillUses: Partial<Record<ActiveSkillId, number>>;
   /** 敵の種類。あれば ENEMIES の動き方で自分で歩く */
@@ -319,6 +321,8 @@ export type CombatEvent =
   /** 呼び出された(死体起こし・産み落とし) */
   | { type: 'summoned'; unitId: string; by: string; x: number; y: number; skill: string }
   /** 型が決まった */
+  /** 装備が覚醒した。その枠の技が使える */
+  | { type: 'awakened'; unitId: string; slot: ArtSlot; item: string; art: string }
   /** 型が決まった。level はこの型の熟達 */
   | { type: 'form'; unitId: string; form: FormId; name: string; level: number }
   /** 昂りが満ちた */
@@ -402,6 +406,17 @@ interface PendingAction {
 interface OwnedRule {
   rule: Rule;
   kind: RuleKind;
+}
+
+/** 覚醒の進み。一戦の中で条件を満たすと awake になる */
+export interface AwakenState {
+  slot: ArtSlot;
+  item: string;
+  mark: MarkId;
+  trigger: AwakenTrigger;
+  amount: number;
+  progress: number;
+  awake: boolean;
 }
 
 export interface WorldOptions {
@@ -539,6 +554,7 @@ export class CombatWorld {
       cooldownSpans: {},
       variants: {},
       arts: {},
+      awakenings: [],
       skillUses: {},
       kind: spec.kind,
       mortal: spec.mortal ?? false,
@@ -1048,7 +1064,8 @@ export class CombatWorld {
     // 印の技の枠は、入れた技で出す。空なら出ない
     const art = (def.tags as readonly string[]).includes('art') ? this.artOf(unit, skillId) : undefined;
     if ((def.tags as readonly string[]).includes('art')) {
-      if (!art) return undefined;
+      // 覚醒の枠は、目覚めるまで出ない
+      if (!art || unit.awakenings.some((a) => a.slot === skillId && !a.awake)) return undefined;
       def = artTechnique(art);
     }
     if (!isTechnique(def)) return resolveSkill(skillId, undefined, unit.attributes);
@@ -1426,9 +1443,10 @@ export class CombatWorld {
     } else if (follow) {
       unit.followUp = undefined;
     }
-    // 手で撃たない者は、手で撃つ枠の印の技を足りしだい撃つ
-    if (unit.handArts === 'auto') {
-      for (const slot of HAND_ART_SLOTS) {
+    // 手で撃たない者は、手で撃つ枠の印の技を足りしだい撃つ。参は作戦に入れていなければ、目覚めて足りしだい撃つ
+    {
+      const slots: ArtSlot[] = [...(unit.handArts === 'auto' ? HAND_ART_SLOTS : []), ...(unit.tactics.some((t) => t.skill === 'art3') ? [] : (['art3'] as ArtSlot[]))];
+      for (const slot of slots) {
         if (!unit.actives.includes(slot) || !this.canUseSkill(unit.id, slot)) continue;
         const reach = this.reachOf(unit, slot);
         if (reach !== undefined && (!target || !this.inReach(unit, target, reach))) continue;
@@ -2428,6 +2446,7 @@ export class CombatWorld {
     if (left > 0) owner.marks[mark] = { count: left, until: owner.marks[mark]!.until };
     else delete owner.marks[mark];
     this.events.push({ type: 'marks', unitId: owner.id, mark, count: Math.max(0, Math.floor(left)), spent: n, label, targetId: target.id });
+    this.advanceAwakening(owner, mark, 'spend', n);
     between?.();
     // 印を使ったときの札(使うたびに〇〇)。連鎖は上限の段まで
     if (src.depth >= this.maxTriggerDepth) return;
@@ -2455,6 +2474,8 @@ export class CombatWorld {
     for (const { rule } of this.rulesFor(unit)) if (rule.on === 'markKeep' && (!rule.mark || rule.mark === mark)) keep *= rule.scale;
     unit.marks[mark] = { count, until: this.time + def.duration * keep };
     this.events.push({ type: 'marks', unitId: unit.id, mark, count: Math.floor(count), gained: Math.floor(count) - Math.floor(held), ...shown });
+    this.advanceAwakening(unit, mark, 'gain', count - held);
+    this.advanceAwakening(unit, mark, 'hold', count);
     if (depth >= this.maxTriggerDepth) return;
     const ctx = this.context(unit, unit, {});
     for (const { rule } of this.rulesFor(unit)) {
@@ -2481,6 +2502,26 @@ export class CombatWorld {
       g += rule.add ?? 0;
     }
     return Math.max(0, g * this.statOf(unit, 'markGain', [mark]));
+  }
+
+  /** 覚醒を進める。gain・spend は足し、hold は今の数。条件を満たしたら目覚める */
+  private advanceAwakening(unit: Unit, mark: MarkId, trigger: AwakenTrigger, n: number): void {
+    for (const a of unit.awakenings) {
+      if (a.awake || a.mark !== mark || a.trigger !== trigger) continue;
+      a.progress = trigger === 'hold' ? Math.max(a.progress, n) : a.progress + n;
+      if (a.progress < a.amount) continue;
+      a.awake = true;
+      const art = unit.arts[a.slot];
+      this.events.push({ type: 'awakened', unitId: unit.id, slot: a.slot, item: a.item, art: art?.name ?? '' });
+    }
+  }
+
+  /** 覚醒を眠りに戻す(一戦の始まりに) */
+  resetAwakenings(unit: Unit): void {
+    for (const a of unit.awakenings) {
+      a.progress = 0;
+      a.awake = false;
+    }
   }
 
   /** 時間切れの印を片付け、消えたときの札(on: 'markLost')を働かせる */

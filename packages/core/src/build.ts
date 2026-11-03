@@ -2,7 +2,7 @@ import type { MarkId } from './data/marks';
 import { conditionDef } from './data/conditions';
 import { ACTIVE_SKILLS, TRUMP_SKILL_IDS, activeSkillDef, isTechnique, techniqueFits, type ActiveSkillDef, type ActiveSkillId } from './data/skills';
 import { variantProblem, type SkillVariant } from './data/variations';
-import { ART_SLOTS, artProblem, artTechnique, type ArtSlot, type MarkArt } from './data/markArts';
+import { ART_SLOTS, artProblem, artTechnique, awakeningProblem, type ArtSlot, type MarkArt } from './data/markArts';
 import { sigilMarks, sigilProblem } from './data/sigils';
 import { PASSIVES, type PassiveId } from './data/passives';
 import { CONDITIONS } from './data/conditions';
@@ -38,8 +38,10 @@ export interface Build {
   attributes?: Attributes;
   /** 技の型。拾った変化つきの技で、元の技を差し替える */
   variants?: Partial<Record<ActiveSkillId, SkillVariant>>;
-  /** 印の技の枠(壱・弐・参)に入れた、拾った印の技 */
+  /** 昔の印の技の枠(壱・弐・参)。覚醒のない枠だけ、目覚めた技として使う(昔の保存・シミュレーター) */
   arts?: Partial<Record<ArtSlot, MarkArt>>;
+  /** 覚醒の枠に入れる装備の部位。なければ武器1・武器2・体・頭…の順に、覚醒を持つ装備を入れる */
+  awakenSlots?: Partial<Record<ArtSlot, EquipSlotId | null>>;
 }
 
 /**
@@ -220,10 +222,37 @@ export function unusableActives(build: Build): ActiveSkillId[] {
   });
 }
 
+/** 覚醒を並べる部位の順 */
+const AWAKEN_ORDER: EquipSlotId[] = ['weapon1', 'weapon2', 'body', 'head', 'hands', 'feet', 'accessory1', 'accessory2', 'accessory3'];
+
+/** 覚醒の枠ごとの装備の部位。指定がなければ、覚醒を持つ装備を決まった順に入れる */
+export function awakenSlotsOf(build: Build): Partial<Record<ArtSlot, EquipSlotId>> {
+  const out: Partial<Record<ArtSlot, EquipSlotId>> = {};
+  const chosen = build.awakenSlots ?? {};
+  const used = new Set<EquipSlotId>();
+  for (const slot of ART_SLOTS) {
+    const e = chosen[slot];
+    if (e && build.equipment[e]?.awaken && !used.has(e)) {
+      out[slot] = e;
+      used.add(e);
+    }
+  }
+  for (const slot of ART_SLOTS) {
+    if (out[slot] || chosen[slot] === null) continue;
+    const e = AWAKEN_ORDER.find((s) => build.equipment[s]?.awaken && !used.has(s));
+    if (!e) continue;
+    out[slot] = e;
+    used.add(e);
+  }
+  return out;
+}
+
 /** ビルドでのスキルの定義。印の技の枠なら入れた技、空の枠なら undefined */
 export function buildSkillDef(build: Build, id: ActiveSkillId): ActiveSkillDef | undefined {
   if ((ART_SLOTS as string[]).includes(id)) {
-    const art = build.arts?.[id as ArtSlot];
+    // 覚醒の枠に入った装備の技。なければ昔の印の技の枠
+    const equip = awakenSlotsOf(build)[id as ArtSlot];
+    const art = (equip ? build.equipment[equip]?.awaken?.art : undefined) ?? build.arts?.[id as ArtSlot];
     return art ? artTechnique(art) : undefined;
   }
   return activeSkillDef(id);
@@ -252,7 +281,17 @@ export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   unit.trump = build.trump;
   unit.attributes = { ...(build.attributes ?? baseAttributes()) };
   unit.variants = { ...(build.variants ?? {}) };
+  // 覚醒の枠。装備の覚醒を枠に入れ、目覚めるまで眠らせる
   unit.arts = { ...(build.arts ?? {}) };
+  unit.awakenings = [];
+  for (const [slot, equip] of Object.entries(awakenSlotsOf(build)) as [ArtSlot, EquipSlotId][]) {
+    const item = build.equipment[equip];
+    if (!item?.awaken) continue;
+    unit.arts[slot] = item.awaken.art;
+    unit.awakenings.push({ slot, item: item.name, mark: item.awaken.mark, trigger: item.awaken.trigger, amount: item.awaken.amount, progress: 0, awake: false });
+    // 覚醒の枠はアクティブの数に数えない
+    if (!unit.actives.includes(slot)) unit.actives.push(slot);
+  }
   // 武器と盾の数で持ち方が決まる。二刀流で左右の補正値の合計が同じなら、そのタグも付く
   const weapons = (['weapon1', 'weapon2'] as const).map((s) => build.equipment[s]).filter((i): i is Item => !!i && !i.artifact && !!i.weaponType);
   unit.weapons = weapons.map((i) => itemWeapon(i)!);
@@ -365,6 +404,12 @@ function validateBuild(raw: unknown): string | null {
       if (problem) return `印の技:${problem}`;
     }
   }
+  if (b.awakenSlots !== undefined) {
+    if (!b.awakenSlots || typeof b.awakenSlots !== 'object') return '覚醒の枠が壊れている';
+    for (const [slot, e] of Object.entries(b.awakenSlots as Record<string, unknown>)) {
+      if (!(ART_SLOTS as string[]).includes(slot) || (e !== null && !(typeof e === 'string' && e in EQUIP_SLOTS))) return '覚醒の枠が壊れている';
+    }
+  }
   for (const t of b.tactics as Tactic[]) {
     if (!(t?.skill in ACTIVE_SKILLS) || !(t?.condition in TACTIC_CONDITIONS)) return '作戦に知らない部品がある';
     if (t.then !== undefined && (!Array.isArray(t.then) || t.then.length > FOLLOW_UP.max || !t.then.every((s) => s in ACTIVE_SKILLS))) return '作戦の連携が壊れている';
@@ -381,6 +426,10 @@ function validateBuild(raw: unknown): string | null {
     if (item.tempers !== undefined && (!Array.isArray(item.tempers) || !item.tempers.every((t) => t in WEAPON_TEMPERS))) return '知らない性質がある';
     if (item.shieldType !== undefined && !(item.shieldType in SHIELD_TYPES)) return '知らない盾がある';
     if (item.material !== undefined && !(item.material in ARMOR_MATERIALS)) return '知らない素材がある';
+    if (item.awaken !== undefined) {
+      const problem = awakeningProblem(item.awaken);
+      if (problem) return `覚醒:${problem}`;
+    }
     if (item.sigils !== undefined) {
       if (!Array.isArray(item.sigils) || item.sigils.length > 3) return '印紋が壊れている';
       for (const s of item.sigils) {

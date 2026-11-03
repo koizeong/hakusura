@@ -104,7 +104,7 @@ function tierOf(cost: number): number {
 let artCounter = 0;
 
 /** 印の技を1つ作る。mark を渡せばその印の技にする */
-export function rollMarkArt(random: () => number, mark?: MarkId): MarkArt {
+export function rollMarkArt(random: () => number, mark?: MarkId, shapes?: readonly ArtShape[]): MarkArt {
   const pick = <T>(list: readonly T[]): T => list[Math.floor(random() * list.length)]!;
   const weighted = <T>(list: readonly (readonly [T, number])[]): T => {
     let r = random() * list.reduce((s, [, w]) => s + w, 0);
@@ -116,7 +116,9 @@ export function rollMarkArt(random: () => number, mark?: MarkId): MarkArt {
   // 帯の中は桁で均す(大きい帯ほど細かい数はいらないので、10の倍数に丸める)
   const raw = band.min * (band.max / band.min) ** random();
   const cost = raw >= 100 ? Math.round(raw / 10) * 10 : Math.round(raw);
-  const shape = weighted(SHAPES[m]);
+  // 形を絞るとき(覚醒する武器の技は、その武器で出せる形にする)
+  const allowed = SHAPES[m].filter(([s]) => !shapes || shapes.includes(s));
+  const shape = weighted(allowed.length > 0 ? allowed : SHAPES[m].filter(([s]) => s === 'nova').concat([['nova', 1]]));
   const quirkPool: ArtQuirk[] = shape === 'shot' ? ['pierce', 'echo', 'refund', 'brand', 'swift', 'mend'] : ['echo', 'refund', 'brand', 'swift', 'mend'];
   const quirk = random() < 0.6 ? pick(quirkPool) : undefined;
   const hits = shape === 'shot' ? 1 : 1 + Math.floor(random() * (shape === 'swing' ? 4 : 3));
@@ -253,4 +255,46 @@ export function starterArts(): MarkArt[] {
     base('blood', 'swing', '血の断ち', { arc: 60 }),
     base('prayer', 'nova', '祈りの光', { radius: 130 }),
   ];
+}
+
+/**
+ * 覚醒。装備が持つ眠った技。一戦の中で条件(印を合わせてN得る・合わせてN使う・一度にN抱える)を満たすと目覚め、
+ * その装備の技(印の技)が使えるようになる。一戦が終われば(ビルドを着け直せば)眠りに戻る。
+ * 目覚めた技は、覚醒の枠(壱・弐は手で撃つ、参は作戦)に入る
+ */
+export type AwakenTrigger = 'gain' | 'spend' | 'hold';
+export interface Awakening {
+  mark: MarkId;
+  trigger: AwakenTrigger;
+  amount: number;
+  art: MarkArt;
+}
+
+export const AWAKEN_TRIGGERS: Record<AwakenTrigger, { text: (mark: string, n: number) => string; scale: number }> = {
+  gain: { text: (m, n) => `一戦の中で${m}を合わせて${n}得る`, scale: 3 },
+  spend: { text: (m, n) => `一戦の中で${m}を合わせて${n}使う`, scale: 2 },
+  hold: { text: (m, n) => `${m}を一度に${n}抱える`, scale: 1 },
+};
+
+/** 覚醒を1つ作る。技の重さに見合った条件にする(重い技ほど、目覚めるまで遠い) */
+export function rollAwakening(random: () => number, mark: MarkId, shapes?: readonly ArtShape[]): Awakening {
+  const art = rollMarkArt(random, mark, shapes);
+  const triggers = Object.keys(AWAKEN_TRIGGERS) as AwakenTrigger[];
+  const trigger = triggers[Math.floor(random() * triggers.length)]!;
+  const raw = Math.max(30, art.cost * AWAKEN_TRIGGERS[trigger].scale);
+  const amount = raw >= 100 ? Math.round(raw / 10) * 10 : Math.round(raw);
+  return { mark, trigger, amount, art };
+}
+
+/** 覚醒の条件の説明。「一戦の中で〈研ぎ〉を合わせて300得る」 */
+export function awakeningText(a: Awakening): string {
+  return AWAKEN_TRIGGERS[a.trigger].text(`〈${MARKS[a.mark].name}〉`, a.amount);
+}
+
+/** 保存や読み込んだコードの覚醒が壊れていないか */
+export function awakeningProblem(a: unknown): string | null {
+  const x = a as Partial<Awakening> | undefined;
+  if (!x || typeof x !== 'object' || !x.mark || !(x.mark in MARKS) || !x.trigger || !(x.trigger in AWAKEN_TRIGGERS)) return '覚醒が壊れている';
+  if (typeof x.amount !== 'number' || !(x.amount > 0)) return '覚醒の条件が壊れている';
+  return artProblem(x.art);
 }

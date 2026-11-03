@@ -2104,3 +2104,22 @@ button.discard {
   margin-right: 4px;
   font-weight: normal;
 }
+
+/* 覚醒 */
+.awaken {
+  font-size: 13px;
+  padding: 3px 0 3px 6px;
+  border-left: 3px solid var(--line);
+  margin: 4px 0;
+  color: #e8d8a8;
+}
+
+.awaken b {
+  margin-right: 6px;
+  font-weight: normal;
+  color: #c9a86a;
+}
+
+.hand-art.dormant .name {
+  color: var(--dim);
+}

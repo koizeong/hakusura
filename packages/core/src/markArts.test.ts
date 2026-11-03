@@ -163,3 +163,84 @@ describe('手で撃つ印の技', () => {
     expect(w.marksOf(p, 'edge')).toBe(53);
   });
 });
+
+describe('覚醒', () => {
+  const awakenItem = (trigger: 'gain' | 'spend' | 'hold', amount: number): Build['equipment'] => ({
+    weapon1: {
+      id: 'w',
+      name: '研ぎの剣',
+      kind: 'weapon',
+      weaponType: 'ironSword',
+      affixes: [],
+      awaken: { mark: 'edge', trigger, amount, art: { ...starterArts()[0]!, id: 'aw', name: '目覚めの払い' } },
+    },
+  });
+  const setup = (trigger: 'gain' | 'spend' | 'hold', amount: number) => {
+    const w = new CombatWorld({ seed: 1, markCurve: false });
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000 });
+    const t = w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 50, y: 0, maxHp: 1e9 });
+    applyBuild(w, p, { actives: [], passives: [], equipment: awakenItem(trigger, amount), tactics: [] });
+    p.handArts = 'manual';
+    return { w, p, t };
+  };
+
+  it('条件を満たすまで技は出ず、満たすと目覚めて出る', () => {
+    const { w, p, t } = setup('gain', 30);
+    expect(p.actives).toContain('art1');
+    w.gainMark(p, 'edge', 20);
+    expect(w.canUseSkill('p', 'art1')).toBe(false);
+    w.drainEvents();
+    w.gainMark(p, 'edge', 10);
+    expect(w.drainEvents().some((e) => e.type === 'awakened')).toBe(true);
+    expect(w.canUseSkill('p', 'art1')).toBe(true);
+    w.useSkill('p', 'art1', t, 't');
+    run(w, 2000);
+    expect(w.log.some((r) => r.skill === '目覚めの払い')).toBe(true);
+  });
+
+  it('使って目覚める・抱えて目覚める', () => {
+    const spend = setup('spend', 20);
+    spend.w.gainMark(spend.p, 'edge', 100);
+    expect(spend.w.canUseSkill('p', 'art1')).toBe(false);
+    spend.w.consumeMarks(spend.p, 'edge', 20, '試し', spend.t, { attacker: spend.p, skill: '試し', via: [], depth: 0 });
+    expect(spend.p.awakenings[0]!.awake).toBe(true);
+    const hold = setup('hold', 50);
+    hold.w.gainMark(hold.p, 'edge', 49);
+    expect(hold.p.awakenings[0]!.awake).toBe(false);
+    hold.w.gainMark(hold.p, 'edge', 1);
+    expect(hold.p.awakenings[0]!.awake).toBe(true);
+    hold.w.resetAwakenings(hold.p);
+    expect(hold.p.awakenings[0]!.awake).toBe(false);
+  });
+
+  it('覚醒の枠は、指定がなければ武器1・武器2・体…の順に入る', async () => {
+    const { awakenSlotsOf } = await import('./build');
+    const aw = awakenItem('gain', 30).weapon1!.awaken!;
+    const build: Build = {
+      actives: [],
+      passives: [],
+      equipment: {
+        body: { id: 'b', name: '外套', kind: 'armor', slot: 'body', affixes: [], awaken: aw },
+        weapon1: { id: 'w', name: '剣', kind: 'weapon', weaponType: 'ironSword', affixes: [], awaken: aw },
+        head: { id: 'h', name: '兜', kind: 'armor', slot: 'head', affixes: [] },
+      },
+      tactics: [],
+    };
+    expect(awakenSlotsOf(build)).toEqual({ art1: 'weapon1', art2: 'body' });
+    expect(awakenSlotsOf({ ...build, awakenSlots: { art1: 'body', art2: null } })).toEqual({ art1: 'body', art3: 'weapon1' });
+  });
+
+  it('拾った武器は必ず覚醒を持ち、その武器で出せる形の技になる', async () => {
+    const { generateItem } = await import('./data/equipment');
+    const rand = seeded(9);
+    for (let i = 0; i < 60; i++) {
+      const it = generateItem(rand, { kind: 'weapon', slot: 'weapon1' });
+      expect(it.awaken).toBeDefined();
+      if (it.weaponType) {
+        const melee = ['swing', 'nova'].includes(it.awaken!.art.shape);
+        const ranged = ['shot', 'nova'].includes(it.awaken!.art.shape);
+        expect(melee || ranged).toBe(true);
+      }
+    }
+  });
+});

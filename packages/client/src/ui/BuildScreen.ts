@@ -105,6 +105,8 @@ import {
   ART_SLOTS,
   ART_SLOT_NAMES,
   isHandArt,
+  awakenSlotsOf,
+  awakeningText,
   SIGILS,
   sigilText,
   sigilMarks,
@@ -946,7 +948,6 @@ export class BuildScreen {
         );
       }),
       isUnlocked(this.host.state, 'variants') ? this.renderTechniqueStash() : '',
-      this.renderArtStash(),
     );
   }
 
@@ -957,132 +958,67 @@ export class BuildScreen {
   }
 
   /**
-   * 印の技の枠。拾った印の技を入れ、アクティブに入れれば作戦で出る。
-   * 印5で回し続ける技も、印100を貯めて撃つ大技も、この3つの枠のどれかに入れる
+   * 覚醒の枠。着けている装備の覚醒を、壱・弐(手で撃つ)・参(作戦)に入れる。
+   * 一戦の中で条件を満たすと装備が目覚め、その技が使えるようになる
    */
   private renderArtSlots(): HTMLElement {
     const build = this.build;
-    const owned = this.host.state.markArts ?? [];
+    const assigned = awakenSlotsOf(build);
+    const owners = EQUIP_SLOT_IDS.filter((e) => build.equipment[e]?.awaken);
     return h(
       'section',
       { class: 'art-slots' },
-      h('h3', {}, '印の技の枠'),
-      h('p', { class: 'note' }, '拾った印の技を入れる。印を多く使う技ほど急に重くなる。壱・弐は戦いの中で自分で撃つ(いつ換金するかを決める)。参は作戦に任せる'),
+      h('h3', {}, '覚醒の枠'),
+      h(
+        'p',
+        { class: 'note' },
+        owners.length > 0
+          ? '着けている装備の覚醒を入れる。一戦の中で条件を満たすと目覚め、技が使える。壱・弐は自分で撃ち、参は作戦に任せる'
+          : '覚醒を持つ装備を着けていない。武器は必ず覚醒を持つ',
+      ),
       ...ART_SLOTS.map((slot) => {
-        const current = build.arts?.[slot];
-        // ビルドコードから読み込んだ技は、蓄えになくても選べるままにする
-        const options = current && !owned.some((a) => a.id === current.id) ? [current, ...owned] : owned;
-        const taken = (a: MarkArt) => ART_SLOTS.some((o) => o !== slot && build.arts?.[o]?.id === a.id);
-        const usable = !this.unusable().includes(slot);
-        const needs = current ? artNeeds(current) : undefined;
+        const equip = assigned[slot];
+        const item = equip ? build.equipment[equip] : undefined;
+        const aw = item?.awaken;
+        const usable = !aw || !this.unusable().includes(slot);
+        const needs = aw ? artNeeds(aw.art) : undefined;
+        const chosen = build.awakenSlots?.[slot];
         return h(
           'div',
-          { class: `skill-row art-slot${current && !usable ? ' unusable' : ''}` },
-          h('input', {
-            type: 'checkbox',
-            disabled: !current && !build.actives.includes(slot),
-            checked: build.actives.includes(slot),
-            onchange: (e: Event) => {
-              const on = (e.target as HTMLInputElement).checked;
-              const i = build.actives.indexOf(slot);
-              if (on && i < 0) build.actives.push(slot);
-              if (!on && i >= 0) build.actives.splice(i, 1);
-              this.changed();
-            },
-          }),
-          h(
-            'span',
-            {},
-            ART_SLOT_NAMES[slot],
-            h('span', { class: 'art-hand' }, isHandArt(slot) ? '手で撃つ' : '作戦'),
-            current
-              ? h('span', { class: 'mark-cost', style: `border-color:${markColor(current.mark)};color:${markColor(current.mark)}` }, `${MARKS[current.mark].name}×${current.cost}`)
-              : '',
-          ),
+          { class: `skill-row art-slot${aw && !usable ? ' unusable' : ''}` },
+          h('span', {}, ART_SLOT_NAMES[slot].replace('印の技', '覚醒'), h('span', { class: 'art-hand' }, isHandArt(slot) ? '手で撃つ' : '作戦')),
           h(
             'select',
             {
               onchange: (e: Event) => {
-                const a = options.find((o) => o.id === (e.target as HTMLSelectElement).value);
-                build.arts = { ...(build.arts ?? {}) };
-                if (a) {
-                  build.arts[slot] = a;
-                  // 空きの枠に入れたら、アクティブに入れ、印が溜まれば撃つ作戦を先頭に置く(印が足りない間は次の行へ進む)
-                  if (!build.actives.includes(slot) && build.actives.length < BUILD_LIMITS.actives) build.actives.push(slot);
-                  // 参は作戦の先頭に置く。壱・弐は手で撃つので作戦には入れない
-                  if (!isHandArt(slot) && !build.tactics.some((t) => t.skill === slot)) build.tactics.unshift({ skill: slot, condition: 'always', enabled: true });
-                } else {
-                  delete build.arts[slot];
-                  build.actives = build.actives.filter((x) => x !== slot);
-                }
+                const v = (e.target as HTMLSelectElement).value;
+                build.awakenSlots = { ...(build.awakenSlots ?? {}) };
+                if (v === '') delete build.awakenSlots[slot];
+                else build.awakenSlots[slot] = v === 'none' ? null : (v as EquipSlotId);
+                // 昔の印の技の枠は使わなくなる
+                delete build.arts;
                 this.changed();
               },
             },
-            h('option', { value: '' }, '(空き)'),
-            ...[...options]
-              .sort((a, b) => a.mark.localeCompare(b.mark) || a.cost - b.cost)
-              .map((a) => h('option', { value: a.id, selected: a.id === current?.id, disabled: taken(a) }, `${a.name}・${MARKS[a.mark].name}${a.cost}`)),
+            h('option', { value: '', selected: chosen === undefined }, '(決まった順)'),
+            h('option', { value: 'none', selected: chosen === null }, '(空けておく)'),
+            ...owners.map((e) => h('option', { value: e, selected: chosen === e }, `${EQUIP_SLOTS[e].name}:${build.equipment[e]!.name}`)),
           ),
           h(
             'small',
             {},
-            current
-              ? `${needs ? `要 ${needsText(needs)}・` : ''}${artDescription(current)}${usable ? '' : '・今の武器では出ない'}`
-              : '空き。下の蓄えから選ぶ',
+            aw && item
+              ? `${item.name}が目覚める:${awakeningText(aw)} → ${aw.art.name}(${needs ? `要 ${needsText(needs)}・` : ''}${artDescription(aw.art)})${usable ? '' : '・今の武器では出ない'}`
+              : '空き',
           ),
         );
       }),
     );
   }
 
-  /** 今の武器では使えない技(印の技の枠を含む) */
+  /** 今の武器では使えない技(覚醒の枠を含む) */
   private unusable(): ActiveSkillId[] {
     return unusableActives({ ...this.build, actives: [...ART_SLOTS] });
-  }
-
-  /** 拾った印の技の蓄え。全キャラで共有する */
-  private renderArtStash(): HTMLElement {
-    const { state } = this.host;
-    const arts = state.markArts ?? [];
-    const inUse = (a: MarkArt) => state.characters.filter((c) => Object.values(c.build.arts ?? {}).some((u) => u?.id === a.id));
-    return h(
-      'section',
-      { class: 'technique-stash' },
-      h('h3', {}, `印の技(${arts.length})`),
-      h('p', { class: 'note' }, '遠征や大物から拾う。拾うたびに使う印の数・形・癖が変わる。全キャラで共有する'),
-      ...arts.map((a) => {
-        const users = inUse(a);
-        return h(
-          'div',
-          { class: 'skill-row' },
-          h('span', {}, a.name, h('span', { class: 'mark-cost', style: `border-color:${markColor(a.mark)};color:${markColor(a.mark)}` }, `${MARKS[a.mark].name}×${a.cost}`)),
-          h('small', {}, `${artDescription(a)}${users.length > 0 ? `・${users.map((c) => c.name).join('・')}が使用中` : ''}`),
-          h('button', { onclick: () => this.discardArt(a) }, '捨てる'),
-        );
-      }),
-      h('button', { onclick: () => this.lootArt() }, '印の技を1つ拾う(試し)'),
-    );
-  }
-
-  private lootArt(): void {
-    const { state } = this.host;
-    state.markArts = [rollMarkArt(() => this.host.random()), ...(state.markArts ?? [])];
-    this.changed();
-  }
-
-  private discardArt(a: MarkArt): void {
-    const { state } = this.host;
-    state.markArts = (state.markArts ?? []).filter((x) => x.id !== a.id);
-    // 着けていたキャラからも外す
-    for (const c of state.characters) {
-      for (const slot of ART_SLOTS) {
-        if (c.build.arts?.[slot]?.id === a.id) {
-          delete c.build.arts[slot];
-          c.build.actives = c.build.actives.filter((x) => x !== slot);
-        }
-      }
-    }
-    this.changed();
   }
 
   /** アクティブが今使えるか。覚えていて、技なら今の武器で出る */
@@ -1588,6 +1524,14 @@ function itemCard(attrs: Attributes, item: Item, ...parts: HTMLElement[]): HTMLE
     ...item.affixes.map((a) =>
       h('div', { class: `affix ${benefitOf(a) >= 0 ? 'good' : 'bad'}` }, `${AFFIXES[a.affix].name} ${signedPercent(a.value / 100)}`),
     ),
+    item.awaken
+      ? h(
+          'div',
+          { class: 'awaken', style: `border-left-color:${markColor(item.awaken.mark)}` },
+          h('b', {}, '覚醒'),
+          `${awakeningText(item.awaken)} → ${item.awaken.art.name}(${artDescription(item.awaken.art)})`,
+        )
+      : '',
     item.condition
       ? h(
           'div',

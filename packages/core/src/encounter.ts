@@ -8,7 +8,7 @@ import type { PassiveId } from './data/passives';
 import type { SkillVariant } from './data/variations';
 import { LEVEL_RULES, levelReward } from './data/levels';
 import { addExp, lootFit, type Character } from './build';
-import { VARIANT_BASES, learnedForms, rollArts, rollVariant, unlearnedSkills, type Learned } from './expedition';
+import { VARIANT_BASES, learnedForms, rollVariant, unlearnedSkills, type Learned } from './expedition';
 import type { MarkArt } from './data/markArts';
 
 /** 場を片付けてから、次の群れが来るまでの間 */
@@ -206,6 +206,7 @@ export function claimEncounterReward(e: Encounter, c: Character, learned: Learne
     }
   }
   // 印の技。レベルが高いほど多く拾える
-  const arts = rollArts(random, (reward.arts ?? 0) * share * scale, c.build);
+  // 印の技は装備の覚醒になったので、別には持ち帰らない
+  const arts: MarkArt[] = [];
   return { share, exp, levelsGained, items, skills, forms, variants, arts };
 }

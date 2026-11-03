@@ -137,3 +137,10 @@ export function sfxMarkLost(): void {
   tone('square', 400, 160, 0.18, 0.12);
   noise(0.12, 0.25, 2400);
 }
+
+/** 装備が目覚めた。低い響きから澄んだ音へ */
+export function sfxAwaken(): void {
+  if (!throttle('awaken', 400)) return;
+  tone('sine', 220, 440, 0.6, 0.4);
+  tone('sine', 660, 990, 0.8, 0.25, 0.15);
+}

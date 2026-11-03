@@ -123,8 +123,25 @@ function initialState(random: () => number): BuildState {
   ];
   // 武器は鉄の剣と雷の短銃。近接の技は剣で、遠距離の技は銃で出る
   const starterWeapons: Item[] = [
-    { id: 'starter-sword', name: '鉄の剣', kind: 'weapon', weaponType: 'ironSword', affixes: [{ affix: 'maxHp', value: 10 }] },
-    { id: 'starter-gun', name: '雷の短銃', kind: 'weapon', weaponType: 'capGun', affixes: [{ affix: 'moveSpeed', value: 10 }] },
+    // 研ぎを溜めて目覚める剣と、静寂を溜めて目覚める銃。どちらも軽い覚醒で、はじめての一戦で目覚める
+    {
+      id: 'starter-sword',
+      name: '鉄の剣',
+      kind: 'weapon',
+      weaponType: 'ironSword',
+      affixes: [{ affix: 'maxHp', value: 10 }],
+      sigils: [{ sigil: 'kindle', mark: 'edge' }],
+      awaken: { mark: 'edge', trigger: 'gain', amount: 20, art: starterArts()[0]! },
+    },
+    {
+      id: 'starter-gun',
+      name: '雷の短銃',
+      kind: 'weapon',
+      weaponType: 'capGun',
+      affixes: [{ affix: 'moveSpeed', value: 10 }],
+      sigils: [{ sigil: 'kindle', mark: 'stillness' }],
+      awaken: { mark: 'stillness', trigger: 'gain', amount: 20, art: starterArts()[1]! },
+    },
   ];
   // 武器の種類を一通り試せるよう、1つずつ山に置いておく
   // 盾も1枚ずつ置く

@@ -2,8 +2,9 @@ import { statDef, type StatId } from './stats';
 import { CONDITION_IDS, HANDMADE_CONDITION_IDS, MARK_CONDITION_IDS, conditionDef, type ConditionId } from './conditions';
 import { MARK_IDS, type MarkId } from './marks';
 import { SIGIL_IDS, sigilDef, sigilMarks, type SigilInstance } from './sigils';
+import { rollAwakening, type Awakening } from './markArts';
 import type { ArtifactId } from './artifacts';
-import { LOOT_WEAPON_TYPE_IDS, rollWeapon, weaponName, type TemperId, type WeaponSpec, type WeaponTypeId } from './weapons';
+import { LOOT_WEAPON_TYPE_IDS, rollWeapon, weaponDef, weaponName, type TemperId, type WeaponSpec, type WeaponTypeId } from './weapons';
 import { SHIELD_TYPE_IDS, rollShield, shieldName, type ShieldSpec, type ShieldTypeId } from './shields';
 import type { ElementId } from './elements';
 
@@ -139,6 +140,8 @@ export const EQUIP_RULES = {
   /** 条件文が入る確率。印と札をビルドの中心に据えたので、多めに付く */
   // 印紋が全ての装備に付くので、長い条件文はときどき(持ち味の×の札や仕組みの独特な札)
   conditionChance: 0.2,
+  /** 防具と装飾品が覚醒を持つ確率(武器と盾は必ず持つ) */
+  awakenChance: 0.35,
   /**
    * 合計の出方。大半は得の向き(goodMin〜totalMax)に出る。
    * cursedChance の確率で、合計がマイナスの「忌まわしき品」になり、代わりに重い条件文が必ず付く
@@ -197,6 +200,8 @@ export interface Item {
   cursed?: boolean;
   /** 印紋。全ての装備に1〜3個刻まれる(昔の保存の装備にはない) */
   sigils?: SigilInstance[];
+  /** 覚醒。一戦の中で条件を満たすと目覚め、この装備の技が使える(武器には必ず、防具と装飾品にはときどき) */
+  awaken?: Awakening;
 }
 
 /** 忌まわしき品の名前の頭 */
@@ -467,7 +472,7 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
       options.shieldType ?? (!options.weaponType && random() < (options.shieldChance ?? EQUIP_RULES.shieldChance) ? pick(SHIELD_TYPE_IDS) : undefined);
     if (shieldType) {
       const shield = rollShield(random, shieldType);
-      return { id, name: `${cursed ? CURSED_PREFIX : ''}${shieldName(shield)}`, kind, affixes, condition, sigils, shieldType, element: shield.element, ...(cursed ? { cursed } : {}) };
+      return { id, name: `${cursed ? CURSED_PREFIX : ''}${shieldName(shield)}`, kind, affixes, condition, sigils, awaken: rollAwakening(random, sigils[0]!.mark, ['nova']), shieldType, element: shield.element, ...(cursed ? { cursed } : {}) };
     }
     const elements = [...(options.preferElements ?? []), ...(fit && random() < R.fitChance ? fit.elements : [])];
     const weapon = rollWeapon(random, options.weaponType ?? pick(options.weaponTypes ?? LOOT_WEAPON_TYPE_IDS), { elements: elements.length > 0 ? elements : undefined });
@@ -478,6 +483,8 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
       affixes,
       condition,
       sigils,
+      // 武器は必ず覚醒を持つ。技はその武器で出せる形にする
+      awaken: rollAwakening(random, sigils[0]!.mark, weaponDef(weapon).kind === 'melee' ? ['swing', 'nova'] : ['shot', 'nova']),
       weaponType: weapon.type,
       element: weapon.element,
       tempers: [...(weapon.tempers ?? [])],
@@ -485,5 +492,7 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
     };
   }
   const name = kind === 'armor' && slot && material ? `${ARMOR_MATERIALS[material].prefix}${pick(ARMOR_NAMES[slot] ?? ['防具'])}` : pick(BASE_NAMES[kind]);
-  return { id, name: `${cursed ? CURSED_PREFIX : ''}${name}`, kind, slot, affixes, condition, sigils, material, ...(cursed ? { cursed } : {}) };
+  // 防具と装飾品は、ときどき覚醒を持つ(技は周りに放つ形が多い)
+  const awaken = random() < EQUIP_RULES.awakenChance ? rollAwakening(random, sigils[0]!.mark) : undefined;
+  return { id, name: `${cursed ? CURSED_PREFIX : ''}${name}`, kind, slot, affixes, condition, sigils, ...(awaken ? { awaken } : {}), material, ...(cursed ? { cursed } : {}) };
 }
