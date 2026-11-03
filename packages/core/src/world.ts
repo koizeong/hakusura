@@ -24,7 +24,7 @@ import { CONDITION_ADD_GROUP, conditionDef, type ConditionId } from './data/cond
 import { INTERACTIONS } from './data/interactions';
 import { DEFENSE_RULES } from './data/defense';
 import { levelHp, levelModifiers } from './data/levels';
-import { MARK_IDS, MARK_RULES, blessingTier, markDef, type MarkId } from './data/marks';
+import { MARK_IDS, MARK_NATURAL, MARK_RULES, blessingTier, markDef, type MarkId } from './data/marks';
 import { evaluatePredicate, ruleMatches, type Action, type Modifier, type Predicate, type PredicateContext, type Rule } from './rules';
 
 export type Team = 'player' | 'enemy';
@@ -137,6 +137,9 @@ export interface Unit {
   arts: Partial<Record<ArtSlot, MarkArt>>;
   /** 覚醒の枠ごとの進み。目覚めるまでは、その枠の技は出ない */
   awakenings: AwakenState[];
+  /** 自然に溜まる印(ビルドが関わる印)と、次に溜まる時刻 */
+  naturalMarks: MarkId[];
+  naturalAt: number;
   /** 技を使った回数 */
   skillUses: Partial<Record<ActiveSkillId, number>>;
   /** 敵の種類。あれば ENEMIES の動き方で自分で歩く */
@@ -425,7 +428,7 @@ export interface WorldOptions {
   seed?: number;
   /** 場の広さ。敵はこの中を歩く */
   bounds?: { width: number; height: number };
-  /** false なら、札から得る印も生成力・変換効率(溜まっている量で増える分)を通さず、そのまま足す(仕組みのテスト用) */
+  /** false なら、札から得る印も生成力・変換効率(溜まっている量で増える分)を通さずそのまま足し、印は自然に溜まらない(仕組みのテスト用) */
   markCurve?: boolean;
 }
 
@@ -555,6 +558,8 @@ export class CombatWorld {
       variants: {},
       arts: {},
       awakenings: [],
+      naturalMarks: [],
+      naturalAt: 0,
       skillUses: {},
       kind: spec.kind,
       mortal: spec.mortal ?? false,
@@ -1513,6 +1518,11 @@ export class CombatWorld {
 
     for (const unit of this.units.values()) {
       this.expireMarks(unit);
+      // 自然に溜まる印。起き上がるまでの間は溜まらない
+      if (this.markCurve && unit.naturalMarks.length > 0 && this.time >= unit.naturalAt) {
+        unit.naturalAt = this.time + MARK_NATURAL.every;
+        if (unit.downUntil <= this.time && unit.hp > 0) for (const m of unit.naturalMarks) this.gainMark(unit, m, MARK_NATURAL.amount, 0, { label: '自然' });
+      }
       const weatherApplies = this.weather ? fieldDef(this.weather).applies : undefined;
       if (weatherApplies) this.addBuildup(unit, weatherApplies.status, weatherApplies.perSec * sec, { skill: '', via: [], depth: 0 });
       // 飛んでいる者は床を踏まない。飛ぶ時間が切れたら地に降りる

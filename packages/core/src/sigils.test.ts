@@ -84,10 +84,23 @@ describe('印紋', () => {
     expect(marks.size).toBeGreaterThan(3);
   });
 
+  it('ビルドが関わる印は、2秒に1ずつ自然に溜まる。関わらない印は溜まらない', async () => {
+    const { MARK_NATURAL } = await import('./data/marks');
+    const w = new CombatWorld({ seed: 1 });
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000 });
+    applyBuild(w, p, { actives: [], passives: [], equipment: { accessory1: { id: 'a', name: '護符', kind: 'accessory', affixes: [], sigils: [{ sigil: 'convert', mark: 'edge', other: 'blood' }] } }, tactics: [] });
+    expect(p.naturalMarks).toEqual(['edge', 'blood']);
+    run(w, MARK_NATURAL.every * 3 + 50);
+    // 血潮が自然に溜まると、移ろいで研ぎも得る
+    expect(w.marksOf(p, 'blood')).toBe(3);
+    expect(w.marksOf(p, 'edge')).toBeGreaterThanOrEqual(3);
+    expect(w.marksOf(p, 'ember')).toBe(0);
+  });
+
   it('縁:縁のある技を当てると1度だけ印を得る', () => {
     const { w, p, swing } = armed([{ sigil: 'kindle', mark: 'edge' }]);
     swing();
-    expect(w.marksOf(p, 'edge')).toBe(1);
+    expect(w.marksOf(p, 'edge')).toBe(2);
   });
 
   it('増殖:印を使うたび、持っている印を全て増やす', () => {
@@ -95,8 +108,9 @@ describe('印紋', () => {
     w.gainMark(p, 'edge', 100);
     w.gainMark(p, 'blood', 200);
     w.consumeMarks(p, 'edge', 50, '試し', t, { attacker: p, skill: '試し', via: [], depth: 0 });
-    expect(w.marksOf(p, 'edge')).toBe(52);
-    expect(w.marksOf(p, 'blood')).toBe(206);
+    // 5%ずつ増える
+    expect(w.marksOf(p, 'edge')).toBe(53);
+    expect(w.marksOf(p, 'blood')).toBe(210);
   });
 
   it('過負荷:札から得る印が2倍、使ってから4秒は得られない', () => {
@@ -109,8 +123,8 @@ describe('印紋', () => {
       true,
     );
     swing();
-    expect(w.marksOf(p, 'edge')).toBe(2);
-    w.consumeMarks(p, 'edge', 2, '試し', t, { attacker: p, skill: '試し', via: [], depth: 0 });
+    expect(w.marksOf(p, 'edge')).toBe(4);
+    w.consumeMarks(p, 'edge', 4, '試し', t, { attacker: p, skill: '試し', via: [], depth: 0 });
     swing();
     expect(w.marksOf(p, 'edge')).toBe(0);
   });
@@ -134,13 +148,13 @@ describe('印紋', () => {
       swing();
       return w.log.find((r) => r.depth === 0)!.amount;
     };
-    expect(hit(0) / hit(5)).toBeCloseTo(1.2, 2);
+    expect(hit(0) / hit(5)).toBeCloseTo(1.3, 2);
   });
 
   it('恩恵:抱えの恩恵が強まる', () => {
     const { w, p } = armed([{ sigil: 'bless', mark: 'prayer' }]);
     w.gainMark(p, 'prayer', 100);
-    expect(w.statOf(p, 'markBlessing', ['prayer'])).toBeCloseTo(1.4);
+    expect(w.statOf(p, 'markBlessing', ['prayer'])).toBeCloseTo(1.6);
   });
 
   it('ビルドコードに入り、知らない印紋は弾く', () => {

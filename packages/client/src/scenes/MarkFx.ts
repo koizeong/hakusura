@@ -113,6 +113,8 @@ export class MarkFx {
       return;
     }
     if (!event.gained) return;
+    // 自然に溜まる分は、粒も音も出さない(周りを回る粒が増えるだけ)
+    if (event.label === '自然') return;
     if (event.from) {
       // 変わった:元の印の色から、得た印の色へ
       this.flowBetween(player, event.from, event.mark);

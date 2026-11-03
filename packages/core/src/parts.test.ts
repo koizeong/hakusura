@@ -1,3 +1,4 @@
+import { MARKS } from './data/marks';
 import { describe, expect, it } from 'vitest';
 import { CombatWorld, type Unit } from './world';
 import { resolveSkill, type ActiveSkillId } from './data/skills';
@@ -68,8 +69,8 @@ describe('武器の条件文', () => {
     const { w, p } = setup({ weapons: [weapon('a', [])], conditions: ['twoHandedDual'] });
     w.gainMark(p, 'edge', 30);
     swing(w, p, 'whirlwind');
-    // 研ぎ30は抱えの恩恵の1段(近攻撃+12%)
-    expect(w.log[0]!.amount).toBeCloseTo(hitPw(resolveSkill('whirlwind', 'rustGreatsword')!) * 1.25 * 2 * 1.12);
+    // 研ぎ30は抱えの恩恵の1段
+    expect(w.log[0]!.amount).toBeCloseTo(hitPw(resolveSkill('whirlwind', 'rustGreatsword')!) * 1.25 * 2 * (1 + MARKS.edge.blessing.perTier));
     expect(w.log[0]!.combos).toContain('oddGrip');
   });
 

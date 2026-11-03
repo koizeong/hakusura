@@ -1,4 +1,4 @@
-import type { MarkId } from './data/marks';
+import { MARK_IDS, MARK_NATURAL, type MarkId } from './data/marks';
 import { conditionDef } from './data/conditions';
 import { ACTIVE_SKILLS, TRUMP_SKILL_IDS, activeSkillDef, isTechnique, techniqueFits, type ActiveSkillDef, type ActiveSkillId } from './data/skills';
 import { variantProblem, type SkillVariant } from './data/variations';
@@ -222,6 +222,26 @@ export function unusableActives(build: Build): ActiveSkillId[] {
   });
 }
 
+/** ビルドが関わる印。装備の印紋・条件文・覚醒と、技が溜める・保つ・使う印 */
+export function buildMarks(build: Build): MarkId[] {
+  const out = new Set<MarkId>();
+  for (const item of Object.values(build.equipment)) {
+    if (!item) continue;
+    for (const s of item.sigils ?? []) {
+      out.add(s.mark);
+      if (s.other) out.add(s.other);
+    }
+    const m = item.condition ? conditionDef(item.condition).marks : undefined;
+    for (const k of [...(m?.gives ?? []), ...(m?.uses ?? [])]) out.add(k);
+    if (item.awaken) out.add(item.awaken.mark);
+  }
+  for (const id of build.actives) {
+    const def = buildSkillDef(build, id);
+    for (const k of [def?.markGain?.mark, def?.markHold?.mark, def?.markCost?.mark]) if (k) out.add(k);
+  }
+  return MARK_IDS.filter((k) => out.has(k));
+}
+
 /** 覚醒を並べる部位の順 */
 const AWAKEN_ORDER: EquipSlotId[] = ['weapon1', 'weapon2', 'body', 'head', 'hands', 'feet', 'belt', 'accessory1', 'accessory2', 'accessory3'];
 
@@ -281,6 +301,9 @@ export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   unit.trump = build.trump;
   unit.attributes = { ...(build.attributes ?? baseAttributes()) };
   unit.variants = { ...(build.variants ?? {}) };
+  // 自然に溜まる印は、ビルドが関わる印
+  unit.naturalMarks = buildMarks(build);
+  unit.naturalAt = world.time + MARK_NATURAL.every;
   // 覚醒の枠。装備の覚醒を枠に入れ、目覚めるまで眠らせる
   unit.arts = { ...(build.arts ?? {}) };
   unit.awakenings = [];

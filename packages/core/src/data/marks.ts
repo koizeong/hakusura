@@ -18,11 +18,11 @@ export interface MarkDef {
 }
 
 export const MARKS = {
-  ember: { name: '熾り', description: '火で燃え立つ', max: 10000, duration: 8000, color: 0xff7a2e, blessing: { name: '与ダメージ', stat: 'damage', tags: [], perTier: 0.08 } },
-  edge: { name: '研ぎ', description: '刃を重ねて研ぎ澄ます', max: 10000, duration: 8000, color: 0xd8d0c0, blessing: { name: '近攻撃のダメージ', stat: 'damage', tags: ['melee'], perTier: 0.12 } },
-  blood: { name: '血潮', description: '流した血と浴びた血', max: 10000, duration: 8000, color: 0xc8323c, blessing: { name: '状態の蓄積', stat: 'buildup', tags: [], perTier: 0.12 } },
-  stillness: { name: '静寂', description: '足を止め、息を殺す', max: 10000, duration: 8000, color: 0x8aa0c8, blessing: { name: '被ダメージ', stat: 'damageTaken', tags: [], perTier: -0.05 } },
-  prayer: { name: '祈り', description: '儀式の残り香', max: 10000, duration: 8000, color: 0xe8d8a8, blessing: { name: 'クールダウン', stat: 'cooldown', tags: [], perTier: -0.05 } },
+  ember: { name: '熾り', description: '火で燃え立つ', max: 10000, duration: 8000, color: 0xff7a2e, blessing: { name: '与ダメージ', stat: 'damage', tags: [], perTier: 0.12 } },
+  edge: { name: '研ぎ', description: '刃を重ねて研ぎ澄ます', max: 10000, duration: 8000, color: 0xd8d0c0, blessing: { name: '近攻撃のダメージ', stat: 'damage', tags: ['melee'], perTier: 0.18 } },
+  blood: { name: '血潮', description: '流した血と浴びた血', max: 10000, duration: 8000, color: 0xc8323c, blessing: { name: '状態の蓄積', stat: 'buildup', tags: [], perTier: 0.18 } },
+  stillness: { name: '静寂', description: '足を止め、息を殺す', max: 10000, duration: 8000, color: 0x8aa0c8, blessing: { name: '被ダメージ', stat: 'damageTaken', tags: [], perTier: -0.07 } },
+  prayer: { name: '祈り', description: '儀式の残り香', max: 10000, duration: 8000, color: 0xe8d8a8, blessing: { name: 'クールダウン', stat: 'cooldown', tags: [], perTier: -0.07 } },
 } as const satisfies Record<string, MarkDef>;
 
 /**
@@ -35,6 +35,12 @@ export const MARKS = {
  * 一戦の初めにエンジンが回り出すまでの間を作り、回り出せば大技まで加速する
  */
 export const MARK_RULES = { perMarkCap: 10, growthPer: 100, hurtBase: 0.1, hurtMax: 0.5 } as const;
+
+/**
+ * 自然に溜まる印。ビルドが関わる印(装備の印紋・条件文・覚醒・技が生む・保つ・使う印)は、every ミリ秒ごとに amount ずつ増える。
+ * エンジンが回り出す前の種火(生成力は通さない)。関わらない印は増えない(飢えの札が働くように)
+ */
+export const MARK_NATURAL = { every: 2000, amount: 1 } as const;
 
 /**
  * 印の技の威力。消費する印の数 cost に対して、威力(武器の威力に掛ける倍率の合計)は base × cost^exponent。
