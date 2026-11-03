@@ -93,6 +93,28 @@ describe('印紋', () => {
     expect(w.marksOf(p, 'edge')).toBe(0);
   });
 
+  it('一閃:印を使って属性の追撃を落とす。焼き印:使うたび状態を溜める', () => {
+    const { w, p, t, swing } = armed([
+      { sigil: 'smite', mark: 'ember' },
+      { sigil: 'brand', mark: 'ember' },
+    ]);
+    w.gainMark(p, 'ember', 60);
+    swing();
+    expect(w.marksOf(p, 'ember')).toBe(40);
+    expect(w.log.some((r) => r.via.includes('熾りの一閃') && r.element === 'fire')).toBe(true);
+    expect(t.statuses.burn.buildup > 0 || w.isActive(t, 'burn')).toBe(true);
+  });
+
+  it('飢え:印がないときだけ与ダメージが増える', () => {
+    const hit = (marks: number) => {
+      const { w, p, swing } = armed([{ sigil: 'hunger', mark: 'blood' }]);
+      if (marks > 0) w.gainMark(p, 'blood', marks);
+      swing();
+      return w.log.find((r) => r.depth === 0)!.amount;
+    };
+    expect(hit(0) / hit(5)).toBeCloseTo(1.2, 2);
+  });
+
   it('恩恵:抱えの恩恵が強まる', () => {
     const { w, p } = armed([{ sigil: 'bless', mark: 'prayer' }]);
     w.gainMark(p, 'prayer', 100);

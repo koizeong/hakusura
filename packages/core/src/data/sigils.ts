@@ -1,5 +1,7 @@
 import { MARKS, type MarkId } from './marks';
 import type { Predicate, Rule } from '../rules';
+import type { ElementId } from './elements';
+import type { StatusId } from './statuses';
 
 /**
  * 印紋。装備に1〜3個刻まれる、印に関わる短い効果。長い条件文の代わりに、小さな部品を重ねて組む。
@@ -13,7 +15,8 @@ export interface SigilDef {
   other?: boolean;
   /** 補正値換算のコスト(%)。装備の合計に含める */
   cost: number;
-  text(m: string, o: string): string;
+  /** m・o は印の呼び名(〈研ぎ〉)、id は印そのもの */
+  text(m: string, o: string, id: MarkId): string;
   marks(m: MarkId, o: MarkId): { gives?: MarkId[]; uses?: MarkId[] };
   rules(m: MarkId, o: MarkId, label: string): Rule[];
 }
@@ -38,6 +41,12 @@ const AFFINITY: Record<MarkId, { text: string; when: Predicate[][] }> = {
 };
 
 const n = (m: MarkId) => `〈${MARKS[m].name}〉`;
+
+/** 印ごとの属性と状態(一閃の追撃・焼き印の状態) */
+const MARK_ELEMENT: Record<MarkId, ElementId> = { ember: 'fire', edge: 'slash', blood: 'blood', stillness: 'ice', prayer: 'curse' };
+const ELEMENT_NAME: Record<MarkId, string> = { ember: '火', edge: '斬', blood: '血', stillness: '氷', prayer: '呪' };
+const MARK_STATUS: Record<MarkId, StatusId> = { ember: 'burn', edge: 'bleed', blood: 'thirst', stillness: 'frozen', prayer: 'bind' };
+const STATUS_NAME: Record<MarkId, string> = { ember: '炎上', edge: '出血', blood: '渇き', stillness: '凍結', prayer: '呪縛' };
 
 export const SIGILS = {
   // ---- 生む ----
@@ -204,6 +213,213 @@ export const SIGILS = {
       { label, on: 'markSpent', mark: m, when: [], do: [{ type: 'grantBuff', label, add: 0, tags: ['__none'], duration: 4000 }] },
     ],
   },
+  // ---- 生む(二の巻) ----
+  stand: {
+    name: '据え',
+    cost: 12,
+    text: (m) => `1秒以上足を止めて当てると${m}+1`,
+    marks: (m) => ({ gives: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'hit', when: [...ONCE, { type: 'selfStill', ms: 1000 }], do: [{ type: 'gainMark', mark: m, amount: 1 }] }],
+  },
+  afar: {
+    name: '遠間',
+    cost: 12,
+    text: (m) => `離れた相手(200以上)に当てると${m}+1`,
+    marks: (m) => ({ gives: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'hit', when: [...ONCE, { type: 'targetFar', min: 200 }], do: [{ type: 'gainMark', mark: m, amount: 1 }] }],
+  },
+  behind: {
+    name: '背討ち',
+    cost: 10,
+    text: (m) => `背後から当てると${m}+3`,
+    marks: (m) => ({ gives: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'hit', when: [...ONCE, { type: 'fromBehind' }], do: [{ type: 'gainMark', mark: m, amount: 3 }] }],
+  },
+  afflict: {
+    name: '病み狩り',
+    cost: 12,
+    text: (m) => `3種類以上の状態にかかった敵に当てると${m}+2`,
+    marks: (m) => ({ gives: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'hit', when: [...ONCE, { type: 'targetStatusCount', min: 3 }], do: [{ type: 'gainMark', mark: m, amount: 2 }] }],
+  },
+  flare: {
+    name: '発火',
+    cost: 12,
+    text: (m) => `敵の状態が発動するたび${m}+2`,
+    marks: (m) => ({ gives: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'statusActivate', when: [], do: [{ type: 'gainMark', mark: m, amount: 2 }] }],
+  },
+  shatter: {
+    name: '砕け',
+    cost: 8,
+    text: (m) => `盾が砕けると${m}+6`,
+    marks: (m) => ({ gives: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'shieldBreak', when: [], do: [{ type: 'gainMark', mark: m, amount: 6 }] }],
+  },
+  rite: {
+    name: '儀',
+    cost: 10,
+    text: (m) => `儀式を宿した技を当てると${m}+3`,
+    marks: (m) => ({ gives: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'hit', when: [{ type: 'ritesReleased', min: 1 }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }], do: [{ type: 'gainMark', mark: m, amount: 3 }] }],
+  },
+  brink: {
+    name: '瀬戸際',
+    cost: 10,
+    text: (m) => `瀕死の間、当てると${m}+3`,
+    marks: (m) => ({ gives: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'hit', when: [...ONCE, { type: 'attackerHas', status: 'dying' }], do: [{ type: 'gainMark', mark: m, amount: 3 }] }],
+  },
+  pristine: {
+    name: '無垢',
+    cost: 12,
+    text: (m) => `HPが満タンの間、当てると${m}+1`,
+    marks: (m) => ({ gives: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'hit', when: [...ONCE, { type: 'selfHpRatio', min: 1 }], do: [{ type: 'gainMark', mark: m, amount: 1 }] }],
+  },
+  // ---- 変える(二の巻) ----
+  spill: {
+    name: 'こぼれ受け',
+    other: true,
+    cost: 10,
+    text: (m, o) => `直撃で${o}をこぼすと、こぼした数の半分を${m}として得る`,
+    marks: (m, o) => ({ gives: [m], uses: [o] }),
+    rules: (m, o, label) => [{ label, on: 'markLost', mark: o, cause: 'hurt', when: [], do: [{ type: 'gainMark', mark: m, amount: 0, per: 0.5 }] }],
+  },
+  summit: {
+    name: '峰越え',
+    other: true,
+    cost: 10,
+    text: (m, o) => `${o}が100に届いた瞬間、${m}+30`,
+    marks: (m, o) => ({ gives: [m], uses: [o] }),
+    rules: (m, o, label) => [{ label, on: 'markGained', mark: o, reach: 100, when: [], do: [{ type: 'gainMark', mark: m, amount: 30 }] }],
+  },
+  exchange: {
+    name: '引き換え',
+    other: true,
+    cost: 12,
+    text: (m, o) => `${o}を使うたび${m}+5`,
+    marks: (m, o) => ({ gives: [m], uses: [o] }),
+    rules: (m, o, label) => [{ label, on: 'markSpent', mark: o, when: [], do: [{ type: 'gainMark', mark: m, amount: 5 }] }],
+  },
+  // ---- 抱える(二の巻) ----
+  burden: {
+    name: '重荷',
+    cost: 15,
+    text: (m) => `${m}が1000以上の間、与ダメージ+30%・移動速度-15%`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [
+      { label, on: 'damage', when: [{ type: 'selfMarks', mark: m, min: 1000 }], add: 0.3 },
+      { label, on: 'stat', stat: 'moveSpeed', when: [{ type: 'selfMarks', mark: m, min: 1000 }], add: -0.15 },
+    ],
+  },
+  ward: {
+    name: '鎧',
+    cost: 15,
+    text: (m) => `${m}が100以上の間、被ダメージ-15%`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'stat', stat: 'damageTaken', when: [{ type: 'selfMarks', mark: m, min: 100 }], add: -0.15 }],
+  },
+  swift: {
+    name: '足',
+    cost: 10,
+    text: (m) => `${m}が100以上の間、移動速度+12%`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'stat', stat: 'moveSpeed', when: [{ type: 'selfMarks', mark: m, min: 100 }], add: 0.12 }],
+  },
+  cool: {
+    name: '冷め',
+    cost: 15,
+    text: (m) => `${m}が100以上の間、クールダウン-12%`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'stat', stat: 'cooldown', when: [{ type: 'selfMarks', mark: m, min: 100 }], add: -0.12 }],
+  },
+  reach: {
+    name: '間合い',
+    cost: 12,
+    text: (m) => `${m}が100以上の間、近攻撃の射程+15%`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'stat', stat: 'meleeRange', when: [{ type: 'selfMarks', mark: m, min: 100 }], add: 0.15 }],
+  },
+  each: {
+    name: '粒',
+    cost: 15,
+    text: (m) => `${m}1つにつき与ダメージ+2%(10まで)`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'damage', when: [], add: 0.02, perMark: m }],
+  },
+  hoard: {
+    name: '蓄え',
+    cost: 15,
+    text: (m) => `${m}が1000以上の間、${m}の抱えの恩恵+100%`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'stat', stat: 'markBlessing', tags: [m], when: [{ type: 'selfMarks', mark: m, min: 1000 }], add: 1 }],
+  },
+  hunger: {
+    name: '飢え',
+    cost: 12,
+    text: (m) => `${m}がないとき、与ダメージ+20%`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'damage', when: [{ type: 'selfMarksAtMost', mark: m, max: 0 }], add: 0.2 }],
+  },
+  // ---- 使う(二の巻) ----
+  smite: {
+    name: '一閃',
+    cost: 15,
+    text: (m, _o, id) => `${m}が50以上あれば、当てたとき${m}を20使い、${ELEMENT_NAME[id]}の追撃(威力30)を落とす`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [
+      {
+        label,
+        on: 'hit',
+        when: [...ONCE, { type: 'selfMarks', mark: m, min: 50 }],
+        do: [{ type: 'spendMarks', mark: m, min: 50, amount: 20 }, { type: 'strike', element: MARK_ELEMENT[m], power: 30, buildup: 20 }],
+      },
+    ],
+  },
+  mend: {
+    name: '癒え',
+    cost: 12,
+    text: (m) => `${m}を使うたび、最大HPの3%を回復する`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'markSpent', mark: m, when: [], do: [{ type: 'heal', ratio: 0.03 }] }],
+  },
+  rush: {
+    name: '急き',
+    cost: 15,
+    text: (m) => `${m}を使うたび、全てのクールダウンが0.5秒縮む`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'markSpent', mark: m, when: [], do: [{ type: 'cooldown', ms: 500 }] }],
+  },
+  breath: {
+    name: '吐息',
+    cost: 12,
+    text: (m) => `${m}を一度に30以上使うと、次の2つの技の振りかぶりと硬直が半分`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'markSpent', mark: m, when: [{ type: 'spentAtLeast', min: 30 }], do: [{ type: 'quicken', scale: 0.5, charges: 2, duration: 6000 }] }],
+  },
+  thrift: {
+    name: '倹約',
+    cost: 15,
+    text: (m) => `${m}を使うたび、使った数の2割を取り戻す`,
+    marks: (m) => ({ gives: [m], uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'markSpent', mark: m, when: [], do: [{ type: 'gainMark', mark: m, amount: 0, per: 0.2, flat: true }] }],
+  },
+  brand: {
+    name: '焼き印',
+    cost: 12,
+    text: (m, _o, id) => `${m}を使うたび、相手に${STATUS_NAME[id]}を溜める`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'markSpent', mark: m, when: [], do: [{ type: 'applyBuildup', status: MARK_STATUS[m], amount: 60 }] }],
+  },
+  // ---- 守る(二の巻) ----
+  poise: {
+    name: '構え',
+    cost: 10,
+    text: (m) => `ジャスト回避から2秒の間、直撃を受けても${m}を失わない`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'stat', stat: 'markLoss', tags: [m], when: [{ type: 'afterJustDodge', within: 2000 }], add: -1 }],
+  },
 } as const satisfies Record<string, SigilDef>;
 
 export type SigilId = keyof typeof SIGILS;
@@ -222,7 +438,7 @@ export function sigilLabel(s: SigilInstance): string {
 export function sigilText(s: SigilInstance): string {
   const def = sigilDef(s.sigil);
   if (s.sigil === 'kindle') return `${AFFINITY[s.mark].text}を当てると${n(s.mark)}+1`;
-  return def.text(n(s.mark), n(s.other ?? s.mark));
+  return def.text(n(s.mark), n(s.other ?? s.mark), s.mark);
 }
 
 /** 印紋が生む・使う印 */
