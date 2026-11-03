@@ -27,7 +27,7 @@ describe('印', () => {
     const { w, p, swing } = duel(['honeEdge']);
     swing();
     expect(w.marksOf(p, 'edge')).toBe(1);
-    w.gainMark(p, 'edge', 5000);
+    w.gainMark(p, 'edge', 50000);
     expect(w.marksOf(p, 'edge')).toBe(MARKS.edge.max);
     run(w, MARKS.edge.duration + 100);
     expect(w.marksOf(p, 'edge')).toBe(0);
@@ -70,7 +70,7 @@ describe('印', () => {
     expect(second.w.marksOf(second.p, 'edge')).toBe(9);
   });
 
-  it('札と技から得る印は、溜め始めは遅く、溜まるほど速い', () => {
+  it('生成力:札から得る印は、溜まっている量 100 ごとに1倍ずつ増える。別の印で伸ばす札もある', () => {
     const w = new CombatWorld({ seed: 1 });
     const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000, conditions: ['honeEdge'] });
     const t = w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 60, y: 0, maxHp: 1e9 });
@@ -83,13 +83,25 @@ describe('印', () => {
       run(w, 700);
       return (p.marks.edge?.count ?? 0) - before;
     };
-    // 0から:半分
-    expect(gainOnce()).toBeCloseTo(MARK_RULES.swellBase, 5);
+    // 0から:そのまま
+    expect(gainOnce()).toBeCloseTo(1, 5);
     // 外から直に足すときは、そのまま
-    w.gainMark(p, 'edge', 150 - (p.marks.edge?.count ?? 0));
-    expect(w.marksOf(p, 'edge')).toBe(150);
-    // 150溜まっていれば、2倍
-    expect(gainOnce()).toBeCloseTo(MARK_RULES.swellBase + 150 / MARK_RULES.swell, 5);
+    w.gainMark(p, 'edge', 300 - (p.marks.edge?.count ?? 0));
+    expect(w.marksOf(p, 'edge')).toBe(300);
+    // 300溜まっていれば4倍
+    expect(gainOnce()).toBeCloseTo(1 + 300 / MARK_RULES.growthPer, 5);
+    // 血の研ぎ場:血潮の量で研ぎの生成力が伸びる
+    p.conditions = ['honeEdge', 'bloodForge'];
+    w.gainMark(p, 'blood', 100);
+    expect(w.markGrowthOf(p, 'edge')).toBeCloseTo(1 + (p.marks.edge!.count) / MARK_RULES.growthPer + 100 / 50, 5);
+  });
+
+  it('変換効率:変える札は、元の印の量で増える', () => {
+    const w = new CombatWorld({ seed: 1 });
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000, conditions: ['bloodWhetstone'] });
+    w.gainMark(p, 'blood', 200);
+    // 血潮を200持っていれば、研ぎは3倍
+    expect(w.marksOf(p, 'edge')).toBe(3);
   });
 
   it('倒れると印を失う', () => {
@@ -241,7 +253,7 @@ describe('印の技', () => {
     const { w, p } = duel(['spentPrayer']);
     p.cooldowns = {};
     expect(w.canUseSkill('p', 'edgeSever')).toBe(false);
-    w.gainMark(p, 'edge', 14);
+    w.gainMark(p, 'edge', 99);
     expect(w.canUseSkill('p', 'edgeSever')).toBe(false);
     w.gainMark(p, 'edge', 2);
     expect(w.canUseSkill('p', 'edgeSever')).toBe(true);
@@ -300,15 +312,15 @@ describe('技と印(溜める・保つ・使う)', () => {
     const { w, p } = duel([]);
     p.cooldowns = {};
     expect(w.canUseSkill('p', 'lunge')).toBe(false);
-    w.gainMark(p, 'edge', 5);
+    w.gainMark(p, 'edge', 10);
     expect(w.canUseSkill('p', 'lunge')).toBe(true);
     w.useSkill('p', 'lunge', w.units.get('t')!, 't');
-    expect(w.marksOf(p, 'edge')).toBe(5);
+    expect(w.marksOf(p, 'edge')).toBe(10);
     const r = resolveSkill('lunge', 'ironSword')!;
     const base = resolveSkill('slash', 'ironSword')!;
     const pw = (x: typeof r) => ('power' in x.action ? x.action.power : 0);
-    expect(pw(r) / pw(base)).toBeCloseTo(1.15 * holdPower(5));
-    expect(holdPower(10)).toBeGreaterThan(holdPower(5));
+    expect(pw(r) / pw(base)).toBeCloseTo(1.15 * holdPower(10));
+    expect(holdPower(30)).toBeGreaterThan(holdPower(10));
   });
 
   it('使う技は印を消費し、消費に見合う威力が足される', async () => {
@@ -316,13 +328,13 @@ describe('技と印(溜める・保つ・使う)', () => {
     const { spendBonus } = await import('./data/marks');
     const { w, p } = duel([]);
     p.cooldowns = {};
-    w.gainMark(p, 'edge', 12);
+    w.gainMark(p, 'edge', 32);
     w.useSkill('p', 'cleave', w.units.get('t')!, 't');
     expect(w.marksOf(p, 'edge')).toBe(2);
     const r = resolveSkill('cleave', 'ironSword')!;
     const base = resolveSkill('slash', 'ironSword')!;
     const pw = (x: typeof r) => ('power' in x.action ? x.action.power : 0);
-    expect(pw(r) / pw(base)).toBeCloseTo(2.2 + spendBonus(10));
+    expect(pw(r) / pw(base)).toBeCloseTo(2.2 + spendBonus(30));
   });
 });
 
@@ -379,16 +391,16 @@ describe('印の札・二の巻', () => {
   it('倹約の札は、使った数の一部を取り戻す', () => {
     const { w, p } = duel(['edgeThrift']);
     p.cooldowns = {};
-    w.gainMark(p, 'edge', 10);
+    w.gainMark(p, 'edge', 30);
     w.useSkill('p', 'cleave', w.units.get('t')!, 't');
-    expect(w.marksOf(p, 'edge')).toBe(3);
+    expect(w.marksOf(p, 'edge')).toBe(9);
   });
 
   it('使い手の札は、印を使う技にだけ効く', () => {
     const hit = (conditions: ConditionId[], skill: 'cleave' | 'slash') => {
       const { w, p } = duel(conditions);
       p.cooldowns = {};
-      w.gainMark(p, 'edge', 10);
+      w.gainMark(p, 'edge', 30);
       w.useSkill('p', skill, w.units.get('t')!, 't');
       run(w, 1500);
       return w.log.find((r) => r.depth === 0)!.amount;

@@ -6,7 +6,7 @@ import type { TechniqueDef } from './skills';
 
 /**
  * 印の技(生成)。使うときに印を消費する技を、拾うたびに作る。消費する印の数(5〜100)・形・ヒットの数・属性・癖が変わる。
- * 威力の合計は消費で決まり(markArtPower)、癖があると少し下がる。印5を回し続ける技から、印1000を貯めて撃つ大技まで出る。
+ * 威力の合計は消費で決まり(markArtPower)、癖があると少し下がる。印10を回し続ける技から、印10000を貯めて撃つ大技まで出る。
  * ビルドの印の技の枠(壱・弐・参)に入れて使う。拾った技は全キャラで共有する
  */
 export type ArtSlot = 'art1' | 'art2' | 'art3';
@@ -58,14 +58,14 @@ export interface MarkArt {
   echoMark?: MarkId;
 }
 
-/** 消費する印の数の出やすさ。小さい技が多く、100を超える大技は稀、1000に迫る技はごく稀 */
+/** 消費する印の数の出やすさ。小さい技が多く、1000を超える大技は稀、10000に迫る技はごく稀 */
 const COST_BANDS = [
-  { weight: 45, min: 5, max: 10 },
-  { weight: 27, min: 12, max: 30 },
-  { weight: 15, min: 35, max: 60 },
-  { weight: 8, min: 70, max: 100 },
-  { weight: 4, min: 150, max: 400 },
-  { weight: 1, min: 500, max: 1000 },
+  { weight: 35, min: 10, max: 30 },
+  { weight: 25, min: 40, max: 150 },
+  { weight: 18, min: 200, max: 600 },
+  { weight: 12, min: 800, max: 2000 },
+  { weight: 7, min: 2500, max: 5000 },
+  { weight: 3, min: 6000, max: 10000 },
 ] as const;
 
 /** 印ごとの形の出やすさ */
@@ -98,7 +98,7 @@ const NAME_TAILS: Record<ArtShape, readonly string[]> = {
 
 /** 消費の段。名前の重さに使う */
 function tierOf(cost: number): number {
-  return cost < 10 ? 0 : cost < 30 ? 1 : cost < 60 ? 2 : cost < 150 ? 3 : 4;
+  return cost < 40 ? 0 : cost < 200 ? 1 : cost < 800 ? 2 : cost < 2500 ? 3 : 4;
 }
 
 let artCounter = 0;
@@ -113,7 +113,9 @@ export function rollMarkArt(random: () => number, mark?: MarkId): MarkArt {
   };
   const m = mark ?? pick(MARK_IDS);
   const band = weighted(COST_BANDS.map((b) => [b, b.weight] as const));
-  const cost = band.min + Math.floor(random() * (band.max - band.min + 1));
+  // 帯の中は桁で均す(大きい帯ほど細かい数はいらないので、10の倍数に丸める)
+  const raw = band.min * (band.max / band.min) ** random();
+  const cost = raw >= 100 ? Math.round(raw / 10) * 10 : Math.round(raw);
   const shape = weighted(SHAPES[m]);
   const quirkPool: ArtQuirk[] = shape === 'shot' ? ['pierce', 'echo', 'refund', 'brand', 'swift', 'mend'] : ['echo', 'refund', 'brand', 'swift', 'mend'];
   const quirk = random() < 0.6 ? pick(quirkPool) : undefined;
@@ -134,7 +136,7 @@ export function rollMarkArt(random: () => number, mark?: MarkId): MarkArt {
     windup: Math.round((1 + 0.5 * heavy) * 100) / 100,
     interval: Math.round((1 + 0.3 * heavy) * 100) / 100,
     ...(shape === 'swing' ? { arc: pick([60, 120, 180, 360]) } : {}),
-    ...(shape === 'nova' ? { radius: Math.min(280, Math.round(110 + cost * 1.6)) } : {}),
+    ...(shape === 'nova' ? { radius: Math.min(280, Math.round(110 + 40 * Math.log10(cost))) } : {}),
     ...(shape === 'shot' && count > 1 ? { spread: 6 + count * 2 } : {}),
     ...(ELEMENT[m] ? { element: ELEMENT[m] } : {}),
     ...(quirk ? { quirk } : {}),
@@ -145,9 +147,9 @@ export function rollMarkArt(random: () => number, mark?: MarkId): MarkArt {
 
 /** 求める能力値。重い技ほど高い */
 export function artNeeds(art: MarkArt): AttributeNeeds | undefined {
-  if (art.cost < 12) return undefined;
-  // 重い技ほど高い。100で22、1000で30
-  return { [NEEDS_ATTR[art.mark]]: Math.min(30, 10 + Math.floor(art.cost / 8), 22 + Math.floor(Math.max(0, art.cost - 100) / 112)) };
+  if (art.cost < 40) return undefined;
+  // 重い技ほど高い。桁で増える(100で16、1000で22、10000で28)
+  return { [NEEDS_ATTR[art.mark]]: Math.round(10 + 6 * Math.log10(art.cost / 10)) };
 }
 
 /** 印の技の癖のルール */
@@ -155,9 +157,9 @@ export function artRules(art: MarkArt): Rule[] {
   const once = [{ type: 'hitHasTag', tag: 'attack' }, { type: 'hitLacksTag', tag: 'multi' }, { type: 'hitLacksTag', tag: 'repeat' }] as const;
   switch (art.quirk) {
     case 'echo':
-      return [{ label: '呼び水', on: 'hit', when: once, do: [{ type: 'gainMark', mark: art.echoMark ?? 'edge', amount: Math.max(1, Math.round(art.cost * 0.1)) }] }];
+      return [{ label: '呼び水', on: 'hit', when: once, do: [{ type: 'gainMark', mark: art.echoMark ?? 'edge', amount: Math.max(1, Math.round(art.cost * 0.1)), flat: true }] }];
     case 'refund':
-      return [{ label: '返し', on: 'hit', when: once, do: [{ type: 'gainMark', mark: art.mark, amount: Math.max(1, Math.round(art.cost * 0.3)) }] }];
+      return [{ label: '返し', on: 'hit', when: once, do: [{ type: 'gainMark', mark: art.mark, amount: Math.max(1, Math.round(art.cost * 0.3)), flat: true }] }];
     case 'mend':
       return [{ label: '癒し', on: 'hit', when: once, do: [{ type: 'heal', ratio: 0.02 }] }];
     default:
@@ -234,11 +236,11 @@ export function starterArts(): MarkArt[] {
     id: `art-starter-${mark}`,
     name,
     mark,
-    cost: 5,
+    cost: 10,
     shape,
     hits: 1,
     count: 1,
-    power: Math.round(markArtPower(5) * 10) / 10,
+    power: Math.round(markArtPower(10) * 10) / 10,
     windup: 1.35,
     interval: 1.2,
     ...(ELEMENT[mark] ? { element: ELEMENT[mark] } : {}),

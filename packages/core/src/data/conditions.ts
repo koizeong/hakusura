@@ -1100,10 +1100,10 @@ const HANDMADE = {
   },
   cashRush: {
     no: 502,
-    text: '枠の印の技で印を15以上使うと、続く4つの技の振りかぶりと硬直が半分',
+    text: '枠の印の技で印を100以上使うと、続く4つの技の振りかぶりと硬直が半分',
     cost: 30,
     marks: {},
-    rule: { label: '換金の勢い', on: 'markSpent', when: [{ type: 'spentByArt' }, { type: 'spentAtLeast', min: 15 }], do: [{ type: 'quicken', scale: 0.5, charges: 4, duration: 8000 }] },
+    rule: { label: '換金の勢い', on: 'markSpent', when: [{ type: 'spentByArt' }, { type: 'spentAtLeast', min: 100 }], do: [{ type: 'quicken', scale: 0.5, charges: 4, duration: 8000 }] },
   },
   breathAfter: {
     no: 503,
@@ -1163,6 +1163,56 @@ const HANDMADE = {
     stacking: 'mult',
     marks: {},
     rule: { label: '剥がれ際の反撃', on: 'damage', when: [{ type: 'hitHasTag', tag: 'art' }, { type: 'afterHurt', within: 2000 }], add: 1 },
+  },
+  // ---- 生成力を伸ばす札(溜まっている量で、得る印が増える。別の印の量で伸ばす) ----
+  prayerFurnace: {
+    no: 511,
+    text: '〈祈り〉50ごとに、札から得る〈熾り〉が1倍ずつ増える',
+    cost: 25,
+    marks: { gives: ['ember'], uses: ['prayer'] },
+    rule: { label: '祈りの炉', on: 'markGrowth', mark: 'ember', by: 'prayer', per: 50, when: [] },
+  },
+  bloodForge: {
+    no: 512,
+    text: '〈血潮〉50ごとに、札から得る〈研ぎ〉が1倍ずつ増える',
+    cost: 25,
+    marks: { gives: ['edge'], uses: ['blood'] },
+    rule: { label: '血の研ぎ場', on: 'markGrowth', mark: 'edge', by: 'blood', per: 50, when: [] },
+  },
+  quietDepth: {
+    no: 513,
+    text: '〈静寂〉50ごとに、札から得る〈祈り〉が1倍ずつ増える',
+    cost: 25,
+    marks: { gives: ['prayer'], uses: ['stillness'] },
+    rule: { label: '静寂の深み', on: 'markGrowth', mark: 'prayer', by: 'stillness', per: 50, when: [] },
+  },
+  emberSmithy: {
+    no: 514,
+    text: '〈熾り〉50ごとに、札から得る〈血潮〉が1倍ずつ増える',
+    cost: 25,
+    marks: { gives: ['blood'], uses: ['ember'] },
+    rule: { label: '熾りの鍛冶', on: 'markGrowth', mark: 'blood', by: 'ember', per: 50, when: [] },
+  },
+  edgeEye: {
+    no: 515,
+    text: '〈研ぎ〉50ごとに、札から得る〈静寂〉が1倍ずつ増える',
+    cost: 25,
+    marks: { gives: ['stillness'], uses: ['edge'] },
+    rule: { label: '研ぎの目', on: 'markGrowth', mark: 'stillness', by: 'edge', per: 50, when: [] },
+  },
+  selfFeeding: {
+    no: 516,
+    text: '札から得る印が、その印の量50ごとにさらに1倍ずつ増える(溜まるほど速く溜まる)',
+    cost: 40,
+    marks: {},
+    rule: { label: '己を糧に', on: 'markGrowth', by: 'self', per: 50, when: [] },
+  },
+  vastVessel: {
+    no: 517,
+    text: '印の合計が1000以上のとき、札から得る印が全て、〈祈り〉20ごとに1倍ずつ増える',
+    cost: 35,
+    marks: { uses: ['prayer'] },
+    rule: { label: '大いなる器', on: 'markGrowth', by: 'prayer', per: 20, when: [{ type: 'selfMarksTotal', min: 1000 }] },
   },
 } as const satisfies Record<string, ConditionDef>;
 

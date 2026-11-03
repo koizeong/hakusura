@@ -288,7 +288,7 @@ describe.skipIf(!process.env.SIM_ARTS)('印の技の重さ', () => {
       return { dps: runs.reduce((a, r) => a + r.dps, 0) / runs.length, uses: runs.reduce((a, r) => a + (r.uses.art1 ?? 0), 0) / runs.length };
     };
     const n0 = (v: number) => Math.round(v).toLocaleString('en-US');
-    const costs = [5, 15, 40, 100, 300, 1000];
+    const costs = [10, 100, 1000, 3000, 10000];
     const rows: string[] = [];
     for (const c of Object.values(COMBO_BUILDS)) {
       const mark = (ACTIVE_SKILLS[c.art] as { markCost: { mark: MarkId } }).markCost.mark;

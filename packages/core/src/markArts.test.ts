@@ -33,12 +33,12 @@ describe('印の技(生成)', () => {
     const rand = seeded(7);
     const arts = Array.from({ length: 400 }, () => rollMarkArt(rand));
     const costs = arts.map((a) => a.cost);
-    expect(Math.min(...costs)).toBe(5);
-    expect(Math.max(...costs)).toBeGreaterThanOrEqual(90);
+    expect(Math.min(...costs)).toBe(10);
+    expect(Math.max(...costs)).toBeGreaterThanOrEqual(5000);
     // 小さい技が多く、大技は稀
-    expect(costs.filter((c) => c <= 10).length).toBeGreaterThan(costs.filter((c) => c >= 70).length * 2);
-    expect(costs.filter((c) => c >= 150).length).toBeGreaterThan(0);
-    expect(Math.max(...costs)).toBeLessThanOrEqual(1000);
+    expect(costs.filter((c) => c <= 30).length).toBeGreaterThan(costs.filter((c) => c >= 2500).length * 2);
+    expect(costs.filter((c) => c >= 6000).length).toBeGreaterThan(0);
+    expect(Math.max(...costs)).toBeLessThanOrEqual(10000);
     expect(new Set(arts.map((a) => a.shape)).size).toBe(3);
     expect(new Set(arts.map((a) => a.quirk)).size).toBe(Object.keys(ART_QUIRKS).length + 1);
     for (const a of arts) {
@@ -69,10 +69,10 @@ describe('印の技(生成)', () => {
 
   it('重い技ほど1発が重い', () => {
     const light: MarkArt = { ...starterArts()[0]!, id: 'l' };
-    const heavy: MarkArt = { ...light, id: 'h', name: '万刃の断ち', cost: 100, power: Math.round(markArtPower(100)) };
+    const heavy: MarkArt = { ...light, id: 'h', name: '万刃の断ち', cost: 1000, power: Math.round(markArtPower(1000)) };
     const dealt = (art: MarkArt) => {
       const { w, p, t } = armed(art);
-      w.gainMark(p, 'edge', 100);
+      w.gainMark(p, 'edge', 1000);
       w.useSkill('p', 'art1', t, 't');
       run(w, 3000);
       return w.log.filter((r) => r.skill === art.name).reduce((s, r) => s + r.amount, 0);
@@ -125,7 +125,7 @@ describe('手で撃つ印の技', () => {
       w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 50, y: 0, maxHp: 1e9 });
       applyBuild(w, p, { actives: ['art1', 'slash'], passives: [], equipment: sword, tactics: [{ skill: 'art1', condition: 'always', enabled: true }, { skill: 'slash', condition: 'always', enabled: true }], arts: { art1: art } });
       p.handArts = mode;
-      w.gainMark(p, 'edge', 5);
+      w.gainMark(p, 'edge', 10);
       run(w, 2000);
       return w.log.some((r) => r.skill === art.name);
     };

@@ -9,7 +9,7 @@ const FX = {
   /** 1つの出来事で飛ばす粒の上限 */
   perEvent: 8,
   /** この数以上の印を一度に使う技は「放つ」演出にする */
-  releaseAt: 15,
+  releaseAt: 100,
   /** 印の巡り:印が変わる・使うが、この間あかずに続くと数える(ミリ秒) */
   lapGap: 2500,
 } as const;
@@ -79,7 +79,7 @@ export class MarkFx {
     this.pending = this.pending.filter((p) => p.until > this.scene.time.now);
   }
 
-  /** 作戦に入っている技のうち、重い印の技(15以上)に足りている印 */
+  /** 作戦に入っている技のうち、重い印の技(100以上)に足りている印 */
   private readyMarks(world: CombatWorld, player: Unit): Set<MarkId> {
     const out = new Set<MarkId>();
     for (const id of player.actives) {

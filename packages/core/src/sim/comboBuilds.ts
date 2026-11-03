@@ -239,4 +239,19 @@ export const COMBO_BUILDS: Record<string, ComboBuild> = {
     givers: ['honeEdge', 'bloodHarvest', 'pristineQuiet', 'edgeKindling'],
     art: 'prayerLight',
   },
+  growthEngine: {
+    name: '血研ぎの炉',
+    idea: '研ぎと血潮を互いの燃料にし、血の研ぎ場・熾りの鍛冶・己を糧にで生成力を伸ばす。溜まるほど速く溜まり、1万を目指す',
+    build: {
+      attributes: attrs({ str: 20, dex: 20, vit: 16 }),
+      actives: ['thrust', 'gouge', 'lunge', 'slash'],
+      passives: [],
+      equipment: { weapon1: weapon('sword', { type: 'ironSword' }) },
+      trump: 'frenzyDraught',
+      tactics: [always('thrust', ['lunge']), always('gouge'), always('lunge'), always('slash')],
+    },
+    full: ['honeEdge', 'bloodHarvest', 'bloodWhetstone', 'bloodForge', 'selfFeeding', 'restingEdge', 'clottedBlood', 'keenEdge'],
+    givers: ['honeEdge', 'bloodHarvest'],
+    art: 'edgeStorm',
+  },
 };

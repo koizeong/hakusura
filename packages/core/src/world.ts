@@ -407,7 +407,7 @@ export interface WorldOptions {
   seed?: number;
   /** 場の広さ。敵はこの中を歩く */
   bounds?: { width: number; height: number };
-  /** false なら、札と技から得る印も溜まり方の曲線(MARK_RULES.swell)を通さず、そのまま足す(仕組みのテスト用) */
+  /** false なら、札から得る印も生成力・変換効率(溜まっている量で増える分)を通さず、そのまま足す(仕組みのテスト用) */
   markCurve?: boolean;
 }
 
@@ -2410,15 +2410,16 @@ export class CombatWorld {
 
   /** 印を得る。得たときのルール(別の印に変える札など)も働く。連鎖は上限の段まで */
   /**
-   * 印を得る。札と技から得るとき(swell)は、溜め始めは遅く溜まるほど速い。外から直に足すとき(試し斬り・テスト)はそのまま
+   * 印を得る。札から得るとき(grow)は、生成力・変換効率の分だけ多く得る(grow の印の量で伸びる)。
+   * 技が自分で溜める分と、外から直に足すとき(試し斬り・テスト)はそのまま
    */
-  gainMark(unit: Unit, mark: MarkId, amount: number, depth = 0, origin: { label?: string; from?: MarkId; sourceId?: string; swell?: boolean } = {}): void {
+  gainMark(unit: Unit, mark: MarkId, amount: number, depth = 0, origin: { label?: string; from?: MarkId; sourceId?: string; grow?: MarkId } = {}): void {
     const def = markDef(mark);
     this.expireMarks(unit);
-    // 溜まるほど溜まりやすい。端数も覚えておく(見せるのと使うのは整数)
     const held = unit.marks[mark]?.count ?? 0;
-    const { swell, ...shown } = origin;
-    const count = Math.min(def.max, held + amount * (swell && this.markCurve ? MARK_RULES.swellBase + held / MARK_RULES.swell : 1));
+    const { grow, ...shown } = origin;
+    // 端数も覚えておく(見せるのと使うのは整数)
+    const count = Math.min(def.max, held + amount * (grow && this.markCurve ? this.markGrowthOf(unit, mark, grow) : 1));
     // 消えるまでの時間を延ばす札
     let keep = 1;
     for (const { rule } of this.rulesFor(unit)) if (rule.on === 'markKeep' && (!rule.mark || rule.mark === mark)) keep *= rule.scale;
@@ -2434,6 +2435,21 @@ export class CombatWorld {
       if (rule.reach !== undefined && !(held < rule.reach && count >= rule.reach)) continue;
       for (const action of rule.do) this.runAction(action, rule.label, this.tacticTarget(unit) ?? unit, { attacker: unit, skill: rule.label, via: [rule.label], depth: depth + 1, amount: Math.floor(count) - Math.floor(held), mark });
     }
+  }
+
+  /**
+   * 生成力(または変換効率)。札から mark を得るとき、何倍得るか。
+   * 元の印(生む札なら得る印そのもの、変える札なら元の印)の量 growthPer ごとに1倍、伸ばす札(on: 'markGrowth')でさらに
+   */
+  markGrowthOf(unit: Unit, mark: MarkId, source: MarkId = mark): number {
+    const have = (m: MarkId) => (unit.marks[m] && unit.marks[m]!.until > this.time ? unit.marks[m]!.count : 0);
+    let g = 1 + have(source) / MARK_RULES.growthPer;
+    const ctx = this.context(unit, unit, {});
+    for (const { rule } of this.rulesFor(unit)) {
+      if (rule.on !== 'markGrowth' || (rule.mark && rule.mark !== mark) || !ruleMatches(rule, ctx)) continue;
+      g += have(rule.by === 'self' ? mark : rule.by) / rule.per;
+    }
+    return g;
   }
 
   /** 時間切れの印を片付け、消えたときの札(on: 'markLost')を働かせる */
@@ -2554,7 +2570,7 @@ export class CombatWorld {
         if (src.attacker) {
           const n = action.amount + Math.floor((action.per ?? 0) * (src.amount ?? 0));
           const mark = action.mark === 'source' ? src.mark : action.mark;
-          if (n > 0 && mark) this.gainMark(src.attacker, mark, n, src.depth, { label, from: src.mark, sourceId: !src.mark && target !== src.attacker ? target.id : undefined, swell: !action.flat });
+          if (n > 0 && mark) this.gainMark(src.attacker, mark, n, src.depth, { label, from: src.mark, sourceId: !src.mark && target !== src.attacker ? target.id : undefined, ...(action.flat ? {} : { grow: src.mark ?? mark }) });
         }
         break;
       case 'spendMarks': {

@@ -148,6 +148,10 @@ export type Rule = RuleBase &
         do: readonly Action[];
       }
     | /** その印が消えるまでの時間を scale 倍にする。mark がなければ全ての印 */ { on: 'markKeep'; mark?: MarkId; scale: number }
+    | /**
+       * 生成力を伸ばす。札から mark(なければどの印でも)を得るとき、by の印 per ごとに1倍ずつ多く得る。
+       * by が 'self' なら、得る印そのものの量で伸ばす(生成力・変換効率の上乗せ)
+       */ { on: 'markGrowth'; mark?: MarkId; by: MarkId | 'self'; per: number }
     | /** 状態が発動した瞬間。scale で持続と範囲を変える */ {
         on: 'statusActivate';
         do?: readonly Action[];

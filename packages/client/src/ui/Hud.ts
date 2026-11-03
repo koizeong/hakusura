@@ -265,7 +265,9 @@ export class Hud {
     // 印。生む札で溜まり、使う札で効く
     for (const id of MARK_IDS) {
       const n = world.marksOf(player, id);
-      if (n > 0) parts.push(`<b style="color:#${MARKS[id].color.toString(16).padStart(6, '0')}">〈${MARKS[id].name}〉${n}</b>`);
+      // 生成力(溜まっている量で、札から得る印が何倍になるか)
+      const growth = world.markGrowthOf(player, id);
+      if (n > 0) parts.push(`<b style="color:#${MARKS[id].color.toString(16).padStart(6, '0')}">〈${MARKS[id].name}〉${n}${growth >= 1.1 ? `<small> 生成×${growth.toFixed(1)}</small>` : ''}</b>`);
     }
     const rites = player.rites.filter((r) => r.until > world.time);
     if (rites.length > 0) parts.push(`<b class="rite">儀式 ${rites.length}:${rites.map((r) => r.name).join('・')}</b>`);

@@ -28,7 +28,7 @@ describe('能力値の足りなさ', () => {
     const r = resolveSkill('cleave', 'rustGreatsword', attrs({ str: 14 }))!;
     expect(r.missing).toBe(10);
     // 叩き割りは研ぎを10使う技で、消費に見合う威力が足される
-    expect(power(r)).toBeCloseTo((WEAPON_TYPES.rustGreatsword.power * WEAPON_KIND_POWER.melee) * (2.2 + spendBonus(10)) * 0.2);
+    expect(power(r)).toBeCloseTo((WEAPON_TYPES.rustGreatsword.power * WEAPON_KIND_POWER.melee) * (2.2 + spendBonus(30)) * 0.2);
   });
 
   it('威力は0を下回らない', () => {

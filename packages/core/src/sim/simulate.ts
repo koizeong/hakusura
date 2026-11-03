@@ -285,7 +285,7 @@ export function runEncounter(
 
 /** 実戦に近い場で戦った結果。印の出入り(得た回数・使った数)と、決まった型の回数も数える */
 /** 印の立ち上がりを測る節目 */
-export const RAMP_STEPS = [15, 40, 100, 300, 1000] as const;
+export const RAMP_STEPS = [10, 100, 1000, 3000, 10000] as const;
 
 export interface FieldRun {
   dps: number;
