@@ -23,3 +23,4 @@ export * from './shields';
 export * from './forms';
 export * from './levels';
 export * from './marks';
+export * from './sigils';

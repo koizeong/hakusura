@@ -3,6 +3,7 @@ import { conditionDef } from './data/conditions';
 import { ACTIVE_SKILLS, TRUMP_SKILL_IDS, activeSkillDef, isTechnique, techniqueFits, type ActiveSkillDef, type ActiveSkillId } from './data/skills';
 import { variantProblem, type SkillVariant } from './data/variations';
 import { ART_SLOTS, artProblem, artTechnique, type ArtSlot, type MarkArt } from './data/markArts';
+import { sigilMarks, sigilProblem } from './data/sigils';
 import { PASSIVES, type PassiveId } from './data/passives';
 import { CONDITIONS } from './data/conditions';
 import { ARTIFACTS } from './data/artifacts';
@@ -162,6 +163,11 @@ export function lootFit(build: Build): LootFit {
     const m = item?.condition ? conditionDef(item.condition).marks : undefined;
     for (const k of m?.gives ?? []) gives.add(k);
     for (const k of m?.uses ?? []) uses.add(k);
+    for (const s of item?.sigils ?? []) {
+      const sm = sigilMarks(s);
+      for (const k of sm.gives ?? []) gives.add(k);
+      for (const k of sm.uses ?? []) uses.add(k);
+    }
   }
   const marks =
     gives.size + uses.size > 0
@@ -242,6 +248,7 @@ export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   unit.equipment = items.filter((i) => !i.artifact);
   unit.artifacts = items.flatMap((i) => (i.artifact ? [i.artifact] : []));
   unit.conditions = items.flatMap((i) => (i.condition ? [i.condition] : []));
+  unit.sigils = items.flatMap((i) => i.sigils ?? []);
   unit.trump = build.trump;
   unit.attributes = { ...(build.attributes ?? baseAttributes()) };
   unit.variants = { ...(build.variants ?? {}) };
@@ -374,6 +381,13 @@ function validateBuild(raw: unknown): string | null {
     if (item.tempers !== undefined && (!Array.isArray(item.tempers) || !item.tempers.every((t) => t in WEAPON_TEMPERS))) return '知らない性質がある';
     if (item.shieldType !== undefined && !(item.shieldType in SHIELD_TYPES)) return '知らない盾がある';
     if (item.material !== undefined && !(item.material in ARMOR_MATERIALS)) return '知らない素材がある';
+    if (item.sigils !== undefined) {
+      if (!Array.isArray(item.sigils) || item.sigils.length > 3) return '印紋が壊れている';
+      for (const s of item.sigils) {
+        const problem = sigilProblem(s);
+        if (problem) return `印紋:${problem}`;
+      }
+    }
   }
   return null;
 }

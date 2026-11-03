@@ -105,6 +105,9 @@ import {
   ART_SLOTS,
   ART_SLOT_NAMES,
   isHandArt,
+  SIGILS,
+  sigilText,
+  sigilMarks,
   artDescription,
   artNeeds,
   rollMarkArt,
@@ -404,9 +407,12 @@ export class BuildScreen {
   private renderMarks(): HTMLElement | string {
     const count = new Map<MarkId, { gives: number; uses: number }>();
     for (const item of Object.values(this.build.equipment)) {
-      const m = item?.condition ? conditionDef(item.condition).marks : undefined;
-      for (const id of m?.gives ?? []) count.set(id, { gives: (count.get(id)?.gives ?? 0) + 1, uses: count.get(id)?.uses ?? 0 });
-      for (const id of m?.uses ?? []) count.set(id, { gives: count.get(id)?.gives ?? 0, uses: (count.get(id)?.uses ?? 0) + 1 });
+      // 条件文と印紋の両方から数える
+      const roles = [...(item?.condition ? [conditionDef(item.condition).marks ?? {}] : []), ...(item?.sigils ?? []).map((s) => sigilMarks(s))];
+      for (const m of roles) {
+        for (const id of m.gives ?? []) count.set(id, { gives: (count.get(id)?.gives ?? 0) + 1, uses: count.get(id)?.uses ?? 0 });
+        for (const id of m.uses ?? []) count.set(id, { gives: count.get(id)?.gives ?? 0, uses: (count.get(id)?.uses ?? 0) + 1 });
+      }
     }
     if (count.size === 0) return '';
     return h(
@@ -1575,6 +1581,10 @@ function itemCard(attrs: Attributes, item: Item, ...parts: HTMLElement[]): HTMLE
     weapon?.tempers?.length ? h('div', { class: 'weapon-stats temper' }, weapon.tempers.map((t) => `${WEAPON_TEMPERS[t].prefix}:${WEAPON_TEMPERS[t].text}`).join('・')) : '',
     shield ? h('div', { class: 'weapon-stats' }, shieldSummary(shield)) : '',
     needs ? h('div', { class: `needs${missing ? ' short' : ''}` }, `要 ${needsText(needs)}${missing ? `(${shortfallText(missing)})` : ''}`) : '',
+    // 印紋。印の色で、短い名前と効果を出す
+    ...(item.sigils ?? []).map((s) =>
+      h('div', { class: 'sigil', style: `border-left-color:${markColor(s.mark)}` }, h('b', { style: `color:${markColor(s.mark)}` }, `〔${SIGILS[s.sigil].name}〕`), sigilText(s)),
+    ),
     ...item.affixes.map((a) =>
       h('div', { class: `affix ${benefitOf(a) >= 0 ? 'good' : 'bad'}` }, `${AFFIXES[a.affix].name} ${signedPercent(a.value / 100)}`),
     ),

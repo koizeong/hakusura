@@ -1,3 +1,4 @@
+import { SIGILS } from './data/sigils';
 import { describe, expect, it } from 'vitest';
 import { CombatWorld, type Unit } from './world';
 import { ACTIVE_SKILLS } from './data/skills';
@@ -55,7 +56,10 @@ describe('装備の生成', () => {
   it('条件文を指定して作れ、コストも合計に入る', () => {
     const it = generateItem(seeded(1), { condition: 'unscathed' });
     expect(it.condition).toBe('unscathed');
-    expect(itemTotal(it)).toBe(it.affixes.reduce((s, a) => s + (AFFIXES[a.affix].stat === 'damageTaken' || AFFIXES[a.affix].stat === 'cooldown' ? -a.value : a.value), 0) + 30);
+    // 印紋のコストも合計に入る
+    const sigils = (it.sigils ?? []).reduce((s, x) => s + SIGILS[x.sigil].cost, 0);
+    expect(it.sigils?.length).toBeGreaterThan(0);
+    expect(itemTotal(it)).toBe(it.affixes.reduce((s, a) => s + (AFFIXES[a.affix].stat === 'damageTaken' || AFFIXES[a.affix].stat === 'cooldown' ? -a.value : a.value), 0) + 30 + sigils);
   });
 
   it('防具は決まった部位、アーティファクトは装飾品の枠にだけ着けられる', () => {

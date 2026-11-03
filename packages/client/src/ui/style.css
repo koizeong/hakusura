@@ -2091,3 +2091,16 @@ button.discard {
   font-size: 11px;
   color: var(--dim);
 }
+
+/* 印紋 */
+.sigil {
+  font-size: 13px;
+  padding: 2px 0 2px 6px;
+  border-left: 3px solid var(--line);
+  margin: 2px 0;
+}
+
+.sigil b {
+  margin-right: 4px;
+  font-weight: normal;
+}

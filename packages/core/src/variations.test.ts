@@ -159,7 +159,7 @@ describe('変化の生成', () => {
 
   it('遠征で変化つきの技を見つけ、元の技を覚えていなければ一緒に覚える', () => {
     let found = 0;
-    for (let seed = 1; seed <= 8 && found === 0; seed++) {
+    for (let seed = 1; seed <= 40 && found === 0; seed++) {
       const learned = { actives: [...STARTING_SKILLS.actives], passives: [...STARTING_SKILLS.passives] };
       const c = newCharacter('c', '骨拾い', 0, {
         actives: ['slash'],

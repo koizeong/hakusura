@@ -101,6 +101,8 @@ export type Action =
   | { type: 'cooldown'; ms: number; tags?: readonly string[] }
   /** 持ち主の次の charges 回の技の振りかぶりと硬直を scale 倍にする(duration の間) */
   | { type: 'quicken'; scale: number; charges: number; duration: number }
+  /** 持ち主の持っている印を、種類ごとに ratio の割合だけ増やす(増殖) */
+  | { type: 'proliferate'; ratio: number }
   /** 持ち主が印を得る。mark が 'source' なら、きっかけの印(使った・失った印)と同じ印。per があれば、きっかけの数(使った・失った印の数)の per 倍を足す。flat なら溜まり方の曲線を通さない(技が自分で溜める分) */
   | { type: 'gainMark'; mark: MarkId | 'source'; amount: number; per?: number; flat?: boolean }
   /** 持ち主の印を amount 使う(なければ min、それもなければ全て)。min に足りなければ使わない。1つにつき each を行う */
@@ -151,7 +153,8 @@ export type Rule = RuleBase &
     | /**
        * 生成力を伸ばす。札から mark(なければどの印でも)を得るとき、by の印 per ごとに1倍ずつ多く得る。
        * by が 'self' なら、得る印そのものの量で伸ばす(生成力・変換効率の上乗せ)
-       */ { on: 'markGrowth'; mark?: MarkId; by: MarkId | 'self'; per: number }
+       * add があれば、その分だけ倍率を足す(過負荷のように、条件つきで2倍・0倍にする)
+       */ { on: 'markGrowth'; mark?: MarkId; by?: MarkId | 'self'; per?: number; add?: number }
     | /** 状態が発動した瞬間。scale で持続と範囲を変える */ {
         on: 'statusActivate';
         do?: readonly Action[];

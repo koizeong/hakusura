@@ -1,6 +1,7 @@
 import { statDef, type StatId } from './stats';
 import { CONDITION_IDS, HANDMADE_CONDITION_IDS, MARK_CONDITION_IDS, conditionDef, type ConditionId } from './conditions';
-import type { MarkId } from './marks';
+import { MARK_IDS, type MarkId } from './marks';
+import { SIGIL_IDS, sigilDef, sigilMarks, type SigilInstance } from './sigils';
 import type { ArtifactId } from './artifacts';
 import { LOOT_WEAPON_TYPE_IDS, rollWeapon, weaponName, type TemperId, type WeaponSpec, type WeaponTypeId } from './weapons';
 import { SHIELD_TYPE_IDS, rollShield, shieldName, type ShieldSpec, type ShieldTypeId } from './shields';
@@ -136,7 +137,8 @@ export const EQUIP_RULES = {
   countMin: 1,
   countMax: 4,
   /** 条件文が入る確率。印と札をビルドの中心に据えたので、多めに付く */
-  conditionChance: 0.55,
+  // 印紋が全ての装備に付くので、長い条件文はときどき(持ち味の×の札や仕組みの独特な札)
+  conditionChance: 0.2,
   /**
    * 合計の出方。大半は得の向き(goodMin〜totalMax)に出る。
    * cursedChance の確率で、合計がマイナスの「忌まわしき品」になり、代わりに重い条件文が必ず付く
@@ -193,6 +195,8 @@ export interface Item {
   material?: ArmorMaterialId;
   /** 忌まわしき品。補正値の合計がマイナスで、代わりに重い条件文が付く */
   cursed?: boolean;
+  /** 印紋。全ての装備に1〜3個刻まれる(昔の保存の装備にはない) */
+  sigils?: SigilInstance[];
 }
 
 /** 忌まわしき品の名前の頭 */
@@ -221,7 +225,11 @@ export function countedBenefit(a: ItemAffix): number {
 
 /** 装備の補正値の合計。条件文のコストも含む。-100〜+100 に収まる */
 export function itemTotal(item: Item): number {
-  return item.affixes.reduce((s, a) => s + countedBenefit(a), 0) + (item.condition ? conditionDef(item.condition).cost : 0);
+  return (
+    item.affixes.reduce((s, a) => s + countedBenefit(a), 0) +
+    (item.condition ? conditionDef(item.condition).cost : 0) +
+    (item.sigils ?? []).reduce((s, x) => s + sigilDef(x.sigil).cost, 0)
+  );
 }
 
 /**
@@ -308,6 +316,41 @@ export function conditionFits(id: ConditionId, fit: LootFit): boolean {
  * ランダムな装備を作る。項目は1〜4、うち1つは必ず共通項目。
  * 合計を先に決めてから、各項目に -200〜+200 で振り分ける
  */
+/** 印紋の数の出やすさ */
+const SIGIL_COUNTS = [
+  [1, 45],
+  [2, 40],
+  [3, 15],
+] as const;
+
+/**
+ * 印紋を刻む。1つ目の印は、ビルドの印(揃っている・足りない側)に半分ほど寄せる。2つ目からは7割が同じ印。
+ * budget(補正値に回せる分)を超えないよう、数を減らす(必ず1つは刻む)
+ */
+export function rollSigils(random: () => number, fit: LootFit | undefined, budget: number, cursed = false): SigilInstance[] {
+  const pick = <T>(list: readonly T[]): T => list[Math.floor(random() * list.length)]!;
+  let r = random() * 100;
+  let count = 1;
+  for (const [n, w] of SIGIL_COUNTS) if ((r -= w) < 0) {
+    count = n;
+    break;
+  }
+  const near = fit?.marks ? [...new Set([...fit.marks.using, ...fit.marks.needGivers, ...fit.marks.needUsers])] : [];
+  const main = near.length > 0 && random() < 0.5 ? pick(near) : pick(MARK_IDS);
+  const out: SigilInstance[] = [];
+  let spent = 0;
+  for (let i = 0; i < count; i++) {
+    const sigil = pick(SIGIL_IDS.filter((id) => !out.some((s) => s.sigil === id)));
+    const cost = sigilDef(sigil).cost;
+    if (i > 0 && !cursed && spent + cost > budget) break;
+    const mark = i === 0 || random() < 0.7 ? main : pick(MARK_IDS);
+    const other = sigilDef(sigil).other ? pick(MARK_IDS.filter((m) => m !== mark)) : undefined;
+    out.push({ sigil, mark, ...(other ? { other } : {}) });
+    spent += cost;
+  }
+  return out;
+}
+
 export function generateItem(random: () => number, options: GenerateOptions = {}): Item {
   const R = EQUIP_RULES;
   const pick = <T>(list: readonly T[]): T => list[Math.floor(random() * list.length)]!;
@@ -383,7 +426,9 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
   const total = cursed
     ? roundStep(R.totalMin + random() * (R.cursedMax - R.totalMin))
     : roundStep(R.goodMin + random() * (R.totalMax - R.goodMin));
-  const remain = total - (condition ? conditionDef(condition).cost : 0);
+  // 印紋。全ての装備に1〜3個。同じ装備の印紋は、たいてい同じ印に揃う(「熾りの篭手」のように読める)
+  const sigils = rollSigils(random, fit, Math.max(0, total - (condition ? conditionDef(condition).cost : 0)), cursed);
+  const remain = total - (condition ? conditionDef(condition).cost : 0) - sigils.reduce((s, x) => s + sigilDef(x.sigil).cost, 0);
   const swing = () =>
     random() < R.extremeChance ? R.affixMin + random() * (R.affixMax - R.affixMin) : R.usualMin + random() * (R.usualMax - R.usualMin);
   let benefits: number[] = [];
@@ -422,7 +467,7 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
       options.shieldType ?? (!options.weaponType && random() < (options.shieldChance ?? EQUIP_RULES.shieldChance) ? pick(SHIELD_TYPE_IDS) : undefined);
     if (shieldType) {
       const shield = rollShield(random, shieldType);
-      return { id, name: `${cursed ? CURSED_PREFIX : ''}${shieldName(shield)}`, kind, affixes, condition, shieldType, element: shield.element, ...(cursed ? { cursed } : {}) };
+      return { id, name: `${cursed ? CURSED_PREFIX : ''}${shieldName(shield)}`, kind, affixes, condition, sigils, shieldType, element: shield.element, ...(cursed ? { cursed } : {}) };
     }
     const elements = [...(options.preferElements ?? []), ...(fit && random() < R.fitChance ? fit.elements : [])];
     const weapon = rollWeapon(random, options.weaponType ?? pick(options.weaponTypes ?? LOOT_WEAPON_TYPE_IDS), { elements: elements.length > 0 ? elements : undefined });
@@ -432,6 +477,7 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
       kind,
       affixes,
       condition,
+      sigils,
       weaponType: weapon.type,
       element: weapon.element,
       tempers: [...(weapon.tempers ?? [])],
@@ -439,5 +485,5 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
     };
   }
   const name = kind === 'armor' && slot && material ? `${ARMOR_MATERIALS[material].prefix}${pick(ARMOR_NAMES[slot] ?? ['防具'])}` : pick(BASE_NAMES[kind]);
-  return { id, name: `${cursed ? CURSED_PREFIX : ''}${name}`, kind, slot, affixes, condition, material, ...(cursed ? { cursed } : {}) };
+  return { id, name: `${cursed ? CURSED_PREFIX : ''}${name}`, kind, slot, affixes, condition, sigils, material, ...(cursed ? { cursed } : {}) };
 }

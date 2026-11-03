@@ -8,6 +8,7 @@ import { WEAPON_TYPES, toWeaponSpec, type WeaponRef, type WeaponSpec, type Weapo
 import { shieldBurstElement, shieldDef, shieldName, type ShieldSpec } from './data/shields';
 import type { SkillVariant } from './data/variations';
 import { HAND_ART_SLOTS, artTechnique, isHandArt, type ArtSlot, type MarkArt } from './data/markArts';
+import { sigilLabel, sigilRules, type SigilInstance } from './data/sigils';
 import { enemyDef, type EnemyId } from './data/enemies';
 import { FERVOR, STARTING_FORMS, formDef, masteryLevel, masteryScale, type FormId } from './data/forms';
 import { attributeModifiers, type Attributes } from './data/attributes';
@@ -97,6 +98,8 @@ export interface Unit {
   focusId?: string;
   passives: PassiveId[];
   conditions: ConditionId[];
+  /** 着けている装備の印紋 */
+  sigils: SigilInstance[];
   /** 着けている装備。アーティファクトもここに入る */
   equipment: Item[];
   artifacts: ArtifactId[];
@@ -519,6 +522,7 @@ export class CombatWorld {
       trump: spec.trump,
       passives: spec.passives ?? [],
       conditions: spec.conditions ?? [],
+      sigils: [],
       equipment: [],
       artifacts: [],
       actives: [],
@@ -2031,6 +2035,17 @@ export class CombatWorld {
         out.push({ rule: n > 0 ? repeatedRule(r) : r, kind: 'condition' });
       }
     }
+    // 印紋は条件文と同じく、与ダメージは条件文どうしの足し算。同じ印紋の2つ目からは半分
+    const sigilCopies = new Map<string, number>();
+    for (const s of attacker.sigils) {
+      const label = sigilLabel(s);
+      const n = sigilCopies.get(label) ?? 0;
+      sigilCopies.set(label, n + 1);
+      for (const rule of sigilRulesCached(s)) {
+        const r = addGroupRule(rule);
+        out.push({ rule: n > 0 ? repeatedRule(r) : r, kind: 'condition' });
+      }
+    }
     for (const id of attacker.artifacts) {
       for (const rule of artifactDef(id).rules ?? []) out.push({ rule, kind: 'artifact' });
     }
@@ -2462,9 +2477,10 @@ export class CombatWorld {
     const ctx = this.context(unit, unit, {});
     for (const { rule } of this.rulesFor(unit)) {
       if (rule.on !== 'markGrowth' || (rule.mark && rule.mark !== mark) || !ruleMatches(rule, ctx)) continue;
-      g += have(rule.by === 'self' ? mark : rule.by) / rule.per;
+      if (rule.by && rule.per) g += have(rule.by === 'self' ? mark : rule.by) / rule.per;
+      g += rule.add ?? 0;
     }
-    return g * this.statOf(unit, 'markGain', [mark]);
+    return Math.max(0, g * this.statOf(unit, 'markGain', [mark]));
   }
 
   /** 時間切れの印を片付け、消えたときの札(on: 'markLost')を働かせる */
@@ -2581,6 +2597,15 @@ export class CombatWorld {
       }
       case 'quicken':
         if (src.attacker) src.attacker.quicken = { scale: action.scale, charges: action.charges, until: this.time + action.duration };
+        break;
+      case 'proliferate':
+        if (src.attacker) {
+          const owner = src.attacker;
+          for (const m of MARK_IDS) {
+            const have = this.marksOf(owner, m);
+            if (have > 0) this.gainMark(owner, m, Math.max(1, Math.ceil(have * action.ratio)), src.depth, { label });
+          }
+        }
         break;
       case 'gainMark':
         if (src.attacker) {
@@ -2791,4 +2816,13 @@ function addGroupRule(rule: Rule): Rule {
     addGroupRules.set(rule, r);
   }
   return r;
+}
+
+/** 印紋のルールは、印紋ごとに一度だけ作る */
+const sigilRuleCache = new Map<string, Rule[]>();
+function sigilRulesCached(s: SigilInstance): Rule[] {
+  const key = `${s.sigil}:${s.mark}:${s.other ?? ''}`;
+  let rules = sigilRuleCache.get(key);
+  if (!rules) sigilRuleCache.set(key, (rules = sigilRules(s)));
+  return rules;
 }
