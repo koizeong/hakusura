@@ -152,7 +152,7 @@ export interface FixedSkillDef extends SkillBase {
  */
 export interface Technique {
   /** 使える武器。tag は武器のタグ(杖・槍など) */
-  requires: { kind?: WeaponKind; element?: ElementId; tag?: string };
+  requires: { kind?: WeaponKind; element?: ElementId; tag?: string; weapon?: WeaponTypeId };
   shape: 'swing' | 'shot' | 'nova';
   /** 武器の威力・間隔・振りかぶりと硬直・射程・蓄積に掛ける倍率 */
   power: number;
@@ -278,6 +278,76 @@ export const ACTIVE_SKILLS = {
     tags: ['attack'],
     markCost: { mark: 'stillness', amount: 100 },
     technique: { requires: { tag: 'bow' }, shape: 'shot', power: 0.9, interval: 2, count: 5, spread: 5 },
+  },
+  // ---- 武器の基本技。武器ごとに1つ決まっていて、着けると自動で出る(印を溜めたり使ったりはしない。印は印紋と覚醒に任せる) ----
+  bigSweep: {
+    name: '大薙ぎ',
+    category: 'melee',
+    description: '大剣で広く薙ぐ。扇が180度',
+    tags: ['attack', 'basic'],
+    technique: { requires: { weapon: 'rustGreatsword' }, shape: 'swing', power: 1.1, interval: 1.25, arc: 180 },
+  },
+  flailBeat: {
+    name: '打ち据え',
+    category: 'melee',
+    description: '殻竿で打ち据える。当てると昏倒が溜まる',
+    tags: ['attack', 'basic'],
+    technique: {
+      requires: { weapon: 'boneFlail' },
+      shape: 'swing',
+      power: 1,
+      interval: 1.1,
+      rules: [{ label: '打ち据え', on: 'hit', when: [{ type: 'hitHasTag', tag: 'attack' }], do: [{ type: 'applyBuildup', status: 'stun', amount: 20 }] }],
+    },
+  },
+  axeChop: {
+    name: '振り下ろし',
+    category: 'melee',
+    description: '斧を大きく振り下ろす。重いが遅い',
+    tags: ['attack', 'basic'],
+    technique: { requires: { weapon: 'cinderAxe' }, shape: 'swing', power: 1.8, interval: 1.6, windup: 1.4, arc: 90 },
+  },
+  spearThrust: {
+    name: '穂先突き',
+    category: 'melee',
+    description: '槍で遠く細く突く。射程1.5倍',
+    tags: ['attack', 'basic'],
+    technique: { requires: { weapon: 'stormSpear' }, shape: 'swing', power: 1.1, interval: 1, range: 1.5, arc: 30 },
+  },
+  slingStones: {
+    name: '礫打ち',
+    category: 'ranged',
+    description: '投石紐で3つの礫を扇に放つ',
+    tags: ['attack', 'basic'],
+    technique: { requires: { weapon: 'emberSling' }, shape: 'shot', power: 0.45, interval: 1, count: 3, spread: 14 },
+  },
+  bowDraw: {
+    name: '引き絞り',
+    category: 'ranged',
+    description: '弓を引き絞って射る。重く遠くまで届く',
+    tags: ['attack', 'basic'],
+    technique: { requires: { weapon: 'boneBow' }, shape: 'shot', power: 1.6, interval: 1.5, range: 1.2, windup: 1.3 },
+  },
+  daggerFlurry: {
+    name: '刺し連ね',
+    category: 'melee',
+    description: '短剣で2度刺す',
+    tags: ['attack', 'basic'],
+    technique: { requires: { weapon: 'dagger' }, shape: 'swing', power: 0.55, interval: 0.9, hits: 2, arc: 70 },
+  },
+  hammerSmash: {
+    name: '打ち砕き',
+    category: 'melee',
+    description: '戦槌で地を打ち、周りを砕く',
+    tags: ['attack', 'basic'],
+    technique: { requires: { weapon: 'warHammer' }, shape: 'nova', power: 1.4, interval: 1.4, windup: 1.2, radius: 120 },
+  },
+  staffBolt: {
+    name: '魔弾',
+    category: 'ranged',
+    description: '杖から魔弾を撃つ。当たると弾ける',
+    tags: ['attack', 'basic'],
+    technique: { requires: { weapon: 'staff' }, shape: 'shot', power: 1, interval: 1.1 },
   },
   // ---- 印の技の枠。拾った印の技(markArts.ts、自動で作る)を入れて使う。空なら出ない ----
   art1: { name: '印の技・壱', category: 'melee', description: '拾った印の技を入れる枠', tags: ['attack', 'mark', 'art'], technique: { requires: {}, shape: 'nova', power: 0, interval: 1 } },
@@ -1151,7 +1221,7 @@ export const TRUMP_SKILL_IDS = ACTIVE_SKILL_IDS.filter((id) => (ACTIVE_SKILLS[id
 export function techniqueFits(def: TechniqueDef, weapon: WeaponRef): boolean {
   const w = weaponDef(weapon);
   const r = def.technique.requires;
-  return (!r.kind || r.kind === w.kind) && (!r.element || r.element === w.element) && (!r.tag || w.tags.includes(r.tag));
+  return (!r.kind || r.kind === w.kind) && (!r.element || r.element === w.element) && (!r.tag || w.tags.includes(r.tag)) && (!r.weapon || r.weapon === w.id);
 }
 
 /** 技の条件に出す、武器のタグの呼び名 */
@@ -1308,3 +1378,19 @@ export function actionReach(a: SkillAction): number | undefined {
   if (a.type === 'blink') return a.range;
   return undefined;
 }
+
+/** 武器ごとの基本技。着けると自動で出る(剣・素手は斬りつけ、銃は射撃) */
+export const WEAPON_BASICS: Record<WeaponTypeId, ActiveSkillId> = {
+  fists: 'slash',
+  ironSword: 'slash',
+  rustGreatsword: 'bigSweep',
+  boneFlail: 'flailBeat',
+  cinderAxe: 'axeChop',
+  stormSpear: 'spearThrust',
+  capGun: 'shoot',
+  emberSling: 'slingStones',
+  boneBow: 'bowDraw',
+  dagger: 'daggerFlurry',
+  warHammer: 'hammerSmash',
+  staff: 'staffBolt',
+};

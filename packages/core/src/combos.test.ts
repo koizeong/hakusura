@@ -172,18 +172,28 @@ describe('技の型と連用の疲れ', () => {
     const w = new CombatWorld({ seed: 1 });
     const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, weapons: [{ type: 'ironSword' }] });
     w.addUnit({ id: 't', name: '案山子', team: 'enemy', x: 60, y: 0, maxHp: 1e9 });
-    const use = (skill: 'slash' | 'thrust') => {
+    const use = (skill: 'sweep' | 'thrust') => {
       p.cooldowns = {};
       p.busyUntil = 0;
       w.useSkill('p', skill, { x: 60, y: 0 });
       run(w, 600);
       return p.cooldownSpans[skill]!;
     };
-    const first = use('slash');
-    expect(use('slash')).toBeCloseTo(first * (1 + FATIGUE.perRepeat));
-    expect(use('slash')).toBeCloseTo(first * (1 + FATIGUE.perRepeat * 2));
+    const first = use('sweep');
+    expect(use('sweep')).toBeCloseTo(first * (1 + FATIGUE.perRepeat));
+    expect(use('sweep')).toBeCloseTo(first * (1 + FATIGUE.perRepeat * 2));
     use('thrust');
-    expect(use('slash')).toBeCloseTo(first);
+    expect(use('sweep')).toBeCloseTo(first);
+    // 武器の基本技は疲れない
+    const b = () => {
+      p.cooldowns = {};
+      p.busyUntil = 0;
+      w.useSkill('p', 'slash', { x: 60, y: 0 });
+      run(w, 600);
+      return p.cooldownSpans.slash!;
+    };
+    const base = b();
+    expect(b()).toBeCloseTo(base);
   });
 
   it('嵐の穂先:突き・薙ぎ払い・旋風の順に出すと、最後の旋風が4倍になる', () => {

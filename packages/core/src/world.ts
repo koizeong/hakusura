@@ -3,7 +3,7 @@ import { computeDamage, type RuleBonus } from './damage';
 import { ELEMENTS, ELEMENT_IDS, type ElementId } from './data/elements';
 import { FLOOR_RULES, fieldDef, type FieldId } from './data/fields';
 import { STATUS_IDS, statusDef, statusForElement, type StatusDef, type StatusId } from './data/statuses';
-import { actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction, type RiteEmpower } from './data/skills';
+import { WEAPON_BASICS, actionReach, activeSkillDef, resolveSkill, skillElement, techniqueFits, isTechnique, type ActiveSkillId, type ResolvedSkill, type SkillAction, type RiteEmpower } from './data/skills';
 import { WEAPON_TYPES, toWeaponSpec, type WeaponRef, type WeaponSpec, type WeaponTypeDef, type WeaponTypeId } from './data/weapons';
 import { shieldBurstElement, shieldDef, shieldName, type ShieldSpec } from './data/shields';
 import type { SkillVariant } from './data/variations';
@@ -896,7 +896,8 @@ export class CombatWorld {
     const rage = unit.enraged && unit.kind ? (enemyDef(unit.kind).enrage?.cooldown ?? 1) : 1;
     // 連用の疲れ。自分の側が同じ技を続けて出すと、その技の間隔が延びる。別の技を挟めば戻る
     unit.streak = unit.streak.skill === skillId ? { skill: skillId, count: unit.streak.count + 1 } : { skill: skillId, count: 0 };
-    const tired = !unit.kind && skillId !== unit.trump ? Math.min(FATIGUE.max, 1 + FATIGUE.perRepeat * unit.streak.count) : 1;
+    // 武器の基本技は疲れない(1つの武器なら同じ技しか出ないので)
+    const tired = !unit.kind && skillId !== unit.trump && !BASIC_SKILLS.has(skillId) ? Math.min(FATIGUE.max, 1 + FATIGUE.perRepeat * unit.streak.count) : 1;
     const span = def.cooldown * when * rage * tired * this.statOf(unit, 'cooldown', [...def.tags, def.category, skillId]);
     unit.cooldowns[skillId] = this.time + span;
     unit.cooldownSpans[skillId] = span;
@@ -2910,3 +2911,6 @@ function sigilRulesCached(s: SigilInstance): Rule[] {
   if (!rules) sigilRuleCache.set(key, (rules = sigilRules(s)));
   return rules;
 }
+
+/** 武器の基本技 */
+const BASIC_SKILLS = new Set<string>(Object.values(WEAPON_BASICS));

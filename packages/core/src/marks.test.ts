@@ -291,7 +291,7 @@ describe('技と印(溜める・保つ・使う)', () => {
     const { ACTIVE_SKILLS } = await import('./data/skills');
     const basics = ['slash', 'sweep', 'shoot', 'quickShot'];
     for (const [id, def] of Object.entries(ACTIVE_SKILLS) as [string, { tags: readonly string[]; markGain?: unknown; markHold?: unknown; markCost?: unknown }][]) {
-      if (basics.includes(id) || def.tags.includes('enemy') || def.tags.includes('trump') || def.tags.includes('art')) continue;
+      if (basics.includes(id) || def.tags.includes('enemy') || def.tags.includes('trump') || def.tags.includes('art') || def.tags.includes('basic')) continue;
       expect(!!(def.markGain || def.markHold || def.markCost), id).toBe(true);
     }
   });

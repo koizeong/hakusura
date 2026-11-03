@@ -105,6 +105,7 @@ import {
   ART_SLOTS,
   ART_SLOT_NAMES,
   isHandArt,
+  WEAPON_BASICS,
   slotMark,
   awakenSlotsOf,
   awakeningText,
@@ -134,13 +135,12 @@ import { h, signedPercent } from './dom';
 import { createTacticsEditor } from './TacticsEditor';
 import { CHARACTER_LIMIT, characterName, currentBuild, currentCharacter, isUnlocked, newCharacterId, unlock, type BuildState } from './buildStore';
 
+// 技は武器が決めるので、スキルと作戦の欄は出さない(覚醒の枠は装備の欄に)
 type Tab = 'expedition' | 'equipment' | 'attributes' | 'skills' | 'tactics' | 'trump' | 'code';
-const TABS: Record<Tab, string> = {
+const TABS: Partial<Record<Tab, string>> = {
   expedition: '遠征',
   equipment: '装備',
   attributes: '能力',
-  skills: 'スキル',
-  tactics: '作戦',
   trump: '切り札',
   code: 'コード',
 };
@@ -285,7 +285,7 @@ export class BuildScreen {
           'nav',
           { class: 'tabs' },
           ...(Object.keys(TABS) as Tab[]).filter((t) => t !== 'expedition' || isUnlocked(this.host.state, 'expedition')).map((t) =>
-            h('button', { class: t === this.tab ? 'on' : '', onclick: () => ((this.tab = t), this.render()) }, TABS[t]),
+            h('button', { class: t === this.tab ? 'on' : '', onclick: () => ((this.tab = t), this.render()) }, TABS[t]!),
           ),
         ),
         h('div', { class: 'tab-body' }, this.renderTab()),
@@ -525,6 +525,8 @@ export class BuildScreen {
       { class: 'equipment' },
       tools,
       slots,
+      this.renderBasics(),
+      this.renderArtSlots(),
       h(
         'section',
         { class: 'candidates' },
@@ -962,6 +964,22 @@ export class BuildScreen {
   private skillName(id: ActiveSkillId): string {
     const art = (ART_SLOTS as string[]).includes(id) ? this.build.arts?.[id as ArtSlot] : undefined;
     return art ? `${art.name}(${MARKS[art.mark].name}${art.cost})` : activeSkillDef(id).name;
+  }
+
+  /** 武器の基本技。着けている武器で決まり、自動で出る */
+  private renderBasics(): HTMLElement {
+    const weapons = buildWeapons(this.build);
+    return h(
+      'section',
+      { class: 'basics' },
+      h('h3', {}, '武器の技'),
+      ...weapons.map((w) => {
+        const id = WEAPON_BASICS[w.type];
+        const def = activeSkillDef(id);
+        return h('div', { class: 'skill-row' }, h('span', {}, `${weaponDef(w).name}:${def.name}`), h('small', {}, def.description ?? ''));
+      }),
+      h('p', { class: 'note' }, '武器ごとに決まった技が、戦いの中で自動で出る。大技は装備の覚醒から'),
+    );
   }
 
   /**

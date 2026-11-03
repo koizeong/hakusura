@@ -152,7 +152,7 @@ function initialState(random: () => number): BuildState {
   const artifacts: Item[] = ARTIFACT_IDS.map((id, i) => ({ id: `artifact-${id}-${i}`, name: ARTIFACTS[id].name, kind: 'accessory', affixes: [], artifact: id }));
   const build: Build = {
     actives: ['slash', 'shoot', 'emberOil'],
-    passives: ['sootPrayer', 'bloodCallsThunder', 'readTheBlow', 'parryStance'],
+    passives: [],
     equipment: {
       weapon1: starterWeapons[0],
       weapon2: starterWeapons[1],
@@ -184,6 +184,8 @@ export function loadBuildState(random: () => number): BuildState {
       // 後から最初の持ち物に足したスキル(儀式など)は、古い保存でも覚えていることにする
       for (const id of STARTING_SKILLS.actives) if (!saved.learned.actives.includes(id)) saved.learned.actives.push(id);
       saved.techniques ??= [];
+      // 技は武器が決めるようになったので、昔のパッシブは外す(選ぶ欄がない)
+      for (const c of saved.characters) c.build.passives = [];
       saved.markArts ??= starterArts();
       saved.learned.forms ??= [...STARTING_FORMS];
       // 戦える者を選んでおく(負傷の間は戦えない)

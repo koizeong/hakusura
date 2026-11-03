@@ -104,12 +104,14 @@ describe('補正値の効き先', () => {
     expect(w.statOf(p, 'moveSpeed')).toBeCloseTo(1.8);
   });
 
-  it('作戦はビルドに入れたアクティブしか使わない', () => {
+  it('技は武器が決める。ビルドのアクティブと作戦に関わらず、着けた武器の基本技が出る', () => {
     const { w, p } = setup();
-    applyBuild(w, p, emptyBuild({ actives: ['shoot'], tactics: [{ skill: 'slash', condition: 'always', enabled: true }] }));
-    p.autoBattle = true;
-    run(w, 600);
-    expect(w.log.length).toBe(0);
+    applyBuild(w, p, emptyBuild({ actives: ['shoot'], tactics: [{ skill: 'shoot', condition: 'always', enabled: true }] }));
+    // 武器がなければ素手の斬りつけ
+    expect(p.actives).toEqual(['slash']);
+    applyBuild(w, p, emptyBuild({ equipment: { weapon1: { id: 'w', name: '槍', kind: 'weapon', weaponType: 'stormSpear', affixes: [] }, weapon2: { id: 'g', name: '銃', kind: 'weapon', weaponType: 'capGun', affixes: [] } } }));
+    expect(p.actives).toEqual(['spearThrust', 'shoot']);
+    expect(p.tactics.map((t) => t.skill)).toEqual(['spearThrust', 'shoot']);
   });
 });
 

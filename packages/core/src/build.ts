@@ -1,6 +1,6 @@
 import { MARK_IDS, MARK_NATURAL, type MarkId } from './data/marks';
 import { conditionDef } from './data/conditions';
-import { ACTIVE_SKILLS, TRUMP_SKILL_IDS, activeSkillDef, isTechnique, techniqueFits, type ActiveSkillDef, type ActiveSkillId } from './data/skills';
+import { ACTIVE_SKILLS, TRUMP_SKILL_IDS, WEAPON_BASICS, activeSkillDef, isTechnique, techniqueFits, type ActiveSkillDef, type ActiveSkillId } from './data/skills';
 import { variantProblem, type SkillVariant } from './data/variations';
 import { ART_SLOTS, artProblem, artTechnique, awakeningProblem, type ArtSlot, type MarkArt } from './data/markArts';
 import { sigilMarks, sigilProblem } from './data/sigils';
@@ -292,7 +292,9 @@ export function canEquip(item: Item, slot: EquipSlotId): boolean {
 /** ビルドを戦う者に反映する。最大HPは基礎値に補正をかけ直し、減っていた割合を保つ */
 export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   const items = EQUIP_SLOT_IDS.map((s) => build.equipment[s]).filter((i): i is Item => !!i);
-  unit.actives = [...build.actives];
+  // 技は武器が決める。着けている武器の基本技が自動で出る(アクティブ・パッシブ・作戦は選ばない)
+  const basics = [...new Set(buildWeapons(build).map((w) => WEAPON_BASICS[w.type]))];
+  unit.actives = [...basics];
   unit.passives = [...build.passives];
   unit.equipment = items.filter((i) => !i.artifact);
   unit.artifacts = items.flatMap((i) => (i.artifact ? [i.artifact] : []));
@@ -331,7 +333,9 @@ export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   // 重さが担える重さを超えると鈍重になる
   if (buildWeight(build) > weightCapacity(unit.attributes)) unit.tags.push('overweight');
   if (weapons.length === 2 && itemTotal(weapons[0]!) === itemTotal(weapons[1]!)) unit.tags.push('dualTotalsEqual');
-  unit.tactics = build.tactics.map((t) => ({ ...t, then: t.then ? [...t.then] : undefined }));
+  unit.tactics = basics.map((skill) => ({ skill, condition: 'always', enabled: true }));
+  // 昔の印の技の枠(覚醒のない枠)も、撃てるようにアクティブに入れる
+  for (const slot of ART_SLOTS) if (unit.arts[slot] && !unit.actives.includes(slot)) unit.actives.push(slot);
   unit.followUp = undefined;
   const ratio = unit.maxHp > 0 ? unit.hp / unit.maxHp : 1;
   unit.maxHp = Math.max(1, Math.round(unit.baseMaxHp * world.statOf(unit, 'maxHp')));
