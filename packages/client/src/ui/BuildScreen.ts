@@ -555,6 +555,7 @@ export class BuildScreen {
       summary,
       h('button', { class: 'recommend', disabled: !!busy, onclick: () => this.recommend() }, label('recommend', 'おすすめで着ける', '選んでいます')),
       h('button', { class: 'discard', disabled: !!busy, onclick: () => this.sweep() }, label('sweep', '弱くなる物をまとめて捨てる', '測っています')),
+      h('button', { class: 'discard purge', disabled: !!busy, onclick: () => this.purgeEquipment() }, '装備を全て捨てる(試遊用)'),
       this.loadoutMessage ? h('small', { class: 'loadout-message' }, this.loadoutMessage) : '',
       h('small', { class: 'note' }, '火力は案山子の群れを早回しで斬らせた毎秒の傷、耐久は最大HP÷被ダメージの倍率。条件文や繋ぎの効き目も早回しに入る'),
     );
@@ -701,6 +702,17 @@ export class BuildScreen {
 
   private unequip(slot: EquipSlotId): void {
     delete this.build.equipment[slot];
+    this.changed();
+  }
+
+  /** 試遊用。拾い物の山と、全てのキャラが着けている装備を捨てる(印の技・変化つきの技・能力値・スキルは残す) */
+  private purgeEquipment(): void {
+    const { state } = this.host;
+    const worn = state.characters.reduce((n, c) => n + Object.keys(c.build.equipment).length, 0);
+    if (!confirm(`拾い物${state.stash.length}個と、全てのキャラが着けている装備${worn}個を捨てる。戻せない。よいか`)) return;
+    state.stash = [];
+    for (const c of state.characters) c.build.equipment = {};
+    this.loadoutMessage = '装備を全て捨てた。素手で始める';
     this.changed();
   }
 
