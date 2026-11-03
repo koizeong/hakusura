@@ -65,7 +65,7 @@ const shield = (id: string, type: ShieldTypeId): Item => ({ id: `s-${id}`, name:
 const always = (skill: Build['actives'][number], then?: Tactic['then']): Tactic => ({ skill, condition: 'always', enabled: true, ...(then ? { then } : {}) });
 
 /** 条件文を宿す枠。防具と装飾品、空いていれば武器の枠も */
-const SLOTS: EquipSlotId[] = ['head', 'body', 'hands', 'feet', 'accessory1', 'accessory2', 'accessory3', 'weapon1', 'weapon2'];
+const SLOTS: EquipSlotId[] = ['head', 'body', 'hands', 'feet', 'belt', 'accessory1', 'accessory2', 'accessory3', 'weapon1', 'weapon2'];
 
 /** ビルドに条件文を宿す。空いた枠には補正値なしの装備を置き、武器や盾にはそのまま条件文を足す */
 export function withConditions(build: Build, conditions: readonly ConditionId[]): Build {

@@ -9,11 +9,16 @@ import { SHIELD_TYPE_IDS, rollShield, shieldName, type ShieldSpec, type ShieldTy
 import type { ElementId } from './elements';
 
 /** 装備の部位 */
+/**
+ * 装備の部位。防具の5部位は印が決まっていて、その部位の装備の印紋・覚醒・印の項目はその印だけ(頭=祈り・体=血潮・手=研ぎ・足=静寂・帯=熾り)。
+ * 装飾品の3枠と武器はどの印も出る
+ */
 export const EQUIP_SLOTS = {
-  head: { name: '頭', kind: 'armor' },
-  body: { name: '体', kind: 'armor' },
-  hands: { name: '手', kind: 'armor' },
-  feet: { name: '足', kind: 'armor' },
+  head: { name: '頭', kind: 'armor', mark: 'prayer' },
+  body: { name: '体', kind: 'armor', mark: 'blood' },
+  hands: { name: '手', kind: 'armor', mark: 'edge' },
+  feet: { name: '足', kind: 'armor', mark: 'stillness' },
+  belt: { name: '帯', kind: 'armor', mark: 'ember' },
   accessory1: { name: '装飾品1', kind: 'accessory' },
   accessory2: { name: '装飾品2', kind: 'accessory' },
   accessory3: { name: '装飾品3', kind: 'accessory' },
@@ -23,6 +28,11 @@ export const EQUIP_SLOTS = {
 export type EquipSlotId = keyof typeof EQUIP_SLOTS;
 export type EquipKind = (typeof EQUIP_SLOTS)[EquipSlotId]['kind'];
 export const EQUIP_SLOT_IDS = Object.keys(EQUIP_SLOTS) as EquipSlotId[];
+
+/** 印の決まった部位なら、その印 */
+export function slotMark(slot: EquipSlotId | undefined): MarkId | undefined {
+  return slot ? (EQUIP_SLOTS[slot] as { mark?: MarkId }).mark : undefined;
+}
 
 /** 部位の種類ごとの名前の候補 */
 const BASE_NAMES: Record<EquipKind, readonly string[]> = {
@@ -38,6 +48,7 @@ const ARMOR_NAMES: Partial<Record<EquipSlotId, readonly string[]>> = {
   head: ['兜', '頭巾', '面頬', '冠'],
   body: ['外套', '鎧', '肩当て', '帷子'],
   hands: ['籠手', '手甲', '手袋'],
+  belt: ['帯', '腰帯', '腰巻', '下げ緒'],
   feet: ['長靴', '脛当て', '革靴'],
 };
 
@@ -332,7 +343,7 @@ const SIGIL_COUNTS = [
  * 印紋を刻む。1つ目の印は、ビルドの印(揃っている・足りない側)に半分ほど寄せる。2つ目からは7割が同じ印。
  * budget(補正値に回せる分)を超えないよう、数を減らす(必ず1つは刻む)
  */
-export function rollSigils(random: () => number, fit: LootFit | undefined, budget: number, cursed = false): SigilInstance[] {
+export function rollSigils(random: () => number, fit: LootFit | undefined, budget: number, cursed = false, fixed?: MarkId): SigilInstance[] {
   const pick = <T>(list: readonly T[]): T => list[Math.floor(random() * list.length)]!;
   let r = random() * 100;
   let count = 1;
@@ -341,14 +352,15 @@ export function rollSigils(random: () => number, fit: LootFit | undefined, budge
     break;
   }
   const near = fit?.marks ? [...new Set([...fit.marks.using, ...fit.marks.needGivers, ...fit.marks.needUsers])] : [];
-  const main = near.length > 0 && random() < 0.5 ? pick(near) : pick(MARK_IDS);
+  // 印の決まった部位は、全ての印紋がその印
+  const main = fixed ?? (near.length > 0 && random() < 0.5 ? pick(near) : pick(MARK_IDS));
   const out: SigilInstance[] = [];
   let spent = 0;
   for (let i = 0; i < count; i++) {
     const sigil = pick(SIGIL_IDS.filter((id) => !out.some((s) => s.sigil === id)));
     const cost = sigilDef(sigil).cost;
     if (i > 0 && !cursed && spent + cost > budget) break;
-    const mark = i === 0 || random() < 0.7 ? main : pick(MARK_IDS);
+    const mark = fixed ?? (i === 0 || random() < 0.7 ? main : pick(MARK_IDS));
     const other = sigilDef(sigil).other ? pick(MARK_IDS.filter((m) => m !== mark)) : undefined;
     out.push({ sigil, mark, ...(other ? { other } : {}) });
     spent += cost;
@@ -376,9 +388,19 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
   const fitting = fit ? AFFIX_IDS.filter((id) => affixFits(id, fit)) : [];
   const materialAffixes = material ? ARMOR_MATERIALS[material].affixes : [];
   const preferAffixes = [...(options.preferAffixes ?? []), ...materialAffixes];
+  // 印の決まった部位は、印の項目もその印だけ(よその印の恩恵・生成力は出ない)
+  const fixedMark = kind === 'armor' ? slotMark(slot) : undefined;
+  const allowed = (id: AffixId) => {
+    const def = AFFIXES[id] as AffixDef;
+    if (def.stat !== 'markBlessing' && def.stat !== 'markGain') return true;
+    return !fixedMark || def.tags.includes(fixedMark);
+  };
   const pickAffix = (): AffixId => {
-    if (fitting.length > 0 && random() < R.fitChance) return pick(fitting);
-    return pickPreferred(AFFIX_IDS, preferAffixes);
+    const fit2 = fitting.filter(allowed);
+    if (fit2.length > 0 && random() < R.fitChance) return pick(fit2);
+    // 印の決まった部位は、その印の項目を出やすく
+    const own = fixedMark ? AFFIX_IDS.filter((id) => allowed(id) && (AFFIXES[id] as AffixDef).tags.includes(fixedMark)) : [];
+    return pickPreferred(AFFIX_IDS.filter(allowed), [...preferAffixes.filter(allowed), ...own]);
   };
 
   // 忌まわしき品は、合計がマイナスになる代わりに重い条件文が必ず付く
@@ -432,7 +454,7 @@ export function generateItem(random: () => number, options: GenerateOptions = {}
     ? roundStep(R.totalMin + random() * (R.cursedMax - R.totalMin))
     : roundStep(R.goodMin + random() * (R.totalMax - R.goodMin));
   // 印紋。全ての装備に1〜3個。同じ装備の印紋は、たいてい同じ印に揃う(「熾りの篭手」のように読める)
-  const sigils = rollSigils(random, fit, Math.max(0, total - (condition ? conditionDef(condition).cost : 0)), cursed);
+  const sigils = rollSigils(random, fit, Math.max(0, total - (condition ? conditionDef(condition).cost : 0)), cursed, fixedMark);
   const remain = total - (condition ? conditionDef(condition).cost : 0) - sigils.reduce((s, x) => s + sigilDef(x.sigil).cost, 0);
   const swing = () =>
     random() < R.extremeChance ? R.affixMin + random() * (R.affixMax - R.affixMin) : R.usualMin + random() * (R.usualMax - R.usualMin);

@@ -2123,3 +2123,8 @@ button.discard {
 .hand-art.dormant .name {
   color: var(--dim);
 }
+
+.slot-mark {
+  margin-left: 4px;
+  font-size: 11px;
+}

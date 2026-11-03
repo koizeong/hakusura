@@ -77,6 +77,17 @@ function armorIcon(g: PixelGrid, slot: EquipSlotId, [base, light, dark]: readonl
       g.set(24, 21, light);
       break;
     }
+    case 'belt': {
+      // 帯。結び目と垂れ
+      g.rect(5, 13, 22, 6, base);
+      g.rect(5, 13, 22, 1, light);
+      g.rect(5, 18, 22, 1, dark);
+      g.rect(14, 12, 5, 8, dark);
+      g.rect(15, 13, 3, 6, light);
+      g.rect(15, 20, 2, 7, base);
+      g.rect(18, 20, 2, 5, base);
+      break;
+    }
     default:
       g.ellipse(16, 16, 9, 9, base);
   }

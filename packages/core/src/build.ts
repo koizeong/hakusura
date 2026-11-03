@@ -223,7 +223,7 @@ export function unusableActives(build: Build): ActiveSkillId[] {
 }
 
 /** 覚醒を並べる部位の順 */
-const AWAKEN_ORDER: EquipSlotId[] = ['weapon1', 'weapon2', 'body', 'head', 'hands', 'feet', 'accessory1', 'accessory2', 'accessory3'];
+const AWAKEN_ORDER: EquipSlotId[] = ['weapon1', 'weapon2', 'body', 'head', 'hands', 'feet', 'belt', 'accessory1', 'accessory2', 'accessory3'];
 
 /** 覚醒の枠ごとの装備の部位。指定がなければ、覚醒を持つ装備を決まった順に入れる */
 export function awakenSlotsOf(build: Build): Partial<Record<ArtSlot, EquipSlotId>> {

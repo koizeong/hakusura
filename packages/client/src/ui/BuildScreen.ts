@@ -105,6 +105,7 @@ import {
   ART_SLOTS,
   ART_SLOT_NAMES,
   isHandArt,
+  slotMark,
   awakenSlotsOf,
   awakeningText,
   SIGILS,
@@ -444,7 +445,13 @@ export class BuildScreen {
         return h(
           'div',
           { class: `slot-row${slot === this.selectedSlot ? ' selected' : ''}`, onclick: () => this.selectSlot(slot) },
-          h('span', { class: 'slot-name' }, EQUIP_SLOTS[slot].name),
+          h(
+            'span',
+            { class: 'slot-name' },
+            EQUIP_SLOTS[slot].name,
+            // 印の決まった部位は、その印を添える
+            slotMark(slot) ? h('small', { class: 'slot-mark', style: `color:${markColor(slotMark(slot)!)}` }, MARKS[slotMark(slot)!].name) : '',
+          ),
           item
             ? itemCard(
                 this.attrs,

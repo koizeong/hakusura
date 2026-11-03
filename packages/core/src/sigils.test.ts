@@ -62,6 +62,28 @@ describe('印紋', () => {
     }
   });
 
+  it('防具の5部位は印が決まっている。装飾品と武器はどの印も出る', async () => {
+    const { EQUIP_SLOT_IDS, EQUIP_SLOTS, AFFIXES, slotMark } = await import('./data/equipment');
+    const rand = seeded(13);
+    for (const slot of EQUIP_SLOT_IDS.filter((s) => EQUIP_SLOTS[s].kind === 'armor')) {
+      const mark = slotMark(slot)!;
+      expect(mark).toBeDefined();
+      for (let i = 0; i < 30; i++) {
+        const it = generateItem(rand, { slot, kind: 'armor' });
+        expect(it.slot).toBe(slot);
+        for (const sg of it.sigils!) expect(sg.mark).toBe(mark);
+        if (it.awaken) expect(it.awaken.mark).toBe(mark);
+        for (const a of it.affixes) {
+          const def = AFFIXES[a.affix] as { stat: string; tags: readonly string[] };
+          if (def.stat === 'markBlessing' || def.stat === 'markGain') expect(def.tags).toContain(mark);
+        }
+      }
+    }
+    const marks = new Set<string>();
+    for (let i = 0; i < 60; i++) for (const sg of generateItem(rand, { slot: 'accessory1', kind: 'accessory' }).sigils!) marks.add(sg.mark);
+    expect(marks.size).toBeGreaterThan(3);
+  });
+
   it('縁:縁のある技を当てると1度だけ印を得る', () => {
     const { w, p, swing } = armed([{ sigil: 'kindle', mark: 'edge' }]);
     swing();
