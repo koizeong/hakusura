@@ -84,6 +84,26 @@ describe('印紋', () => {
     expect(marks.size).toBeGreaterThan(3);
   });
 
+  it('変換:元の印を消して、別の印に変える', () => {
+    // 流転:2秒ごとに血潮の2割を研ぎに(2倍)
+    const flow = armed([{ sigil: 'flow', mark: 'edge', other: 'blood' }]);
+    flow.w.gainMark(flow.p, 'blood', 100);
+    run(flow.w, 2100);
+    expect(flow.w.marksOf(flow.p, 'blood')).toBe(80);
+    expect(flow.w.marksOf(flow.p, 'edge')).toBe(40);
+    // 鋳直し:血潮を得るたび、得た分を研ぎに(1.5倍)。血潮は溜まらない
+    const recast = armed([{ sigil: 'recast', mark: 'edge', other: 'blood' }]);
+    recast.w.gainMark(recast.p, 'blood', 10);
+    expect(recast.w.marksOf(recast.p, 'blood')).toBe(0);
+    expect(recast.w.marksOf(recast.p, 'edge')).toBe(15);
+    // 集め:ほかの全ての印の1割を集める
+    const gather = armed([{ sigil: 'gather', mark: 'prayer' }]);
+    gather.w.gainMark(gather.p, 'ember', 100);
+    gather.w.gainMark(gather.p, 'blood', 100);
+    run(gather.w, 2100);
+    expect(gather.w.marksOf(gather.p, 'prayer')).toBe(30);
+  });
+
   it('ビルドが関わる印は、2秒に1ずつ自然に溜まる。関わらない印は溜まらない', async () => {
     const { MARK_NATURAL } = await import('./data/marks');
     const w = new CombatWorld({ seed: 1 });
@@ -92,15 +112,15 @@ describe('印紋', () => {
     expect(p.naturalMarks).toEqual(['edge', 'blood']);
     run(w, MARK_NATURAL.every * 3 + 50);
     // 血潮が自然に溜まると、移ろいで研ぎも得る
-    expect(w.marksOf(p, 'blood')).toBe(3);
-    expect(w.marksOf(p, 'edge')).toBeGreaterThanOrEqual(3);
+    expect(w.marksOf(p, 'blood')).toBe(MARK_NATURAL.amount * 3);
+    expect(w.marksOf(p, 'edge')).toBeGreaterThanOrEqual(MARK_NATURAL.amount * 3);
     expect(w.marksOf(p, 'ember')).toBe(0);
   });
 
   it('縁:縁のある技を当てると1度だけ印を得る', () => {
     const { w, p, swing } = armed([{ sigil: 'kindle', mark: 'edge' }]);
     swing();
-    expect(w.marksOf(p, 'edge')).toBe(2);
+    expect(w.marksOf(p, 'edge')).toBe(4);
   });
 
   it('増殖:印を使うたび、持っている印を全て増やす', () => {
@@ -108,9 +128,9 @@ describe('印紋', () => {
     w.gainMark(p, 'edge', 100);
     w.gainMark(p, 'blood', 200);
     w.consumeMarks(p, 'edge', 50, '試し', t, { attacker: p, skill: '試し', via: [], depth: 0 });
-    // 5%ずつ増える
-    expect(w.marksOf(p, 'edge')).toBe(53);
-    expect(w.marksOf(p, 'blood')).toBe(210);
+    // 8%ずつ増える
+    expect(w.marksOf(p, 'edge')).toBe(54);
+    expect(w.marksOf(p, 'blood')).toBe(216);
   });
 
   it('過負荷:札から得る印が2倍、使ってから4秒は得られない', () => {
@@ -123,8 +143,8 @@ describe('印紋', () => {
       true,
     );
     swing();
-    expect(w.marksOf(p, 'edge')).toBe(4);
-    w.consumeMarks(p, 'edge', 4, '試し', t, { attacker: p, skill: '試し', via: [], depth: 0 });
+    expect(w.marksOf(p, 'edge')).toBe(8);
+    w.consumeMarks(p, 'edge', 8, '試し', t, { attacker: p, skill: '試し', via: [], depth: 0 });
     swing();
     expect(w.marksOf(p, 'edge')).toBe(0);
   });
@@ -148,13 +168,13 @@ describe('印紋', () => {
       swing();
       return w.log.find((r) => r.depth === 0)!.amount;
     };
-    expect(hit(0) / hit(5)).toBeCloseTo(1.3, 2);
+    expect(hit(0) / hit(5)).toBeCloseTo(1.6, 2);
   });
 
   it('恩恵:抱えの恩恵が強まる', () => {
     const { w, p } = armed([{ sigil: 'bless', mark: 'prayer' }]);
     w.gainMark(p, 'prayer', 100);
-    expect(w.statOf(p, 'markBlessing', ['prayer'])).toBeCloseTo(1.6);
+    expect(w.statOf(p, 'markBlessing', ['prayer'])).toBeCloseTo(2.2);
   });
 
   it('ビルドコードに入り、知らない印紋は弾く', () => {

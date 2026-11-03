@@ -304,6 +304,7 @@ export function applyBuild(world: CombatWorld, unit: Unit, build: Build): void {
   // 自然に溜まる印は、ビルドが関わる印
   unit.naturalMarks = buildMarks(build);
   unit.naturalAt = world.time + MARK_NATURAL.every;
+  unit.tickAt = world.time + MARK_NATURAL.every;
   // 覚醒の枠。装備の覚醒を枠に入れ、目覚めるまで眠らせる
   unit.arts = { ...(build.arts ?? {}) };
   unit.awakenings = [];

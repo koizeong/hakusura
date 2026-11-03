@@ -140,6 +140,8 @@ export interface Unit {
   /** 自然に溜まる印(ビルドが関わる印)と、次に溜まる時刻 */
   naturalMarks: MarkId[];
   naturalAt: number;
+  /** 2秒ごとの札(on: 'tick')が次に働く時刻 */
+  tickAt: number;
   /** 技を使った回数 */
   skillUses: Partial<Record<ActiveSkillId, number>>;
   /** 敵の種類。あれば ENEMIES の動き方で自分で歩く */
@@ -560,6 +562,7 @@ export class CombatWorld {
       awakenings: [],
       naturalMarks: [],
       naturalAt: 0,
+      tickAt: 0,
       skillUses: {},
       kind: spec.kind,
       mortal: spec.mortal ?? false,
@@ -1518,6 +1521,17 @@ export class CombatWorld {
 
     for (const unit of this.units.values()) {
       this.expireMarks(unit);
+      // 2秒ごとの札(流転・集めなど)
+      if (this.time >= unit.tickAt) {
+        unit.tickAt = this.time + MARK_NATURAL.every;
+        if (unit.downUntil <= this.time && unit.hp > 0) {
+          const ctx = this.context(unit, unit, {});
+          for (const { rule } of this.rulesFor(unit)) {
+            if (rule.on !== 'tick' || !ruleMatches(rule, ctx)) continue;
+            for (const action of rule.do) this.runAction(action, rule.label, this.tacticTarget(unit) ?? unit, { attacker: unit, skill: rule.label, via: [rule.label], depth: 1 });
+          }
+        }
+      }
       // 自然に溜まる印。起き上がるまでの間は溜まらない
       if (this.markCurve && unit.naturalMarks.length > 0 && this.time >= unit.naturalAt) {
         unit.naturalAt = this.time + MARK_NATURAL.every;
@@ -2649,6 +2663,25 @@ export class CombatWorld {
       case 'quicken':
         if (src.attacker) src.attacker.quicken = { scale: action.scale, charges: action.charges, until: this.time + action.duration };
         break;
+      case 'convertMarks': {
+        const owner = src.attacker;
+        if (!owner) break;
+        const froms = action.from === 'all' ? MARK_IDS.filter((m) => m !== action.to) : [action.from];
+        for (const from of froms) {
+          if (from === action.to) continue;
+          const have = this.marksOf(owner, from);
+          const want = action.amount ?? (action.ratio !== undefined ? have * action.ratio : (action.per ?? 0) * (src.amount ?? 0));
+          const n = Math.min(have, Math.floor(want));
+          if (n <= 0) continue;
+          const m = owner.marks[from]!;
+          const left = m.count - n;
+          if (left > 0) owner.marks[from] = { count: left, until: m.until };
+          else delete owner.marks[from];
+          this.events.push({ type: 'marks', unitId: owner.id, mark: from, count: Math.floor(Math.max(0, left)) });
+          this.gainMark(owner, action.to, n * action.rate, src.depth, { label, from });
+        }
+        break;
+      }
       case 'proliferate':
         if (src.attacker) {
           const owner = src.attacker;

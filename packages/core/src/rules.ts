@@ -101,6 +101,11 @@ export type Action =
   | { type: 'cooldown'; ms: number; tags?: readonly string[] }
   /** 持ち主の次の charges 回の技の振りかぶりと硬直を scale 倍にする(duration の間) */
   | { type: 'quicken'; scale: number; charges: number; duration: number }
+  /**
+   * 印を別の印に変える。from の印(all なら to 以外の全て)を、amount(決まった数)・ratio(持っている割合)・per(きっかけの数の倍)の分だけ減らし、
+   * rate 倍の to を得る(元の印は消える)。生成力は通さない
+   */
+  | { type: 'convertMarks'; from: MarkId | 'all'; to: MarkId; amount?: number; ratio?: number; per?: number; rate: number }
   /** 持ち主の持っている印を、種類ごとに ratio の割合だけ増やす(増殖) */
   | { type: 'proliferate'; ratio: number }
   /** 持ち主が印を得る。mark が 'source' なら、きっかけの印(使った・失った印)と同じ印。per があれば、きっかけの数(使った・失った印の数)の per 倍を足す。flat なら溜まり方の曲線を通さない(技が自分で溜める分) */
@@ -149,6 +154,7 @@ export type Rule = RuleBase &
         cause?: 'expire' | 'hurt' | 'fall';
         do: readonly Action[];
       }
+    | /** 2秒ごと(MARK_NATURAL.every)。対象は狙っている相手か自分 */ { on: 'tick'; do: readonly Action[] }
     | /** その印が消えるまでの時間を scale 倍にする。mark がなければ全ての印 */ { on: 'markKeep'; mark?: MarkId; scale: number }
     | /**
        * 生成力を伸ばす。札から mark(なければどの印でも)を得るとき、by の印 per ごとに1倍ずつ多く得る。
