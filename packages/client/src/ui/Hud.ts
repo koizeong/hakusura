@@ -1,6 +1,6 @@
 import { ACTIVE_SKILLS, FERVOR, FIELDS, MARKS, MARK_IDS, SKILL_CATEGORIES, STATUSES, STATUS_IDS, type ActiveSkillId, type CombatWorld, type Unit } from '@hakusura/core';
 import { ACTIVE_SLOT_ACTIONS, bindingLabel, type Keybinds } from '../input/keybinds';
-import { ART_SLOT_NAMES, HAND_ART_SLOTS, isHandArt, type ArtSlot } from '@hakusura/core';
+import { ART_SLOT_NAMES, HAND_ART_SLOTS, blessingTier, isHandArt, type ArtSlot } from '@hakusura/core';
 import { statusIconUrl } from '../art/icons';
 import { h } from './dom';
 import type { BattleMode } from './TrainingPanel';
@@ -267,7 +267,9 @@ export class Hud {
       const n = world.marksOf(player, id);
       // 生成力(溜まっている量で、札から得る印が何倍になるか)
       const growth = world.markGrowthOf(player, id);
-      if (n > 0) parts.push(`<b style="color:#${MARKS[id].color.toString(16).padStart(6, '0')}">〈${MARKS[id].name}〉${n}${growth >= 1.1 ? `<small> 生成×${growth.toFixed(1)}</small>` : ''}</b>`);
+      // 抱えの恩恵の段(10・100・1000・10000で1段ずつ)
+      const tier = blessingTier(n);
+      if (n > 0) parts.push(`<b style="color:#${MARKS[id].color.toString(16).padStart(6, '0')}">〈${MARKS[id].name}〉${n}${tier > 0 ? `<small> 恩恵${'◆'.repeat(tier)}</small>` : ''}${growth >= 1.1 ? `<small> 生成×${growth.toFixed(1)}</small>` : ''}</b>`);
     }
     const rites = player.rites.filter((r) => r.until > world.time);
     if (rites.length > 0) parts.push(`<b class="rite">儀式 ${rites.length}:${rites.map((r) => r.name).join('・')}</b>`);

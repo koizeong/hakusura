@@ -1,3 +1,4 @@
+import type { StatId } from './stats';
 /**
  * 印。自分に溜まる少数の語彙。条件文は印を「生む」「変える」「使う」の役割に分かれ、
  * 生む札と使う札を揃えて初めて働く(カードゲームのデッキ構築のように)。
@@ -9,14 +10,19 @@ export interface MarkDef {
   max: number;
   duration: number;
   color: number;
+  /**
+   * 抱えの恩恵。持っているだけで効くバフ。10・100・1000・10000で1段ずつ上がり、1段ごとに perTier。
+   * 撃てば(使えば)落ち、剥がされても落ちる。補正値 markBlessing(タグに印)で強まる
+   */
+  blessing: { name: string; stat: StatId; tags: readonly string[]; perTier: number };
 }
 
 export const MARKS = {
-  ember: { name: '熾り', description: '火で燃え立つ', max: 10000, duration: 8000, color: 0xff7a2e },
-  edge: { name: '研ぎ', description: '刃を重ねて研ぎ澄ます', max: 10000, duration: 8000, color: 0xd8d0c0 },
-  blood: { name: '血潮', description: '流した血と浴びた血', max: 10000, duration: 8000, color: 0xc8323c },
-  stillness: { name: '静寂', description: '足を止め、息を殺す', max: 10000, duration: 8000, color: 0x8aa0c8 },
-  prayer: { name: '祈り', description: '儀式の残り香', max: 10000, duration: 8000, color: 0xe8d8a8 },
+  ember: { name: '熾り', description: '火で燃え立つ', max: 10000, duration: 8000, color: 0xff7a2e, blessing: { name: '与ダメージ', stat: 'damage', tags: [], perTier: 0.08 } },
+  edge: { name: '研ぎ', description: '刃を重ねて研ぎ澄ます', max: 10000, duration: 8000, color: 0xd8d0c0, blessing: { name: '近攻撃のダメージ', stat: 'damage', tags: ['melee'], perTier: 0.12 } },
+  blood: { name: '血潮', description: '流した血と浴びた血', max: 10000, duration: 8000, color: 0xc8323c, blessing: { name: '状態の蓄積', stat: 'buildup', tags: [], perTier: 0.12 } },
+  stillness: { name: '静寂', description: '足を止め、息を殺す', max: 10000, duration: 8000, color: 0x8aa0c8, blessing: { name: '被ダメージ', stat: 'damageTaken', tags: [], perTier: -0.05 } },
+  prayer: { name: '祈り', description: '儀式の残り香', max: 10000, duration: 8000, color: 0xe8d8a8, blessing: { name: 'クールダウン', stat: 'cooldown', tags: [], perTier: -0.05 } },
 } as const satisfies Record<string, MarkDef>;
 
 /**
@@ -65,4 +71,9 @@ export function holdPower(min: number): number {
 /** 印を使う技が足す威力(合計) */
 export function spendBonus(cost: number): number {
   return MARK_SKILL.spendShare * markArtPower(cost);
+}
+
+/** 抱えの恩恵の段。10・100・1000・10000で1段ずつ(0〜4) */
+export function blessingTier(held: number): number {
+  return held >= 10000 ? 4 : held >= 1000 ? 3 : held >= 100 ? 2 : held >= 10 ? 1 : 0;
 }

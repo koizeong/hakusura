@@ -66,9 +66,10 @@ describe('武器の条件文', () => {
 
   it('176: 両手持ちのとき、二刀流向けのスキルの威力が2倍', () => {
     const { w, p } = setup({ weapons: [weapon('a', [])], conditions: ['twoHandedDual'] });
-    w.gainMark(p, 'edge', 100);
+    w.gainMark(p, 'edge', 30);
     swing(w, p, 'whirlwind');
-    expect(w.log[0]!.amount).toBeCloseTo(hitPw(resolveSkill('whirlwind', 'rustGreatsword')!) * 1.25 * 2);
+    // 研ぎ30は抱えの恩恵の1段(近攻撃+12%)
+    expect(w.log[0]!.amount).toBeCloseTo(hitPw(resolveSkill('whirlwind', 'rustGreatsword')!) * 1.25 * 2 * 1.12);
     expect(w.log[0]!.combos).toContain('oddGrip');
   });
 

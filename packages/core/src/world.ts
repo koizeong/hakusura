@@ -23,7 +23,7 @@ import { CONDITION_ADD_GROUP, conditionDef, type ConditionId } from './data/cond
 import { INTERACTIONS } from './data/interactions';
 import { DEFENSE_RULES } from './data/defense';
 import { levelHp, levelModifiers } from './data/levels';
-import { MARK_IDS, MARK_RULES, markDef, type MarkId } from './data/marks';
+import { MARK_IDS, MARK_RULES, blessingTier, markDef, type MarkId } from './data/marks';
 import { evaluatePredicate, ruleMatches, type Action, type Modifier, type Predicate, type PredicateContext, type Rule } from './rules';
 
 export type Team = 'player' | 'enemy';
@@ -2063,8 +2063,23 @@ export class CombatWorld {
       }),
       // 能力値はキャラの基礎の強さとして効く
       ...(unit.attributes ? attributeModifiers(unit.attributes) : []),
+      // 抱えの恩恵。持っている印の段ごとに効く(恩恵の強さそのものには効かせない)
+      ...(stat === 'markBlessing' ? [] : this.blessingModifiers(unit, stat)),
     ];
     return all.filter((m) => (m.stat ?? 'damage') === stat);
+  }
+
+  /** 抱えの恩恵の補正値。印ごとに別の種類(blessing:印) */
+  blessingModifiers(unit: Unit, stat: StatId): Modifier[] {
+    const out: Modifier[] = [];
+    for (const mark of MARK_IDS) {
+      const b = markDef(mark).blessing;
+      if (b.stat !== stat) continue;
+      const tier = blessingTier(this.marksOf(unit, mark));
+      if (tier === 0) continue;
+      out.push({ stat, tags: b.tags, value: b.perTier * tier * this.statOf(unit, 'markBlessing', [mark]), group: `blessing:${mark}` });
+    }
+    return out;
   }
 
   /**
@@ -2449,7 +2464,7 @@ export class CombatWorld {
       if (rule.on !== 'markGrowth' || (rule.mark && rule.mark !== mark) || !ruleMatches(rule, ctx)) continue;
       g += have(rule.by === 'self' ? mark : rule.by) / rule.per;
     }
-    return g;
+    return g * this.statOf(unit, 'markGain', [mark]);
   }
 
   /** 時間切れの印を片付け、消えたときの札(on: 'markLost')を働かせる */
@@ -2466,11 +2481,12 @@ export class CombatWorld {
   shakeMarks(unit: Unit, damage: number, rend = 1): void {
     this.expireMarks(unit);
     // 印剥ぎの敵は、上限ごと押し上げる
-    const ratio = Math.min(MARK_RULES.hurtMax * rend, (MARK_RULES.hurtBase + damage / Math.max(1, unit.maxHp)) * rend, 1) * this.statOf(unit, 'markLoss', []);
+    const ratio = Math.min(MARK_RULES.hurtMax * rend, (MARK_RULES.hurtBase + damage / Math.max(1, unit.maxHp)) * rend, 1) * 1;
     if (ratio <= 0) return;
     for (const mark of Object.keys(unit.marks) as MarkId[]) {
       const m = unit.marks[mark]!;
-      const lost = Math.min(Math.floor(m.count), Math.ceil(m.count * ratio));
+      // 被弾で失う印の割合は、印ごとに守れる(タグに印)
+      const lost = Math.min(Math.floor(m.count), Math.ceil(m.count * ratio * this.statOf(unit, 'markLoss', [mark])));
       if (lost <= 0) continue;
       const left = m.count - lost;
       if (left > 0) unit.marks[mark] = { count: left, until: m.until };

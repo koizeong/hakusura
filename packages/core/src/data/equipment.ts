@@ -105,6 +105,17 @@ export const AFFIXES = {
   healing: { name: '回復', stat: 'healing', tags: [] },
   riteDamage: { name: '儀式を宿した技のダメージ', stat: 'damage', tags: ['rited'] },
   riteCooldown: { name: '儀式のクールダウン', stat: 'cooldown', tags: ['rite'] },
+  // 印の項目。抱えの恩恵と生成力を、印ごとに伸ばす
+  emberBlessing: { name: '熾りの恩恵', stat: 'markBlessing', tags: ['ember'] },
+  emberGain: { name: '熾りの生成力', stat: 'markGain', tags: ['ember'] },
+  edgeBlessing: { name: '研ぎの恩恵', stat: 'markBlessing', tags: ['edge'] },
+  edgeGain: { name: '研ぎの生成力', stat: 'markGain', tags: ['edge'] },
+  bloodBlessing: { name: '血潮の恩恵', stat: 'markBlessing', tags: ['blood'] },
+  bloodGain: { name: '血潮の生成力', stat: 'markGain', tags: ['blood'] },
+  stillnessBlessing: { name: '静寂の恩恵', stat: 'markBlessing', tags: ['stillness'] },
+  stillnessGain: { name: '静寂の生成力', stat: 'markGain', tags: ['stillness'] },
+  prayerBlessing: { name: '祈りの恩恵', stat: 'markBlessing', tags: ['prayer'] },
+  prayerGain: { name: '祈りの生成力', stat: 'markGain', tags: ['prayer'] },
 } as const satisfies Record<string, AffixDef>;
 export type AffixId = keyof typeof AFFIXES;
 export const AFFIX_IDS = Object.keys(AFFIXES) as AffixId[];

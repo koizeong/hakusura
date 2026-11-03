@@ -45,7 +45,8 @@ describe('印', () => {
     expect(total(['keenEdge'], 0)).toBeCloseTo(plain, 5);
     // 研ぎ4つで +60%、20あっても数えるのは10まで(+150%)
     expect(total(['keenEdge'], 4) / plain).toBeCloseTo(1.6, 2);
-    expect(total(['keenEdge'], 20) / plain).toBeCloseTo(1 + 0.15 * MARK_RULES.perMarkCap, 2);
+    // 研ぎ20は抱えの恩恵の1段(近攻撃+12%)も乗る
+    expect(total(['keenEdge'], 20) / plain).toBeCloseTo((1 + 0.15 * MARK_RULES.perMarkCap) * (1 + MARKS.edge.blessing.perTier), 2);
   });
 
   it('変える札:血潮を得るたび研ぎも得る(連鎖は上限の段まで)', () => {
@@ -448,5 +449,19 @@ describe('印は被弾でこぼれる', () => {
     w.gainMark(r, 'edge', 100);
     w.shakeMarks(r, 0);
     expect(w.marksOf(r, 'blood')).toBe(10);
+  });
+});
+
+describe('抱えの恩恵', () => {
+  it('持っている印の段(10・100・1000・10000)ごとにバフがかかり、補正値で強まる', async () => {
+    const { blessingTier } = await import('./data/marks');
+    expect([9, 10, 99, 100, 1000, 10000].map(blessingTier)).toEqual([0, 1, 1, 2, 3, 4]);
+    const w = new CombatWorld({ seed: 1 });
+    const p = w.addUnit({ id: 'p', name: '巡礼者', team: 'player', x: 0, y: 0, maxHp: 1000 });
+    expect(w.statOf(p, 'cooldown')).toBeCloseTo(1);
+    w.gainMark(p, 'prayer', 1000);
+    expect(w.statOf(p, 'cooldown')).toBeCloseTo(1 + MARKS.prayer.blessing.perTier * 3);
+    p.equipment = [{ id: 'a', name: '祈りの護符', kind: 'accessory', affixes: [{ affix: 'prayerBlessing', value: 100 }] }];
+    expect(w.statOf(p, 'cooldown')).toBeCloseTo(1 + MARKS.prayer.blessing.perTier * 3 * 2);
   });
 });

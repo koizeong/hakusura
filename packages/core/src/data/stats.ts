@@ -28,6 +28,10 @@ export const STATS = {
   markRend: { name: '印剥ぎ', kind: 'mult' },
   // 自分に溜まる状態の蓄積(敵のレベルの持ち味:頑健・不屈)
   buildupTaken: { name: '受ける状態の蓄積', kind: 'mult', lowerIsBetter: true },
+  // 抱えの恩恵の強さ(タグに印)
+  markBlessing: { name: '抱えの恩恵', kind: 'mult' },
+  // 札から得る印の数(タグに印)
+  markGain: { name: '印の生成力', kind: 'mult' },
 } as const satisfies Record<string, StatDef>;
 
 export type StatId = keyof typeof STATS;
