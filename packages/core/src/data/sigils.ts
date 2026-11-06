@@ -15,6 +15,8 @@ export interface SigilDef {
   other?: boolean;
   /** 補正値換算のコスト(%)。装備の合計に含める */
   cost: number;
+  /** 'mult' なら与ダメージはほかと掛け算(×)。印を増やす以外の道で伸びる札 */
+  stacking?: 'mult';
   /** m・o は印の呼び名(〈研ぎ〉)、id は印そのもの */
   text(m: string, o: string, id: MarkId): string;
   marks(m: MarkId, o: MarkId): { gives?: MarkId[]; uses?: MarkId[] };
@@ -475,6 +477,63 @@ export const SIGILS = {
     text: (m, o) => `${o}が1000に届いた瞬間、${o}を全て${m}に変える(3倍)`,
     marks: (m, o) => ({ gives: [m], uses: [o] }),
     rules: (m, o, label) => [{ label, on: 'markGained', mark: o, reach: 1000, when: [], do: [{ type: 'convertMarks', from: o, to: m, ratio: 1, rate: 3 }] }],
+  },
+  // ---- 別の道(×。印を増やす以外で伸びる札。ほかの与ダメージと掛け算) ----
+  apex: {
+    name: '極み',
+    stacking: 'mult',
+    cost: 25,
+    text: (m) => `${m}が1000以上の間、与ダメージ×2`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'damage', when: [{ type: 'selfMarks', mark: m, min: 1000 }], add: 1 }],
+  },
+  scatter: {
+    name: '散華',
+    stacking: 'mult',
+    cost: 25,
+    text: (m) => `${m}を一度に100以上使うと、続く5撃の与ダメージ×3`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'markSpent', mark: m, when: [{ type: 'spentAtLeast', min: 100 }], do: [{ type: 'grantBuff', label, add: 2, tags: ['weapon'], duration: 8000, charges: 5 }] }],
+  },
+  scarce: {
+    name: '乏しき刃',
+    stacking: 'mult',
+    cost: 20,
+    text: (m) => `${m}が10以下の間、与ダメージ×2(溜めずに使い切る道)`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'damage', when: [{ type: 'selfMarksAtMost', mark: m, max: 10 }], add: 1 }],
+  },
+  pyre: {
+    name: '業',
+    stacking: 'mult',
+    cost: 25,
+    text: (m, _o, id) => `${STATUS_NAME[id]}にかかった敵への与ダメージ×2.5`,
+    marks: (m) => ({ uses: [m] }),
+    rules: (m, _o, label) => [{ label, on: 'damage', when: [{ type: 'targetHas', status: MARK_STATUS[m] }], add: 1.5 }],
+  },
+  wakeful: {
+    name: '目覚め',
+    stacking: 'mult',
+    cost: 25,
+    text: () => `装備が2つ以上目覚めている間、与ダメージ×2`,
+    marks: () => ({}),
+    rules: (_m, _o, label) => [{ label, on: 'damage', when: [{ type: 'selfAwake', min: 2 }], add: 1 }],
+  },
+  adversity: {
+    name: '逆境',
+    stacking: 'mult',
+    cost: 20,
+    text: () => `直撃を受けてから5秒、与ダメージ×2`,
+    marks: () => ({}),
+    rules: (_m, _o, label) => [{ label, on: 'damage', when: [{ type: 'afterHurt', within: 5000 }], add: 1 }],
+  },
+  feint: {
+    name: '見切り斬り',
+    stacking: 'mult',
+    cost: 20,
+    text: () => `ジャスト回避から4秒、与ダメージ×2.5`,
+    marks: () => ({}),
+    rules: (_m, _o, label) => [{ label, on: 'damage', when: [{ type: 'afterJustDodge', within: 4000 }], add: 1.5 }],
   },
 } as const satisfies Record<string, SigilDef>;
 

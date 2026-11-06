@@ -8,7 +8,7 @@ import { WEAPON_TYPES, toWeaponSpec, type WeaponRef, type WeaponSpec, type Weapo
 import { shieldBurstElement, shieldDef, shieldName, type ShieldSpec } from './data/shields';
 import type { SkillVariant } from './data/variations';
 import { HAND_ART_SLOTS, artTechnique, isHandArt, type ArtSlot, type AwakenTrigger, type MarkArt } from './data/markArts';
-import { sigilLabel, sigilRules, type SigilInstance } from './data/sigils';
+import { SIGILS, sigilLabel, sigilRules, type SigilDef, type SigilInstance } from './data/sigils';
 import { enemyDef, type EnemyId } from './data/enemies';
 import { FERVOR, STARTING_FORMS, formDef, masteryLevel, masteryScale, type FormId } from './data/forms';
 import { attributeModifiers, type Attributes } from './data/attributes';
@@ -2084,8 +2084,10 @@ export class CombatWorld {
       const label = sigilLabel(s);
       const n = sigilCopies.get(label) ?? 0;
       sigilCopies.set(label, n + 1);
+      // ×の印紋は、ほかと掛け算(別の道で伸びるため)
+      const mult = (SIGILS[s.sigil] as SigilDef).stacking === 'mult';
       for (const rule of sigilRulesCached(s)) {
-        const r = addGroupRule(rule);
+        const r = mult ? rule : addGroupRule(rule);
         out.push({ rule: n > 0 ? repeatedRule(r) : r, kind: 'condition' });
       }
     }
@@ -2179,6 +2181,7 @@ export class CombatWorld {
       weather: this.weather,
       attackerImbued: !!attacker?.imbue && attacker.imbue.until > this.time,
       attackerJustDodgeAgo: attacker ? this.time - attacker.lastJustDodgeAt : undefined,
+      attackerAwake: attacker ? attacker.awakenings.filter((a) => a.awake).length : 0,
       attackerHurtAgo: attacker ? this.time - attacker.lastHurtAt : undefined,
       attackerHasBuff: (label) => !!attacker?.buffs.some((b) => b.label === label && b.until > this.time && b.charges > 0),
       // 瀕死・無傷のように様子で決まるものは、かかっている状態の数に入れない

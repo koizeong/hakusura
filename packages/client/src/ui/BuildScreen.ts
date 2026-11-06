@@ -1544,7 +1544,14 @@ function itemCard(attrs: Attributes, item: Item, ...parts: HTMLElement[]): HTMLE
     needs ? h('div', { class: `needs${missing ? ' short' : ''}` }, `要 ${needsText(needs)}${missing ? `(${shortfallText(missing)})` : ''}`) : '',
     // 印紋。印の色で、短い名前と効果を出す
     ...(item.sigils ?? []).map((s) =>
-      h('div', { class: 'sigil', style: `border-left-color:${markColor(s.mark)}` }, h('b', { style: `color:${markColor(s.mark)}` }, `〔${SIGILS[s.sigil].name}〕`), sigilText(s)),
+      h(
+        'div',
+        { class: 'sigil', style: `border-left-color:${markColor(s.mark)}` },
+        h('b', { style: `color:${markColor(s.mark)}` }, `〔${SIGILS[s.sigil].name}〕`),
+        sigilText(s),
+        // ×の印紋は、ほかと掛け算
+        (SIGILS[s.sigil] as { stacking?: string }).stacking === 'mult' ? h('span', { class: 'stack-chip mult' }, '× 掛け算') : '',
+      ),
     ),
     ...item.affixes.map((a) =>
       h('div', { class: `affix ${benefitOf(a) >= 0 ? 'good' : 'bad'}` }, `${AFFIXES[a.affix].name} ${signedPercent(a.value / 100)}`),

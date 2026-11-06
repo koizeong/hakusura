@@ -47,6 +47,8 @@ export type Predicate =
   | { type: 'spentAtLeast'; min: number }
   /** 印を使ったとき(on: 'markSpent')、枠の印の技で使った */
   | { type: 'spentByArt' }
+  /** 目覚めている装備の数が min 以上 */
+  | { type: 'selfAwake'; min: number }
   /** 自分の印の数の合計が min 以上 */
   | { type: 'selfMarksTotal'; min: number }
   /** 自分の魔力の高まり(杖のコンボで溜まる数)が min 以上 */
@@ -232,6 +234,8 @@ export interface PredicateContext {
   /** このヒットを出したスキルの、1つ前の手と、その間(ミリ秒) */
   prevStep?: { element?: ElementId; category: string; gap: number };
   attackerRites?: number;
+  /** 目覚めている装備の数 */
+  attackerAwake?: number;
   ritesReleased?: number;
   /** ジャスト回避・直撃を受けてからの間(ミリ秒) */
   attackerJustDodgeAgo?: number;
@@ -285,6 +289,8 @@ export function evaluatePredicate(p: Predicate, ctx: PredicateContext): boolean 
       return (ctx.spentAmount ?? 0) >= p.min;
     case 'spentByArt':
       return !!ctx.spentByArt;
+    case 'selfAwake':
+      return (ctx.attackerAwake ?? 0) >= p.min;
     case 'selfMarkKinds':
       return MARK_IDS.filter((m) => (ctx.attackerMarks?.(m) ?? 0) > 0).length >= p.min;
     case 'selfMarksTotal':

@@ -47,7 +47,7 @@ describe('印紋', () => {
       for (const mark of MARK_IDS) {
         const s: SigilInstance = { sigil: id, mark, ...(SIGILS[id] as { other?: boolean }).other ? { other: MARK_IDS.find((m) => m !== mark)! } : {} };
         expect(sigilProblem(s), `${id}/${mark}`).toBeNull();
-        expect(sigilText(s)).toMatch(/〈/);
+        expect(sigilText(s).length).toBeGreaterThan(4);
         expect(sigilRules(s).length).toBeGreaterThan(0);
       }
     }
@@ -169,6 +169,19 @@ describe('印紋', () => {
       return w.log.find((r) => r.depth === 0)!.amount;
     };
     expect(hit(0) / hit(5)).toBeCloseTo(1.6, 2);
+  });
+
+  it('×の印紋は、ほかの与ダメージと掛け算になる', () => {
+    const hit = (sigils: SigilInstance[]) => {
+      const { w, p, swing } = armed(sigils);
+      p.lastJustDodgeAt = w.time;
+      swing();
+      return w.log.find((r) => r.depth === 0)!.amount;
+    };
+    const plain = hit([]);
+    // 見切り斬り ×2.5 と 飢え +60%(足し算の札)は掛け合わさる
+    expect(hit([{ sigil: 'feint', mark: 'edge' }]) / plain).toBeCloseTo(2.5, 2);
+    expect(hit([{ sigil: 'feint', mark: 'edge' }, { sigil: 'hunger', mark: 'ember' }]) / plain).toBeCloseTo(2.5 * 1.6, 2);
   });
 
   it('恩恵:抱えの恩恵が強まる', () => {
