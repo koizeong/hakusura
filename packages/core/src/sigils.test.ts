@@ -85,23 +85,23 @@ describe('印紋', () => {
   });
 
   it('変換:元の印を消して、別の印に変える', () => {
-    // 流転:2秒ごとに血潮の2割を研ぎに(等倍)
+    // 流転:2秒ごとに血潮の2割を研ぎに(2倍)
     const flow = armed([{ sigil: 'flow', mark: 'edge', other: 'blood' }]);
     flow.w.gainMark(flow.p, 'blood', 100);
     run(flow.w, 2100);
     expect(flow.w.marksOf(flow.p, 'blood')).toBe(80);
-    expect(flow.w.marksOf(flow.p, 'edge')).toBe(20);
-    // 鋳直し:血潮を得るたび、得た分を研ぎに(等倍)。血潮は溜まらない
+    expect(flow.w.marksOf(flow.p, 'edge')).toBe(40);
+    // 鋳直し:血潮を得るたび、得た分を研ぎに(1.5倍)。血潮は溜まらない
     const recast = armed([{ sigil: 'recast', mark: 'edge', other: 'blood' }]);
     recast.w.gainMark(recast.p, 'blood', 10);
     expect(recast.w.marksOf(recast.p, 'blood')).toBe(0);
-    expect(recast.w.marksOf(recast.p, 'edge')).toBe(10);
+    expect(recast.w.marksOf(recast.p, 'edge')).toBe(15);
     // 集め:ほかの全ての印の1割を集める
     const gather = armed([{ sigil: 'gather', mark: 'prayer' }]);
     gather.w.gainMark(gather.p, 'ember', 100);
     gather.w.gainMark(gather.p, 'blood', 100);
     run(gather.w, 2100);
-    expect(gather.w.marksOf(gather.p, 'prayer')).toBe(16);
+    expect(gather.w.marksOf(gather.p, 'prayer')).toBe(30);
   });
 
   it('ビルドが関わる印は、2秒に1ずつ自然に溜まる。関わらない印は溜まらない', async () => {
@@ -128,9 +128,9 @@ describe('印紋', () => {
     w.gainMark(p, 'edge', 100);
     w.gainMark(p, 'blood', 200);
     w.consumeMarks(p, 'edge', 50, '試し', t, { attacker: p, skill: '試し', via: [], depth: 0 });
-    // 一度に30以上使うと、3%ずつ増える
-    expect(w.marksOf(p, 'edge')).toBe(52);
-    expect(w.marksOf(p, 'blood')).toBe(206);
+    // 8%ずつ増える
+    expect(w.marksOf(p, 'edge')).toBe(54);
+    expect(w.marksOf(p, 'blood')).toBe(216);
   });
 
   it('過負荷:札から得る印が2倍、使ってから4秒は得られない', () => {
